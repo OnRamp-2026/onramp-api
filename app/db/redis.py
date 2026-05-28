@@ -20,8 +20,7 @@ async def check_redis() -> bool:
     """Redis 연결 상태 확인."""
     try:
         client = get_redis()
-        result = await client.ping()
-        return bool(result)
+        return bool(await client.ping())  # type: ignore[misc]
     except Exception:
         return False
 
