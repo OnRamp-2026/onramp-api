@@ -9,11 +9,22 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = False
 
-    # LLM
+    # LLM Provider: "openai" | "azure" | "self_hosted"
+    llm_provider: str = ""
+
+    # OpenAI
     openai_api_key: str = ""
+
+    # Azure OpenAI
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""
-    default_model: str = "gpt-4o-mini"
+
+    # Self-Hosted LLM (GPU 서버)
+    self_hosted_llm_url: str = ""
+    self_hosted_model_name: str = ""
+
+    # 기본 모델
+    default_model: str = ""
 
     # Qdrant
     qdrant_host: str = "localhost"
