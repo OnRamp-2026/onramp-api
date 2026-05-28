@@ -8,6 +8,9 @@ from app.config import get_settings
 from app.db.postgres import close_postgres, get_engine
 from app.db.qdrant import close_qdrant, get_qdrant
 from app.db.redis import close_redis, get_redis
+from app.middleware.error_handler import register_error_handlers
+from app.middleware.logging import LoggingMiddleware
+from app.middleware.request_id import RequestIdMiddleware
 
 
 @asynccontextmanager
@@ -45,6 +48,9 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Middleware (등록 역순으로 실행 — RequestId가 가장 먼저)
+    app.add_middleware(LoggingMiddleware)
+    app.add_middleware(RequestIdMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -53,6 +59,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Error handlers
+    register_error_handlers(app)
+
+    # Routers
     app.include_router(v1_router, prefix="/v1")
 
     return app
