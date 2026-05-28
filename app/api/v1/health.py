@@ -1,6 +1,9 @@
 from fastapi import APIRouter
 
 from app.config import get_settings
+from app.db.postgres import check_postgres
+from app.db.qdrant import check_qdrant
+from app.db.redis import check_redis
 
 router = APIRouter()
 
@@ -17,19 +20,16 @@ async def health_check():
 
 @router.get("/health/ready")
 async def readiness_check():
-    """DB 연결 상태 확인 상세 헬스체크."""
-    checks = {
-        "qdrant": "not_connected",
-        "postgres": "not_connected",
-        "redis": "not_connected",
-    }
+    """DB 연결 상태 확인 헬스체크."""
+    qdrant_ok = await check_qdrant()
+    postgres_ok = await check_postgres()
+    redis_ok = await check_redis()
 
-    # TODO: 실제 연결 체크로 교체
-    # try:
-    #     await qdrant_client.health()
-    #     checks["qdrant"] = "ok"
-    # except Exception:
-    #     checks["qdrant"] = "error"
+    checks = {
+        "qdrant": "ok" if qdrant_ok else "error",
+        "postgres": "ok" if postgres_ok else "error",
+        "redis": "ok" if redis_ok else "error",
+    }
 
     all_ok = all(v == "ok" for v in checks.values())
     return {

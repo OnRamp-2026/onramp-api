@@ -5,18 +5,33 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import v1_router
 from app.config import get_settings
+from app.db.postgres import close_postgres, get_engine
+from app.db.qdrant import close_qdrant, get_qdrant
+from app.db.redis import close_redis, get_redis
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── Startup ──
     settings = get_settings()
-    print(f"{settings.app_name} {settings.app_version} starting...")
-    # TODO: DB 커넥션 풀 초기화 (Qdrant, PostgreSQL, Redis)
+    print(f"Starting {settings.app_name} {settings.app_version}...")
+
+    get_qdrant()
+    print("  Qdrant client ready")
+
+    get_engine()
+    print("  PostgreSQL engine ready")
+
+    get_redis()
+    print("  Redis client ready")
+
     yield
+
     # ── Shutdown ──
-    # TODO: DB 커넥션 풀 정리
-    print("Shutting down...")
+    close_qdrant()
+    await close_postgres()
+    await close_redis()
+    print("Shutdown complete")
 
 
 def create_app() -> FastAPI:
@@ -30,16 +45,14 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # 운영 시 onramp-web 도메인으로 제한
+        allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # Routers
     app.include_router(v1_router, prefix="/v1")
 
     return app
