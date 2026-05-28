@@ -20,8 +20,8 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
         rid = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         request_id_var.set(rid)
- 
+
         response: Response = await call_next(request)
         response.headers["X-Request-ID"] = rid
- 
+
         return response

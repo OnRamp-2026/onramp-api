@@ -22,11 +22,11 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/v1/health"):
             response: Response = await call_next(request)
             return response
- 
+
         start = time.perf_counter()
         response = await call_next(request)
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
- 
+
         logger.info(
             "request",
             request_id=request_id_var.get(),
@@ -35,5 +35,5 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             status=response.status_code,
             duration_ms=duration_ms,
         )
- 
+
         return response
