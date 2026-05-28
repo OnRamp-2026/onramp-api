@@ -17,11 +17,11 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     - 응답 헤더에도 포함해서 클라이언트가 추적 가능
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
         rid = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         request_id_var.set(rid)
-
-        response = await call_next(request)
+ 
+        response: Response = await call_next(request)
         response.headers["X-Request-ID"] = rid
-
+ 
         return response

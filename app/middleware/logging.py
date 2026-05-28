@@ -18,15 +18,15 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     - 헬스체크는 로그 생략 (노이즈 방지)
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        # 헬스체크는 로그 생략
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
         if request.url.path.startswith("/v1/health"):
-            return await call_next(request)
-
+            response: Response = await call_next(request)
+            return response
+ 
         start = time.perf_counter()
         response = await call_next(request)
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
-
+ 
         logger.info(
             "request",
             request_id=request_id_var.get(),
@@ -35,5 +35,5 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             status=response.status_code,
             duration_ms=duration_ms,
         )
-
+ 
         return response
