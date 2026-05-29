@@ -117,7 +117,7 @@ class ConfluenceClient:
         if client is not None:
             response = await client.request(method, f"{self.rest_api_base_url}{path}", params=params, json=json)
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            return self._json_object(response)
 
         async with httpx.AsyncClient(
             auth=(self.settings.confluence_user_email, self.settings.confluence_api_token),
@@ -126,7 +126,13 @@ class ConfluenceClient:
         ) as scoped_client:
             response = await scoped_client.request(method, f"{self.rest_api_base_url}{path}", params=params, json=json)
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            return self._json_object(response)
+
+    def _json_object(self, response: httpx.Response) -> dict[str, Any]:
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise TypeError("Confluence API response must be a JSON object")
+        return cast(dict[str, Any], payload)
 
     def _build_recent_pages_cql(self, since: datetime) -> str:
         since_text = since.strftime("%Y-%m-%d %H:%M")
@@ -152,10 +158,10 @@ class ConfluenceClient:
     def _build_page_url(self, content: dict[str, Any], result: dict[str, Any]) -> str:
         links = content.get("_links", {}) or result.get("_links", {})
         webui = links.get("webui") or result.get("url")
-        if not webui:
+        if not isinstance(webui, str) or not webui:
             return ""
         if webui.startswith("http"):
-            return str(webui)
+            return webui
         base = self.settings.confluence_base_url.removesuffix("/wiki")
         return f"{base}/wiki{webui}"
 

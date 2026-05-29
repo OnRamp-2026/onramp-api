@@ -81,12 +81,20 @@ def _build_test_section(page_title: str, timestamp: str) -> str:
 """
 
 
-async def update_random_pages(count: int, candidate_limit: int, seed: int | None, apply: bool) -> list[PageUpdatePreview]:
+async def update_random_pages(
+    count: int,
+    candidate_limit: int,
+    seed: int | None,
+    apply: bool,
+    include_existing_test_section: bool = False,
+) -> list[PageUpdatePreview]:
     settings = get_settings()
     confluence = ConfluenceClient(settings=settings)
     candidates = await confluence.fetch_candidate_pages(limit=candidate_limit)
+    if not include_existing_test_section:
+        candidates = [page for page in candidates if SECTION_START not in page.html]
     if not candidates:
-        logger.info("No candidate pages found in space %s", settings.confluence_space_key)
+        logger.info("No eligible candidate pages found in space %s", settings.confluence_space_key)
         return []
 
     rng = random.Random(seed)
@@ -100,20 +108,32 @@ async def update_random_pages(count: int, candidate_limit: int, seed: int | None
             continue
 
         next_version = page.version + 1
-        previews.append(
-            PageUpdatePreview(
-                page_id=page.page_id,
-                title=page.title,
-                version=page.version,
-                next_version=next_version,
-                url=page.url,
-            )
+        preview = PageUpdatePreview(
+            page_id=page.page_id,
+            title=page.title,
+            version=page.version,
+            next_version=next_version,
+            url=page.url,
         )
 
         if apply:
-            await confluence.update_page(page, _upsert_test_section(page.html, page.title, timestamp), next_version)
+            try:
+                await confluence.update_page(page, _upsert_test_section(page.html, page.title, timestamp), next_version)
+            except Exception as exc:
+                logger.error(
+                    "Failed to update page %s v%s -> v%s %s: %s",
+                    page.page_id,
+                    page.version,
+                    next_version,
+                    page.title,
+                    exc,
+                    exc_info=True,
+                )
+                continue
+            previews.append(preview)
             logger.info("Updated %s v%s -> v%s %s", page.page_id, page.version, next_version, page.title)
         else:
+            previews.append(preview)
             logger.info("Dry run: would update %s v%s -> v%s %s", page.page_id, page.version, next_version, page.title)
 
     return previews
@@ -125,6 +145,7 @@ def main() -> None:
     parser.add_argument("--candidate-limit", type=int, default=100)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--include-existing-test-section", action="store_true")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
 
@@ -135,6 +156,7 @@ def main() -> None:
             candidate_limit=args.candidate_limit,
             seed=args.seed,
             apply=args.apply,
+            include_existing_test_section=args.include_existing_test_section,
         )
     )
     for preview in previews:
