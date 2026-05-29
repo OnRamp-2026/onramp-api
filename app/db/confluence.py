@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -117,7 +117,7 @@ class ConfluenceClient:
         if client is not None:
             response = await client.request(method, f"{self.rest_api_base_url}{path}", params=params, json=json)
             response.raise_for_status()
-            return response.json()
+            return cast(dict[str, Any], response.json())
 
         async with httpx.AsyncClient(
             auth=(self.settings.confluence_user_email, self.settings.confluence_api_token),
@@ -126,7 +126,7 @@ class ConfluenceClient:
         ) as scoped_client:
             response = await scoped_client.request(method, f"{self.rest_api_base_url}{path}", params=params, json=json)
             response.raise_for_status()
-            return response.json()
+            return cast(dict[str, Any], response.json())
 
     def _build_recent_pages_cql(self, since: datetime) -> str:
         since_text = since.strftime("%Y-%m-%d %H:%M")
@@ -155,7 +155,7 @@ class ConfluenceClient:
         if not webui:
             return ""
         if webui.startswith("http"):
-            return webui
+            return str(webui)
         base = self.settings.confluence_base_url.removesuffix("/wiki")
         return f"{base}/wiki{webui}"
 

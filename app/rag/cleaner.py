@@ -123,7 +123,7 @@ class TextCleaner:
             str(soup),
             heading_style="ATX",
             bullets="-",
-            strip=("script", "style"),
+            strip=["script", "style"],
         )
 
     def _postprocess(self, markdown: str) -> str:
@@ -141,7 +141,7 @@ class TextCleaner:
         """Replace images with Korean alt text markers for retrieval context."""
 
         for image in soup.find_all("img"):
-            alt_text = image.get("alt", "").strip()
+            alt_text = self._get_attribute_text(image, "alt").strip()
             replacement = f"[이미지: {alt_text}]" if alt_text else ""
             image.replace_with(NavigableString(replacement))
 
@@ -149,7 +149,7 @@ class TextCleaner:
         """Keep external link URLs and collapse internal links to visible text."""
 
         for anchor in soup.find_all("a"):
-            href = anchor.get("href", "").strip()
+            href = self._get_attribute_text(anchor, "href").strip()
             text = anchor.get_text(" ", strip=True)
             if not text:
                 anchor.decompose()
@@ -163,3 +163,13 @@ class TextCleaner:
 
         parsed = urlparse(href)
         return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+    def _get_attribute_text(self, tag: Tag, name: str) -> str:
+        """Return a BeautifulSoup attribute as plain text."""
+
+        value = tag.get(name)
+        if isinstance(value, str):
+            return value
+        if value is None:
+            return ""
+        return " ".join(str(part) for part in value)
