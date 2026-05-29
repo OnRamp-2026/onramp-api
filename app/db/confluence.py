@@ -54,7 +54,7 @@ class ConfluenceClient:
         if limit <= 0:
             raise ValueError("limit must be greater than 0")
 
-        cql = f'type = page AND space = "{self._quote_cql_value(self.settings.confluence_space_key)}" ORDER BY lastmodified DESC'
+        cql = f'type = page AND space = "{self._quote_cql_value(self.settings.confluence_space_key)}" ORDER BY title ASC'
         return await self._search_pages(cql=cql, limit=limit)
 
     async def update_page(self, page: ConfluencePage, updated_html: str, next_version: int) -> None:

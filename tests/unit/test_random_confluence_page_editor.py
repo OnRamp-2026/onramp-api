@@ -5,7 +5,7 @@ from typing import Any
 from app.config import Settings
 from app.db.confluence import ConfluencePage
 from scripts import random_confluence_page_editor
-from scripts.random_confluence_page_editor import SECTION_START, _upsert_test_section, update_random_pages
+from scripts.random_confluence_page_editor import _upsert_test_section, update_random_pages
 
 
 def test_upsert_test_section_replaces_existing_section() -> None:
@@ -81,11 +81,8 @@ def _page(page_id: str, html: str = "<h1>Doc</h1>", version: int | None = 1) -> 
     )
 
 
-async def test_update_random_pages_skips_pages_that_already_have_test_section(monkeypatch: Any) -> None:
-    FakeConfluenceClient.pages = [
-        _page("already-updated", f"<h1>Doc</h1>{SECTION_START}old"),
-        _page("fresh", "<h1>Fresh</h1>"),
-    ]
+async def test_update_random_pages_samples_from_all_candidate_pages(monkeypatch: Any) -> None:
+    FakeConfluenceClient.pages = [_page("one"), _page("two"), _page("three")]
     FakeConfluenceClient.fail_page_ids = set()
     FakeConfluenceClient.updates = []
     monkeypatch.setattr(random_confluence_page_editor, "get_settings", _settings)
@@ -93,8 +90,9 @@ async def test_update_random_pages_skips_pages_that_already_have_test_section(mo
 
     previews = await update_random_pages(count=2, candidate_limit=10, seed=1, apply=True)
 
-    assert [preview.page_id for preview in previews] == ["fresh"]
-    assert FakeConfluenceClient.updates == [("fresh", 2)]
+    assert len(previews) == 2
+    assert {preview.page_id for preview in previews}.issubset({"one", "two", "three"})
+    assert len(FakeConfluenceClient.updates) == 2
 
 
 async def test_update_random_pages_continues_when_one_page_update_fails(monkeypatch: Any) -> None:

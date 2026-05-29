@@ -100,3 +100,13 @@ async def test_update_page_writes_next_version() -> None:
     assert request["url"] == "https://example.atlassian.net/wiki/rest/api/content/123"
     assert request["json"]["version"]["number"] == 8
     assert request["json"]["body"]["storage"]["value"] == "<h1>New</h1>"
+
+
+async def test_fetch_candidate_pages_uses_title_order_not_recent_order() -> None:
+    fake_client = FakeAsyncClient({"results": []})
+    client = ConfluenceClient(settings=_settings(), client=fake_client)  # type: ignore[arg-type]
+
+    await client.fetch_candidate_pages(limit=10)
+
+    cql = fake_client.requests[0]["params"]["cql"]
+    assert cql == 'type = page AND space = "TRUSTRAG" ORDER BY title ASC'
