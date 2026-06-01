@@ -66,18 +66,26 @@ def build_graph() -> CompiledStateGraph:
     graph.add_edge("answer", END)
 
     # -----------------------------------------------------------------
-    # Sprint 3 P1: Trust Agent + 재검색 루프
+    # Sprint 3 P1: Trust Agent(Evidence Confidence) + 재검색 루프
+    #
+    #   Trust는 retriever와 answer "사이"에 위치한다.
+    #   검색된 문서를 5축으로 채점해 근거가 부족하면 retriever로 되돌려
+    #   재검색하고(재시도 한도 내), 충분하면 answer로 진행한다.
+    #   Answerability Status(최종 처리 방식) 판단은 answer가 담당한다.
+    #
+    #   ※ 이 배선을 켤 때 위의 Sprint 2 엣지(retriever → answer)는 제거한다.
     # -----------------------------------------------------------------
     # graph.add_node("trust", trust_node)
-    # graph.add_edge("answer", "trust")
+    # graph.add_edge("retriever", "trust")        # retriever → trust (answer 앞)
     # graph.add_conditional_edges(
     #     "trust",
     #     trust_decision,
     #     {
-    #         "retriever": "retriever",  # 신뢰도 낮으면 재검색
-    #         "end": END,                # 신뢰도 충분하면 종료
+    #         "retriever": "retriever",  # 근거 부족 & 재시도 가능 → 재검색
+    #         "answer": "answer",        # 근거 충분 → 답변 생성
     #     },
     # )
+    # graph.add_edge("answer", END)
     # -----------------------------------------------------------------
 
     return graph.compile()

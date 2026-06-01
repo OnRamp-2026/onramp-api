@@ -9,7 +9,7 @@ LangGraph 워크플로우 테스트.
 """
 
 from app.agents.graph import build_graph, compiled_graph, route_decision
-from app.agents.state import Domain, UseCase
+from app.agents.state import AnswerabilityStatus, Domain, UseCase
 
 
 class TestGraphSearchFlow:
@@ -34,8 +34,8 @@ class TestGraphSearchFlow:
         """stub이 기본 답변 구조를 반환하는지 확인한다."""
         result = compiled_graph.invoke({"query": "테스트 질문"})
 
-        assert result["is_answerable"] is True
-        assert result["unanswerable_reason"] == ""
+        assert result["answerability_status"] == AnswerabilityStatus.ANSWERABLE
+        assert result["answerability_reason"] == ""
         assert result["documents"] == []
         assert result["sources"] == []
 
@@ -47,13 +47,12 @@ class TestGraphUnanswerableFlow:
         """답변불가 판정 시 Retriever와 Answer를 건너뛰는지 확인한다."""
 
         def unanswerable_route(state: dict) -> dict:
-            """답변불가로 판정하는 route_node 대체 스텁."""
+            """검색 범위 밖 질문을 retrieve 전에 차단하는 route_node 대체 스텁."""
             return {
                 "use_case": UseCase.UNANSWERABLE,
                 "domain": Domain.OPS_MANUAL,
                 "refined_query": state["query"],
-                "is_answerable": False,
-                "unanswerable_reason": "사내 지식 범위 밖 질문입니다.",
+                "answerability_reason": "사내 지식 범위 밖 질문입니다.",
                 "agent_trace": ["router"],
             }
 
@@ -65,8 +64,7 @@ class TestGraphUnanswerableFlow:
         # Router만 실행, Retriever·Answer 미실행
         assert result["agent_trace"] == ["router"]
         assert result["use_case"] == UseCase.UNANSWERABLE
-        assert result["is_answerable"] is False
-        assert result["unanswerable_reason"] == "사내 지식 범위 밖 질문입니다."
+        assert result["answerability_reason"] == "사내 지식 범위 밖 질문입니다."
         assert "documents" not in result
 
 
