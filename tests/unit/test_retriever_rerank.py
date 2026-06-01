@@ -1,7 +1,6 @@
 import sys
 import threading
 import types
-from typing import Any
 
 from app.agents.retriever.rerank import CrossEncoderReranker, _recency_factor, apply_metadata_weight
 from app.config import Settings
@@ -46,7 +45,7 @@ def test_lazy_load_thread_safe(monkeypatch):
     instances = []
 
     class _CountingCrossEncoder:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
+        def __init__(self, *args: object, **kwargs: object) -> None:
             instances.append(1)
 
     fake_module = types.ModuleType("sentence_transformers")
