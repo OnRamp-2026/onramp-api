@@ -34,14 +34,17 @@ class OpenAIEmbedder:
 
     async def embed_documents(self, texts: list[str], batch_size: int = 100) -> list[list[float]]:
         # rate limit 고려해 batch_size 단위로 분할 요청
+        # dimensions 명시 → dim을 모델 기본값 외로 바꿔도 컬렉션 차원과 일치
         vectors: list[list[float]] = []
         for start in range(0, len(texts), batch_size):
-            resp = await self.client.embeddings.create(model=self.model, input=texts[start : start + batch_size])
+            resp = await self.client.embeddings.create(
+                model=self.model, input=texts[start : start + batch_size], dimensions=self.dim
+            )
             vectors.extend(item.embedding for item in resp.data)
         return vectors
 
     async def embed_query(self, text: str) -> list[float]:
-        resp = await self.client.embeddings.create(model=self.model, input=[text])
+        resp = await self.client.embeddings.create(model=self.model, input=[text], dimensions=self.dim)
         return resp.data[0].embedding
 
 
