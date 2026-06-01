@@ -1,21 +1,52 @@
-"""
-Retriever Agent 노드 (stub).
+"""Retriever Agent 노드 — dense 검색 + 리랭킹 → SourceDocument.
 
-Sprint 2 구현 시 Qdrant Dense Search + bge-reranker-v2-m3 리랭킹을 수행한다.
-현재는 빈 문서 리스트를 반환하는 stub.
-
+async 노드이므로 그래프는 ainvoke로 실행해야 한다 (chat_service도 ainvoke 사용).
 """
 
-from app.agents.state import AgentState
+from __future__ import annotations
+
+from app.agents.retriever.rerank import apply_metadata_weight, get_reranker
+from app.agents.retriever.search import dense_search
+from app.agents.state import AgentState, SourceDocument
+from app.config import Settings, get_settings
+from app.rag.embedder import get_embedder
 
 
-def retrieve_node(state: AgentState) -> dict:
-    """정제된 쿼리로 문서를 검색하고 리랭킹한다.
+async def retrieve_node(state: AgentState) -> dict:
+    """정제 쿼리로 검색·리랭킹해 top-N 출처 문서를 반환한다."""
+    settings = get_settings()
+    refined = state["refined_query"]
+    domain = state.get("domain")
 
-    TODO: Qdrant Dense Search → Cross-Encoder Reranker → Top-N 반환
-    """
-    _ = state
-    return {
-        "documents": [],
-        "agent_trace": ["retriever"],
-    }
+    qvec = await get_embedder().embed_query(refined)
+    hits = await dense_search(qvec, settings.retriever_top_k, domain=domain)
+    if not hits and domain:  # 도메인 과필터로 0건 → 무필터 재검색 (recall 안전)
+        hits = await dense_search(qvec, settings.retriever_top_k, domain=None)
+
+    results = [(point.score, point.payload or {}) for point in hits]
+    vec_score = {payload.get("chunk_id"): score for score, payload in results}
+    candidates = [(payload.get("content", ""), payload) for _, payload in results]
+
+    try:
+        ranked = get_reranker().rerank(refined, candidates)
+        ranked = [(apply_metadata_weight(score, payload, settings), payload) for score, payload in ranked]
+    except Exception:  # 리랭커 실패(OOM 등) → vector score 순 폴백
+        ordered = sorted(results, key=lambda item: item[0], reverse=True)
+        ranked = [(0.0, payload) for _, payload in ordered]
+
+    docs = [
+        _to_source_doc(payload, rerank_score, vec_score.get(payload.get("chunk_id"), 0.0), settings)
+        for rerank_score, payload in ranked[: settings.retriever_top_n]
+    ]
+    return {"documents": docs, "agent_trace": ["retriever"]}
+
+
+def _to_source_doc(payload: dict, rerank_score: float, score: float, settings: Settings) -> SourceDocument:
+    return SourceDocument(
+        title=payload.get("page_title", ""),
+        url=payload.get("source_url", ""),
+        space_key=payload.get("space_key", ""),
+        content_snippet=payload.get("content", "")[: settings.snippet_max_chars],
+        score=score,
+        rerank_score=rerank_score,
+    )
