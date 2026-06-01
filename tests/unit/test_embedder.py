@@ -45,11 +45,24 @@ async def test_embed_query_returns_dim_vector():
 
 
 @pytest.mark.asyncio
-async def test_embed_passes_configured_dimensions():
+async def test_embed_passes_dimensions_for_v3_model():
     fake = _FakeClient(DIM)
-    embedder = OpenAIEmbedder(settings=Settings(embedding_dim=DIM), client=fake)
+    embedder = OpenAIEmbedder(
+        settings=Settings(embedding_model="text-embedding-3-small", embedding_dim=DIM), client=fake
+    )
     await embedder.embed_query("q")
     assert fake.embeddings.last_dimensions == DIM
+
+
+@pytest.mark.asyncio
+async def test_embed_omits_dimensions_for_legacy_model():
+    # ada-002 등 구모델은 dimensions 미지원 → 전달 안 함
+    fake = _FakeClient(DIM)
+    embedder = OpenAIEmbedder(
+        settings=Settings(embedding_model="text-embedding-ada-002", embedding_dim=DIM), client=fake
+    )
+    await embedder.embed_query("q")
+    assert fake.embeddings.last_dimensions is None
 
 
 @pytest.mark.asyncio
