@@ -61,8 +61,8 @@ async def call_llm(
         timeout=timeout,
         **kwargs,
     )
-    if not resp.choices:  # 비정상 응답 방어 — 호출부에서 파싱 실패 → fallback 처리
-        return ""
+    if not resp.choices:  # 비정상 응답은 예외로 승격 → 호출부 fallback의 error 기록 경로를 탄다
+        raise RuntimeError("LLM 응답에 choices가 없습니다")
     return resp.choices[0].message.content or ""
 
 
