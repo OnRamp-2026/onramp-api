@@ -15,10 +15,13 @@ class _FakeEmbeddings:
     def __init__(self, dim: int) -> None:
         self.dim = dim
         self.call_count = 0
+        self.last_dimensions = None
 
-    async def create(self, model, input):  # noqa: A002 - OpenAI SDK 시그니처
+    async def create(self, model, input, dimensions=None):  # noqa: A002 - OpenAI SDK 시그니처
         self.call_count += 1
-        data = [type("Item", (), {"embedding": [0.1] * self.dim})() for _ in input]
+        self.last_dimensions = dimensions
+        n = dimensions or self.dim
+        data = [type("Item", (), {"embedding": [0.1] * n})() for _ in input]
         return type("Resp", (), {"data": data})()
 
 
@@ -39,6 +42,27 @@ async def test_embed_query_returns_dim_vector():
     embedder = OpenAIEmbedder(settings=Settings(embedding_dim=DIM), client=_FakeClient(DIM))
     vec = await embedder.embed_query("질문")
     assert len(vec) == DIM
+
+
+@pytest.mark.asyncio
+async def test_embed_passes_dimensions_for_v3_model():
+    fake = _FakeClient(DIM)
+    embedder = OpenAIEmbedder(
+        settings=Settings(embedding_model="text-embedding-3-small", embedding_dim=DIM), client=fake
+    )
+    await embedder.embed_query("q")
+    assert fake.embeddings.last_dimensions == DIM
+
+
+@pytest.mark.asyncio
+async def test_embed_omits_dimensions_for_legacy_model():
+    # ada-002 등 구모델은 dimensions 미지원 → 전달 안 함
+    fake = _FakeClient(DIM)
+    embedder = OpenAIEmbedder(
+        settings=Settings(embedding_model="text-embedding-ada-002", embedding_dim=DIM), client=fake
+    )
+    await embedder.embed_query("q")
+    assert fake.embeddings.last_dimensions is None
 
 
 @pytest.mark.asyncio

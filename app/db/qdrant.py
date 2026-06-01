@@ -36,11 +36,12 @@ def ensure_collection(client: QdrantClient | None = None, settings: Settings | N
     existing = {c.name for c in client.get_collections().collections}
     if name in existing:
         vectors = client.get_collection(name).config.params.vectors
-        # 단일 unnamed 벡터만 사용 — VectorParams가 아니면 차원 검사 생략
-        current_dim = vectors.size if isinstance(vectors, VectorParams) else settings.embedding_dim
-        if current_dim != settings.embedding_dim:
+        # 단일 unnamed 벡터만 지원 — named vector 등 다른 스키마면 거부 (plain vector upsert 실패 방지)
+        if not isinstance(vectors, VectorParams):
+            raise ValueError(f"컬렉션 '{name}'가 단일 unnamed 벡터 스키마가 아님 (named vector 등) — 재생성 필요")
+        if vectors.size != settings.embedding_dim:
             raise ValueError(
-                f"컬렉션 '{name}' 차원 불일치: 기존 {current_dim} != 설정 {settings.embedding_dim} "
+                f"컬렉션 '{name}' 차원 불일치: 기존 {vectors.size} != 설정 {settings.embedding_dim} "
                 "(임베딩 모델 변경 시 재색인 필요)"
             )
         return
