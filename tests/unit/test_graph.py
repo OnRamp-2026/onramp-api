@@ -27,7 +27,7 @@ class TestGraphSearchFlow:
 
         assert result["query"] == "EKS Pod 장애 해결법"
         assert result["use_case"] == UseCase.SEARCH
-        assert result["domain"] == Domain.GENERAL
+        assert result["domain"] == Domain.OPS_MANUAL
         assert result["refined_query"] == "EKS Pod 장애 해결법"
 
     def test_stub_returns_default_answer(self) -> None:
@@ -50,7 +50,7 @@ class TestGraphUnanswerableFlow:
             """답변불가로 판정하는 route_node 대체 스텁."""
             return {
                 "use_case": UseCase.UNANSWERABLE,
-                "domain": Domain.GENERAL,
+                "domain": Domain.OPS_MANUAL,
                 "refined_query": state["query"],
                 "is_answerable": False,
                 "unanswerable_reason": "사내 지식 범위 밖 질문입니다.",

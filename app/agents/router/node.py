@@ -16,7 +16,7 @@ def route_node(state: AgentState) -> dict:
     """
     return {
         "use_case": UseCase.SEARCH,
-        "domain": Domain.GENERAL,
+        "domain": Domain.OPS_MANUAL,
         "refined_query": state["query"],
         "agent_trace": ["router"],
     }

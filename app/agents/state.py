@@ -27,10 +27,10 @@ class Domain(StrEnum):
     """Confluence 문서 5도메인 분류. Router와 Auto-Classifier가 동일 Enum을 공유한다."""
 
     INCIDENT = "장애대응"
-    INFRA_OPS = "인프라운영"
-    DEV_DEPLOY = "개발배포"
-    SECURITY = "보안규정"
-    GENERAL = "일반"
+    OPS_MANUAL = "운영매뉴얼"
+    API_SPEC = "API명세"
+    MEETING_NOTES = "회의록"
+    PLANNING = "기획서"
 
 
 class UseCase(StrEnum):
