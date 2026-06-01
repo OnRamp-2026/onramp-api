@@ -508,7 +508,7 @@ class SemanticChunker:
         return chunks or [block]
 
     def _split_text_block(self, block: MarkdownBlock) -> list[MarkdownBlock]:
-        sentences = re.split(r"(?<=[.!?。！？])\s+", block.content)
+        sentences = re.split(r"(?<=[.!?。！？])\s+", block.content)  # noqa: RUF001
         chunks: list[MarkdownBlock] = []
         current: list[str] = []
         for sentence in sentences:
@@ -646,8 +646,8 @@ class ControlDocChunker(SemanticChunker):
 
     def _extract_keywords(self, content: str, heading_path: list[str]) -> list[str]:
         candidates = super()._extract_keywords(content, heading_path)
-        candidates.extend(re.findall(r"(?:담당자|owner|assignee)\s*[:：]\s*([^\n|]{1,40})", content, re.IGNORECASE))
-        candidates.extend(re.findall(r"(?:기한|due date|마감)\s*[:：]\s*([^\n|]{1,40})", content, re.IGNORECASE))
+        candidates.extend(re.findall(r"(?:담당자|owner|assignee)\s*[:：]\s*([^\n|]{1,40})", content, re.IGNORECASE))  # noqa: RUF001
+        candidates.extend(re.findall(r"(?:기한|due date|마감)\s*[:：]\s*([^\n|]{1,40})", content, re.IGNORECASE))  # noqa: RUF001
         candidates.extend(heading_path[-2:])
 
         seen: set[str] = set()
