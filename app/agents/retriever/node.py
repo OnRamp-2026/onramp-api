@@ -5,6 +5,8 @@ async 노드이므로 그래프는 ainvoke로 실행해야 한다 (chat_service�
 
 from __future__ import annotations
 
+import anyio
+
 from app.agents.retriever.rerank import apply_metadata_weight, get_reranker
 from app.agents.retriever.search import dense_search
 from app.agents.state import AgentState, SourceDocument
@@ -28,8 +30,10 @@ async def retrieve_node(state: AgentState) -> dict:
     candidates = [(payload.get("content", ""), payload) for _, payload in results]
 
     try:
-        ranked = get_reranker().rerank(refined, candidates)
-        ranked = [(apply_metadata_weight(score, payload, settings), payload) for score, payload in ranked]
+        # CrossEncoder.predict는 CPU 동기 작업 → 스레드로 오프로드 (이벤트 루프 비차단)
+        reranked = await anyio.to_thread.run_sync(get_reranker().rerank, refined, candidates)
+        ranked = [(apply_metadata_weight(score, payload, settings), payload) for score, payload in reranked]
+        ranked.sort(key=lambda item: item[0], reverse=True)  # 가중 반영 후 재정렬
     except Exception:  # 리랭커 실패(OOM 등) → vector score 순 폴백
         ordered = sorted(results, key=lambda item: item[0], reverse=True)
         ranked = [(0.0, payload) for _, payload in ordered]
