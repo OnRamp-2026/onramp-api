@@ -85,6 +85,26 @@ kubectl describe node worker-1
     assert code_child.code_languages == ["bash"]
 
 
+def test_chunker_keeps_context_before_code_block_after_boundary_flush() -> None:
+    markdown = """
+# 운영 매뉴얼
+
+이 문단은 앞 청크를 채우기 위한 긴 설명이다. 알림을 확인하고 대상 클러스터를 고른다.
+
+아래 명령으로 노드 상태를 확인한다.
+
+```bash
+kubectl get nodes
+kubectl describe node worker-1
+```
+"""
+    page = MarkdownPage(page_id="flush", page_title="운영 매뉴얼", markdown=markdown)
+    _, children = SemanticChunker(child_target_tokens=18, child_max_tokens=45).chunk(page)
+    code_child = next(child for child in children if child.has_code)
+
+    assert "아래 명령으로 노드 상태를 확인한다." in code_child.content
+
+
 def test_chunker_preserves_code_block_without_layout_noise() -> None:
     markdown = """
 # Debug
@@ -122,6 +142,28 @@ kubectl logs <pod-name> -c app
 
     assert len(children) > 1
     assert "```\nkubectl" in "\n\n".join(child.content for child in children)
+
+
+def test_chunker_keeps_child_token_count_within_max_when_adding_overlap() -> None:
+    markdown = """
+# Overlap Budget
+
+첫 번째 설명은 다음 청크와 겹쳐 들어갈 수 있는 문장이다.
+
+두 번째 설명은 검색 단위가 될 본문이며 제한 토큰을 넘지 않아야 한다.
+
+세 번째 설명은 이어지는 본문이며 이전 overlap 때문에 상한을 넘으면 안 된다.
+"""
+    page = MarkdownPage(page_id="budget", page_title="Overlap Budget", markdown=markdown)
+    _, children = SemanticChunker(
+        child_min_tokens=0,
+        child_target_tokens=16,
+        child_max_tokens=24,
+        overlap_tokens=20,
+    ).chunk(page)
+
+    assert len(children) > 1
+    assert all(child.token_count <= 24 for child in children)
 
 
 def test_chunker_overlap_balances_code_fences() -> None:
@@ -163,6 +205,46 @@ def test_chunker_repeats_table_header_when_splitting_large_table() -> None:
 
     assert len(table_children) > 1
     assert all("| --- | --- |" in child.content for child in table_children)
+
+
+def test_chunker_preserves_code_language_when_splitting_large_code_block() -> None:
+    body = "\n".join(f"kubectl get pod pod-{index}" for index in range(12))
+    markdown = f"""
+# Large Code
+
+```bash
+{body}
+```
+"""
+    page = MarkdownPage(page_id="large-code", page_title="Large Code", markdown=markdown)
+    _, children = SemanticChunker(child_target_tokens=18, child_max_tokens=28).chunk(page)
+    code_children = [child for child in children if child.has_code]
+
+    assert len(code_children) > 1
+    assert all(child.code_languages == ["bash"] for child in code_children)
+
+
+def test_chunker_does_not_merge_short_parents_beyond_parent_max_tokens() -> None:
+    markdown = """
+# Parent Max
+
+## 원인
+
+짧은 원인 설명이다.
+
+## 원인 추가
+
+추가 원인 설명도 짧다.
+
+## 원인 보강
+
+보강 설명도 짧다.
+"""
+    page = MarkdownPage(page_id="parent-max", page_title="Parent Max", markdown=markdown)
+    parents, _ = SemanticChunker(child_min_tokens=20, parent_max_tokens=14).chunk(page)
+
+    assert len(parents) > 1
+    assert all(parent.token_count <= 14 for parent in parents)
 
 
 def test_child_chunk_to_index_record_matches_batch_jsonl_contract() -> None:

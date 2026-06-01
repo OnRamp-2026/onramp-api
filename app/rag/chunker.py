@@ -298,11 +298,14 @@ class SemanticChunker:
         merged_paths: list[list[str]] = []
         merged_section_types: list[str] = []
         for parent in parents:
-            can_merge = (
-                merged_contents
-                and parent.token_count < self.child_min_tokens
-                and merged_section_types[-1] == parent.section_type
-            )
+            can_merge = False
+            if merged_contents:
+                merged_candidate = f"{merged_contents[-1]}\n\n{parent.content}"
+                can_merge = (
+                    parent.token_count < self.child_min_tokens
+                    and merged_section_types[-1] == parent.section_type
+                    and self._count_tokens(merged_candidate) <= self.parent_max_tokens
+                )
             if can_merge:
                 merged_contents[-1] = f"{merged_contents[-1]}\n\n{parent.content}"
             else:
@@ -333,7 +336,15 @@ class SemanticChunker:
                 content = f"{last.content}\n\n{content}"
                 previous_tail = ""
 
-            overlap = self._take_token_tail(previous_tail, self.overlap_tokens) if previous_tail else ""
+            base_tokens = self._count_tokens(content)
+            overlap_budget = max(0, self.child_max_tokens - base_tokens)
+            overlap = (
+                self._take_token_tail(previous_tail, min(self.overlap_tokens, overlap_budget))
+                if previous_tail and overlap_budget > 0
+                else ""
+            )
+            if self._count_tokens(overlap) > overlap_budget:
+                overlap = ""
             final_content = f"{overlap}\n\n{content}".strip() if overlap else content
             chunk_index = start_index + len(children)
             heading_path = self._dominant_heading_path(group) or parent.heading_path
@@ -402,7 +413,14 @@ class SemanticChunker:
                 proposed = [*current, split_block]
                 if current and self._blocks_token_count(proposed) > self.child_target_tokens:
                     groups.append(current)
-                    current = [split_block]
+                    current = []
+                    if (
+                        split_block.kind in {"code", "table"}
+                        and previous_context is not None
+                        and previous_context.kind in {"paragraph", "list"}
+                    ):
+                        current.append(previous_context)
+                    current.append(split_block)
                 else:
                     current.append(split_block)
                 if split_block.kind in {"paragraph", "list"}:
@@ -452,12 +470,26 @@ class SemanticChunker:
         for line in body:
             proposed = [opening, *current, line, closing]
             if current and self._count_tokens("\n".join(proposed)) > self.child_max_tokens:
-                chunks.append(MarkdownBlock("code", "\n".join([opening, *current, closing]), block.heading_path))
+                chunks.append(
+                    MarkdownBlock(
+                        "code",
+                        "\n".join([opening, *current, closing]),
+                        block.heading_path,
+                        language=block.language,
+                    )
+                )
                 current = [line]
             else:
                 current.append(line)
         if current:
-            chunks.append(MarkdownBlock("code", "\n".join([opening, *current, closing]), block.heading_path))
+            chunks.append(
+                MarkdownBlock(
+                    "code",
+                    "\n".join([opening, *current, closing]),
+                    block.heading_path,
+                    language=block.language,
+                )
+            )
         return chunks or [block]
 
     def _split_text_block(self, block: MarkdownBlock) -> list[MarkdownBlock]:
