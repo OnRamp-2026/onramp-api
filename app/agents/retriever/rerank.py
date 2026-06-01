@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime
 
 from app.config import Settings, get_settings
@@ -13,13 +14,17 @@ class CrossEncoderReranker:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self._model = None
+        self._lock = threading.Lock()
 
     @property
     def model(self):
+        # double-checked locking — anyio 스레드에서 동시 cold-start 시 모델 중복 로드 방지
         if self._model is None:
-            from sentence_transformers import CrossEncoder  # 무거운 로드 → 지연
+            with self._lock:
+                if self._model is None:
+                    from sentence_transformers import CrossEncoder  # 무거운 로드 → 지연
 
-            self._model = CrossEncoder(self.settings.reranker_model, device=self.settings.reranker_device)
+                    self._model = CrossEncoder(self.settings.reranker_model, device=self.settings.reranker_device)
         return self._model
 
     def rerank(self, query: str, candidates: list[tuple[str, dict]]) -> list[tuple[float, dict]]:

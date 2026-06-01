@@ -1,3 +1,7 @@
+import sys
+import threading
+import types
+
 from app.agents.retriever.rerank import CrossEncoderReranker, _recency_factor, apply_metadata_weight
 from app.config import Settings
 
@@ -34,3 +38,31 @@ def test_apply_metadata_weight_bounded():
     weighted = apply_metadata_weight(1.0, {"last_modified": "2026-06-01T00:00:00Z"}, settings)
     assert 1.0 <= weighted <= 1.1 + 1e-9
     assert apply_metadata_weight(1.0, {}, settings) == 1.0  # 날짜 없으면 무가중
+
+
+def test_lazy_load_thread_safe(monkeypatch):
+    """동시 cold-start 8스레드에도 CrossEncoder는 1회만 생성된다."""
+    instances = []
+
+    class _CountingCrossEncoder:
+        def __init__(self, *args, **kwargs):
+            instances.append(1)
+
+    fake_module = types.ModuleType("sentence_transformers")
+    fake_module.CrossEncoder = _CountingCrossEncoder
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
+
+    reranker = CrossEncoderReranker(settings=Settings())
+    barrier = threading.Barrier(8)
+
+    def hit():
+        barrier.wait()  # 동시 진입 극대화
+        _ = reranker.model
+
+    threads = [threading.Thread(target=hit) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(instances) == 1
