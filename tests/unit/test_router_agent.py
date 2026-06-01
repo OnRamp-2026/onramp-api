@@ -44,13 +44,17 @@ async def test_route_api_spec(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_route_unanswerable(monkeypatch):
+    # LLM이 refined_query를 잘못 채워도 노드가 UNANSWERABLE이면 강제로 비운다
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm('{"use_case": "답변불가", "domain": "운영매뉴얼", "refined_query": "", "confidence": 0.99}'),
+        _mock_llm(
+            '{"use_case": "답변불가", "domain": "운영매뉴얼", "refined_query": "잘못 채운 값", "confidence": 0.99}'
+        ),
     )
     out = await route_node({"query": "오늘 날씨 어때?"})
     assert out["use_case"] == UseCase.UNANSWERABLE
+    assert out["refined_query"] == ""  # 노드에서 계약 보장
 
 
 @pytest.mark.asyncio
@@ -79,6 +83,18 @@ async def test_route_low_confidence_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_route_confidence_boundary_keeps_domain(monkeypatch):
+    # confidence == 0.5 (임계값) → domain 유지 (>= 비교이므로 fallback 아님)
+    monkeypatch.setattr(
+        node_mod,
+        "call_llm",
+        _mock_llm('{"use_case": "검색", "domain": "API명세", "refined_query": "x", "confidence": 0.5}'),
+    )
+    out = await route_node({"query": "경계값 질문"})
+    assert out["domain"] == Domain.API_SPEC
+
+
+@pytest.mark.asyncio
 async def test_route_parse_error_fallback(monkeypatch):
     monkeypatch.setattr(node_mod, "call_llm", _mock_llm("이건 JSON이 아님"))
     out = await route_node({"query": "원본 질문"})
@@ -95,7 +111,9 @@ async def test_route_llm_failure_fallback(monkeypatch):
     monkeypatch.setattr(node_mod, "call_llm", _boom)
     out = await route_node({"query": "질문"})
     assert out["use_case"] == UseCase.SEARCH
-    assert out["error"] != ""
+    assert out["domain"] == Domain.OPS_MANUAL
+    assert out["refined_query"] == "질문"  # 원본 질문 유지
+    assert "LLM down" in out["error"]  # 예외 메시지가 error에 기록
 
 
 @pytest.mark.asyncio

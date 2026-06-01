@@ -53,9 +53,11 @@ async def route_node(state: AgentState) -> dict:
 
     # confidence 낮으면 도메인만 fallback (검색 자체는 진행)
     domain = output.domain if output.confidence >= _CONFIDENCE_THRESHOLD else _FALLBACK_DOMAIN
+    # UNANSWERABLE이면 LLM 출력과 무관하게 refined_query를 비운다 (노드에서 계약 보장)
+    refined_query = "" if output.use_case == UseCase.UNANSWERABLE else output.refined_query
     return {
         "use_case": output.use_case,
         "domain": domain,
-        "refined_query": output.refined_query,
+        "refined_query": refined_query,
         "agent_trace": ["router"],
     }

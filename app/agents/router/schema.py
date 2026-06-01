@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.agents.state import Domain, UseCase
 
@@ -17,4 +17,4 @@ class RouterOutput(BaseModel):
     use_case: UseCase
     domain: Domain
     refined_query: str
-    confidence: float = 0.0  # 0.0 ~ 1.0
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)

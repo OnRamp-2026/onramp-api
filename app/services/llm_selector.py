@@ -11,6 +11,7 @@ from openai import AsyncOpenAI
 from app.config import Settings, get_settings
 
 _DEFAULT_MODEL = "gpt-4o-mini"
+_OPENAI_PROVIDERS = {"", "openai"}  # OpenAI chat completions 경로 (기본값 "" 포함)
 _client: AsyncOpenAI | None = None
 
 
@@ -40,8 +41,11 @@ async def call_llm(
     P0는 OpenAI chat completions. provider=self_hosted는 P1(#7).
     """
     settings = settings or get_settings()
-    if settings.llm_provider == "self_hosted":
-        raise NotImplementedError("self-hosted LLM은 P1 (#7)")
+    provider = settings.llm_provider
+    if provider in ("self_hosted", "azure"):
+        raise NotImplementedError(f"{provider} LLM provider는 P1 (#7)")
+    if provider not in _OPENAI_PROVIDERS:  # 오타·미지원 provider는 fail-fast
+        raise ValueError(f"지원하지 않는 llm_provider: {provider!r} (지원: openai)")
 
     kwargs: dict = {}
     if json_mode:
@@ -57,6 +61,8 @@ async def call_llm(
         timeout=timeout,
         **kwargs,
     )
+    if not resp.choices:  # 비정상 응답 방어 — 호출부에서 파싱 실패 → fallback 처리
+        return ""
     return resp.choices[0].message.content or ""
 
 
