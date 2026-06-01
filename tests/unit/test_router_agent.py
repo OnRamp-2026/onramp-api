@@ -55,6 +55,7 @@ async def test_route_unanswerable(monkeypatch):
     out = await route_node({"query": "오늘 날씨 어때?"})
     assert out["use_case"] == UseCase.UNANSWERABLE
     assert out["refined_query"] == ""  # 노드에서 계약 보장
+    assert out["answerability_reason"]  # 차단 사유 안내 메시지 채움
 
 
 @pytest.mark.asyncio

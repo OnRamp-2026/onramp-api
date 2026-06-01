@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _CONFIDENCE_THRESHOLD = 0.5  # 미만이면 domain을 fallback으로
 _FALLBACK_DOMAIN = Domain.OPS_MANUAL
+_UNANSWERABLE_REASON = "사내 지식 범위를 벗어난 질문입니다."
 
 
 def _fallback(query: str, error: str = "") -> dict:
@@ -53,11 +54,14 @@ async def route_node(state: AgentState) -> dict:
 
     # confidence 낮으면 도메인만 fallback (검색 자체는 진행)
     domain = output.domain if output.confidence >= _CONFIDENCE_THRESHOLD else _FALLBACK_DOMAIN
-    # UNANSWERABLE이면 LLM 출력과 무관하게 refined_query를 비운다 (노드에서 계약 보장)
-    refined_query = "" if output.use_case == UseCase.UNANSWERABLE else output.refined_query
-    return {
+    result: dict = {
         "use_case": output.use_case,
         "domain": domain,
-        "refined_query": refined_query,
+        "refined_query": output.refined_query,
         "agent_trace": ["router"],
     }
+    # UNANSWERABLE이면 LLM 출력과 무관하게 refined_query를 비우고 안내 사유를 채운다 (노드 계약 보장)
+    if output.use_case == UseCase.UNANSWERABLE:
+        result["refined_query"] = ""
+        result["answerability_reason"] = _UNANSWERABLE_REASON
+    return result
