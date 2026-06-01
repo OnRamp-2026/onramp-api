@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     confluence_base_url: str = ""
     confluence_api_token: str = ""
     confluence_user_email: str = ""
+    confluence_space_key: str = "TRUSTRAG"
+    confluence_timezone: str = "Asia/Seoul"
 
     # RAG / Retrieval
     embedding_model: str = "text-embedding-3-small"

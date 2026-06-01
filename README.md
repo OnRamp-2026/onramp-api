@@ -154,6 +154,39 @@ Response:
     # Confluence
     CONFLUENCE_BASE_URL=https://your-domain.atlassian.net
     CONFLUENCE_API_TOKEN=...
+    CONFLUENCE_USER_EMAIL=your@email.com
+    CONFLUENCE_SPACE_KEY=TRUSTRAG
+    CONFLUENCE_TIMEZONE=Asia/Seoul
+
+## Confluence 변경분 수집
+
+최근 수정된 Confluence 페이지를 가져와 storage HTML을 Markdown으로 정제합니다. 이 단계는 Confluence API와 TextCleaner만 사용하므로 Qdrant/PostgreSQL/Redis가 없어도 실행할 수 있습니다.
+
+    python scripts/fetch_recent_confluence_pages.py \
+      --hours 24 \
+      --limit 50 \
+      --output-dir data/cleaned/recent \
+      --save-html
+
+출력:
+
+    data/cleaned/recent/{page_id}-{title}.md
+    data/cleaned/recent/{page_id}-{title}.html
+
+주기 테스트용으로 Confluence 페이지 몇 개에 테스트 섹션을 추가하거나 갱신할 수 있습니다. 기본은 dry-run입니다.
+
+    python scripts/random_confluence_page_editor.py \
+      --count 3 \
+      --candidate-limit 100
+
+실제로 수정하려면 `--apply`를 붙입니다.
+
+    python scripts/random_confluence_page_editor.py \
+      --count 3 \
+      --candidate-limit 100 \
+      --apply
+
+로컬 Qdrant/PostgreSQL/Redis는 FastAPI 서버 startup, readiness check, 임베딩/색인 단계부터 필요합니다. 수집과 Markdown 정제만 확인할 때는 미리 띄우지 않아도 됩니다.
 
 ## Development
 
