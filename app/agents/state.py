@@ -70,14 +70,18 @@ class FiveElements:
 
 @dataclass
 class TrustScore:
-    """5축 신뢰도 평가 결과. Sprint 3 P1에서 Trust Agent가 사용한다."""
+    """Evidence Confidence 5축 신뢰도 평가 결과. Sprint 3 P1에서 Trust Agent가 사용한다.
+
+    5축 점수에 Intent-Document Fit / Document Base Score를 더해
+    Final Evidence Score(``overall``)를 산출한다.
+    """
 
     recency: float = 0.0  # 최신성
-    kb_trust: float = 0.0  # KB 신뢰도
-    claim_support: float = 0.0  # 클레임 지지도
-    answerability: float = 0.0  # 답변 가능성
-    security: float = 0.0  # 보안 적합성
-    overall: float = 0.0  # 종합 점수
+    verification_label: float = 0.0  # 검증 라벨 (검증됨/초안 등)
+    owner_trust: float = 0.0  # 소유자 신뢰도
+    duplication_conflict: float = 0.0  # 중복도/충돌
+    sensitivity_risk: float = 0.0  # 민감정보 위험
+    overall: float = 0.0  # Final Evidence Score (종합 점수)
 
 
 # ---------------------------------------------------------------------------
