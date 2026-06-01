@@ -9,7 +9,7 @@ Sprint 2 구현 시 Qdrant Dense Search + bge-reranker-v2-m3 리랭킹을 수행
 from app.agents.state import AgentState
 
 
-def retrieve_node(state: AgentState) -> dict:
+def retrieve_node(_state: AgentState) -> dict:
     """정제된 쿼리로 문서를 검색하고 리랭킹한다.
 
     TODO: Qdrant Dense Search → Cross-Encoder Reranker → Top-N 반환

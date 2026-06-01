@@ -47,6 +47,7 @@ class TestGraphUnanswerableFlow:
         """답변불가 판정 시 Retriever와 Answer를 건너뛰는지 확인한다."""
 
         def unanswerable_route(state: dict) -> dict:
+            """답변불가로 판정하는 route_node 대체 스텁."""
             return {
                 "use_case": UseCase.UNANSWERABLE,
                 "domain": Domain.GENERAL,
@@ -65,6 +66,7 @@ class TestGraphUnanswerableFlow:
         assert result["agent_trace"] == ["router"]
         assert result["use_case"] == UseCase.UNANSWERABLE
         assert result["is_answerable"] is False
+        assert result["unanswerable_reason"] == "사내 지식 범위 밖 질문입니다."
         assert "documents" not in result
 
 
@@ -72,9 +74,11 @@ class TestRouteDecision:
     """route_decision 분기 함수 단위 테스트."""
 
     def test_unanswerable_returns_end(self) -> None:
+        """답변불가 use_case는 'end'로 분기한다."""
         assert route_decision({"use_case": UseCase.UNANSWERABLE}) == "end"
 
     def test_search_returns_retriever(self) -> None:
+        """검색 use_case는 'retriever'로 분기한다."""
         assert route_decision({"use_case": UseCase.SEARCH}) == "retriever"
 
     def test_missing_use_case_defaults_to_retriever(self) -> None:
