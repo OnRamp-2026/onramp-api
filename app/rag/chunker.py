@@ -114,6 +114,7 @@ class ChildChunk:
     space_key: str
     last_modified: str
     hash: str
+    chunking_profile: str = ""
     domain: str = ""
     section_type: str = ""
     block_types: list[str] | None = None
@@ -380,6 +381,7 @@ class SemanticChunker:
                     space_key=page.space_key,
                     last_modified=page.last_modified,
                     hash=self._hash(final_content),
+                    chunking_profile="",
                     domain=domain,
                     section_type=section_type,
                     block_types=block_types,
@@ -619,6 +621,7 @@ def build_embedding_text(
     block_types: list[str],
     keywords: list[str],
     tags: list[str],
+    chunking_profile: str = "",
 ) -> str:
     """Build the final text sent to the embedding model."""
 
@@ -628,6 +631,8 @@ def build_embedding_text(
         f"도메인: {domain}",
         f"경로: {heading_text}",
     ]
+    if chunking_profile:
+        lines.append(f"청킹 프로필: {chunking_profile}")
     if section_type:
         lines.append(f"섹션 유형: {section_type}")
     if block_types:
@@ -659,6 +664,7 @@ def child_chunk_to_index_record(chunk: ChildChunk) -> dict[str, Any]:
             "chunk_index": chunk.chunk_index,
             "token_count": chunk.token_count,
             "overlap_from_previous": chunk.overlap_from_previous,
+            "chunking_profile": chunk.chunking_profile,
             "domain": chunk.domain,
             "section_type": chunk.section_type,
             "block_types": chunk.block_types or [],

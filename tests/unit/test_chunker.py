@@ -267,6 +267,7 @@ def test_child_chunk_to_index_record_matches_batch_jsonl_contract() -> None:
     assert record["metadata"]["space_key"] == "OnRamp"
     assert record["metadata"]["heading_path"] == ["Doc"]
     assert record["metadata"]["has_code"] is True
+    assert record["metadata"]["chunking_profile"] == ""
     assert record["metadata"]["tags"] == []
 
 

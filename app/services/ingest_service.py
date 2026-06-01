@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from app.db.confluence import ConfluenceClient
 from app.rag.chunker import ChildChunk, MarkdownPage, ParentChunk, SemanticChunker
-from app.rag.classifier import AutoClassifier
+from app.rag.classifier import ChunkMetadataClassifier, DocumentProfileClassifier
 from app.rag.cleaner import TextCleaner
 from app.rag.masker import MarkdownMasker
 
@@ -43,13 +43,15 @@ class IngestService:
         cleaner: TextCleaner | None = None,
         masker: MarkdownMasker | None = None,
         chunker: SemanticChunker | None = None,
-        classifier: AutoClassifier | None = None,
+        profile_classifier: DocumentProfileClassifier | None = None,
+        metadata_classifier: ChunkMetadataClassifier | None = None,
     ) -> None:
         self.confluence = confluence or ConfluenceClient()
         self.cleaner = cleaner or TextCleaner()
         self.masker = masker or MarkdownMasker()
         self.chunker = chunker or SemanticChunker()
-        self.classifier = classifier or AutoClassifier()
+        self.profile_classifier = profile_classifier or DocumentProfileClassifier()
+        self.metadata_classifier = metadata_classifier or ChunkMetadataClassifier()
 
     async def clean_recent_pages(self, hours: int = 24, limit: int = 50) -> list[CleanedConfluencePage]:
         """Fetch recently modified Confluence pages and return cleaned Markdown."""
@@ -95,12 +97,13 @@ class IngestService:
                 version=page.version,
                 url=page.url,
             )
+            chunking_profile = self.profile_classifier.classify_page(masked_page.title, masked_page.markdown)
             chunked_page = self._chunk_cleaned_page(masked_page)
             prepared_pages.append(
                 ChunkedConfluencePage(
                     page=chunked_page.page,
                     parents=chunked_page.parents,
-                    children=self.classifier.classify_batch(chunked_page.children),
+                    children=self.metadata_classifier.classify_batch(chunked_page.children, chunking_profile),
                 )
             )
 

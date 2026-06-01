@@ -1,11 +1,14 @@
-"""Rule-based chunk metadata classifier for P0 ingestion."""
+"""Rule-based document and chunk classifiers for P0 ingestion."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import replace
+from typing import Literal
 
 from app.rag.chunker import ChildChunk, build_embedding_text
+
+ChunkingProfile = Literal["runbook_like", "control_like"]
 
 DOMAIN_RULES: dict[str, tuple[str, ...]] = {
     "incident": (
@@ -58,10 +61,72 @@ TAG_RULES: dict[str, tuple[str, ...]] = {
 }
 
 
-class AutoClassifier:
+RUNBOOK_PROFILE_RULES = (
+    "kubectl",
+    "helm",
+    "curl",
+    "systemctl",
+    "docker",
+    "runbook",
+    "매뉴얼",
+    "절차",
+    "운영",
+    "troubleshooting",
+    "debug",
+    "디버그",
+    "설치",
+    "검증",
+    "롤백",
+    "장애",
+    "복구",
+    "api",
+    "endpoint",
+)
+
+CONTROL_PROFILE_RULES = (
+    "회의",
+    "minutes",
+    "안건",
+    "결정사항",
+    "decision",
+    "action item",
+    "액션아이템",
+    "담당자",
+    "기한",
+    "상태",
+    "리스크",
+    "블로커",
+    "요구사항",
+    "정책",
+    "인수인계",
+    "handoff",
+    "prd",
+    "rfc",
+)
+
+
+class DocumentProfileClassifier:
+    """Classify a page into the chunking strategy profile used downstream."""
+
+    def classify_page(self, title: str, markdown: str) -> ChunkingProfile:
+        """Return the P0 chunking profile for a masked Markdown page."""
+
+        haystack = self._normalize(" ".join([title, markdown[:4000]]))
+        runbook_score = self._score(haystack, RUNBOOK_PROFILE_RULES)
+        control_score = self._score(haystack, CONTROL_PROFILE_RULES)
+        return "control_like" if control_score > runbook_score else "runbook_like"
+
+    def _score(self, haystack: str, rules: tuple[str, ...]) -> int:
+        return sum(1 for rule in rules if rule.lower() in haystack)
+
+    def _normalize(self, text: str) -> str:
+        return re.sub(r"\s+", " ", text).lower()
+
+
+class ChunkMetadataClassifier:
     """Refine chunk metadata without sending unmasked content to an LLM."""
 
-    def classify_chunk(self, chunk: ChildChunk) -> ChildChunk:
+    def classify_chunk(self, chunk: ChildChunk, chunking_profile: ChunkingProfile) -> ChildChunk:
         """Return a copy of the chunk with final P0 metadata."""
 
         domain = self._infer_domain(chunk)
@@ -78,9 +143,11 @@ class AutoClassifier:
             block_types=block_types,
             keywords=keywords,
             tags=tags,
+            chunking_profile=chunking_profile,
         )
         return replace(
             chunk,
+            chunking_profile=chunking_profile,
             domain=domain,
             section_type=section_type,
             keywords=keywords,
@@ -88,10 +155,10 @@ class AutoClassifier:
             embedding_text=embedding_text,
         )
 
-    def classify_batch(self, chunks: list[ChildChunk]) -> list[ChildChunk]:
+    def classify_batch(self, chunks: list[ChildChunk], chunking_profile: ChunkingProfile) -> list[ChildChunk]:
         """Classify chunks in order."""
 
-        return [self.classify_chunk(chunk) for chunk in chunks]
+        return [self.classify_chunk(chunk, chunking_profile) for chunk in chunks]
 
     def _infer_domain(self, chunk: ChildChunk) -> str:
         existing = KOREAN_DOMAIN_MAP.get(chunk.domain, chunk.domain)
@@ -169,3 +236,19 @@ class AutoClassifier:
             if len(result) >= limit:
                 break
         return result
+
+
+class AutoClassifier(ChunkMetadataClassifier):
+    """Backward-compatible alias for older imports.
+
+    New ingestion code should use DocumentProfileClassifier and
+    ChunkMetadataClassifier explicitly.
+    """
+
+    def classify_chunk(self, chunk: ChildChunk, chunking_profile: ChunkingProfile = "runbook_like") -> ChildChunk:
+        return super().classify_chunk(chunk, chunking_profile)
+
+    def classify_batch(
+        self, chunks: list[ChildChunk], chunking_profile: ChunkingProfile = "runbook_like"
+    ) -> list[ChildChunk]:
+        return super().classify_batch(chunks, chunking_profile)

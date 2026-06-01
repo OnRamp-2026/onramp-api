@@ -8,7 +8,7 @@ class FakeConfluenceClient:
             ConfluencePage(
                 page_id="123",
                 title="API Runbook",
-                space_key="TRUSTRAG",
+                space_key="OnRamp",
                 html="""
                 <main>
                   <nav>Noise</nav>
@@ -20,7 +20,7 @@ class FakeConfluenceClient:
                 """,
                 last_modified="2026-05-28T12:35:00.000+0900",
                 version=7,
-                url="https://example.atlassian.net/wiki/spaces/TRUSTRAG/pages/123/API+Runbook",
+                url="https://example.atlassian.net/wiki/spaces/OnRamp/pages/123/API+Runbook",
             )
         ]
 
@@ -64,6 +64,8 @@ async def test_prepare_recent_pages_for_embedding_masks_and_classifies_chunks() 
     assert "abc.def.ghi1234567890" not in embedding_text
     assert "[MASKED_EMAIL]" in content
     assert "[MASKED_TOKEN]" in embedding_text
+    assert all(child.chunking_profile == "runbook_like" for child in pages[0].children)
+    assert "청킹 프로필: runbook_like" in embedding_text
     assert all(child.tags for child in pages[0].children)
     assert all(
         child.domain in {"incident", "manual", "api_reference", "meeting_note", "planning"}
