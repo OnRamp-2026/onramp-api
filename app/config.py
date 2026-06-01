@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     confluence_api_token: str = ""
     confluence_user_email: str = ""
 
+    # RAG / Retrieval
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dim: int = 1536
+    self_hosted_embedding_url: str = ""  # P1: BGE-M3 (VesslAI GPU)
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    reranker_device: str = "cpu"  # P1: "cuda"
+    retriever_top_k: int = 20  # Qdrant 후보 풀
+    retriever_top_n: int = 5  # 리랭킹 후 최종
+    classifier_model: str = "gpt-4o-mini"
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
