@@ -5,6 +5,8 @@ async 노드이므로 그래프는 ainvoke로 실행해야 한다 (chat_service�
 
 from __future__ import annotations
 
+import logging
+
 import anyio
 
 from app.agents.retriever.rerank import apply_metadata_weight, get_reranker
@@ -12,6 +14,8 @@ from app.agents.retriever.search import dense_search
 from app.agents.state import AgentState, SourceDocument
 from app.config import Settings, get_settings
 from app.rag.embedder import get_embedder
+
+logger = logging.getLogger(__name__)
 
 
 async def retrieve_node(state: AgentState) -> dict:
@@ -35,6 +39,7 @@ async def retrieve_node(state: AgentState) -> dict:
         ranked = [(apply_metadata_weight(score, payload, settings), payload) for score, payload in reranked]
         ranked.sort(key=lambda item: item[0], reverse=True)  # 가중 반영 후 재정렬
     except Exception:  # 리랭커 실패(OOM 등) → vector score 순 폴백
+        logger.warning("리랭커 실패 — vector score 순으로 폴백", exc_info=True)
         ordered = sorted(results, key=lambda item: item[0], reverse=True)
         ranked = [(0.0, payload) for _, payload in ordered]
 

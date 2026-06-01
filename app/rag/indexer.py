@@ -41,7 +41,7 @@ async def index_children(
     client = client or get_qdrant()
     settings = settings or get_settings()
 
-    ensure_collection(client, settings)
+    await anyio.to_thread.run_sync(lambda: ensure_collection(client, settings))
     vectors = await embedder.embed_documents([c.embedding_text for c in children])
     points = [
         PointStruct(id=_point_id(c.chunk_id), vector=vec, payload=_payload(c))
