@@ -555,18 +555,7 @@ class SemanticChunker:
         candidates.extend(re.findall(r"\b[A-Z][A-Za-z0-9_]*(?:Error|Exception|BackOff|Failed|Timeout)\b", content))
         candidates.extend(heading_path[-2:])
 
-        seen: set[str] = set()
-        keywords: list[str] = []
-        for candidate in candidates:
-            normalized = re.sub(r"\s+", " ", candidate).strip(" .,;:()[]")
-            key = normalized.lower()
-            if not normalized or key in seen:
-                continue
-            seen.add(key)
-            keywords.append(normalized)
-            if len(keywords) >= 8:
-                break
-        return keywords
+        return self._dedupe_keywords(candidates, limit=8)
 
     def _normalize_for_match(self, text: str) -> str:
         return text.lower()
@@ -618,6 +607,20 @@ class SemanticChunker:
     def _hash(self, content: str) -> str:
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
+    def _dedupe_keywords(self, candidates: list[str], limit: int) -> list[str]:
+        seen: set[str] = set()
+        keywords: list[str] = []
+        for candidate in candidates:
+            normalized = re.sub(r"\s+", " ", candidate).strip(" .,;:()[]")
+            key = normalized.lower()
+            if not normalized or key in seen:
+                continue
+            seen.add(key)
+            keywords.append(normalized)
+            if len(keywords) >= limit:
+                break
+        return keywords
+
 
 class ControlDocChunker(SemanticChunker):
     """Chunk control-like documents around decisions, ownership, and follow-up work."""
@@ -650,18 +653,7 @@ class ControlDocChunker(SemanticChunker):
         candidates.extend(re.findall(r"(?:기한|due date|마감)\s*[:：]\s*([^\n|]{1,40})", content, re.IGNORECASE))  # noqa: RUF001
         candidates.extend(heading_path[-2:])
 
-        seen: set[str] = set()
-        keywords: list[str] = []
-        for candidate in candidates:
-            normalized = re.sub(r"\s+", " ", candidate).strip(" .,;:()[]")
-            key = normalized.lower()
-            if not normalized or key in seen:
-                continue
-            seen.add(key)
-            keywords.append(normalized)
-            if len(keywords) >= 12:
-                break
-        return keywords
+        return self._dedupe_keywords(candidates, limit=12)
 
 
 JsonlRow = dict[str, Any] | ParentChunk | ChildChunk
