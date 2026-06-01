@@ -137,7 +137,9 @@ async def update_random_pages(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Randomly update Confluence pages with an OnRamp cleaner test section.")
+    parser = argparse.ArgumentParser(
+        description="Randomly update Confluence pages with an OnRamp cleaner test section."
+    )
     parser.add_argument("--count", type=int, default=3)
     parser.add_argument("--candidate-limit", type=int, default=100)
     parser.add_argument("--seed", type=int)

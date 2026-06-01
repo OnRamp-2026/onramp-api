@@ -114,10 +114,12 @@ class ChildChunk:
     space_key: str
     last_modified: str
     hash: str
+    chunking_profile: str = ""
     domain: str = ""
     section_type: str = ""
     block_types: list[str] | None = None
     keywords: list[str] | None = None
+    tags: list[str] | None = None
     has_code: bool = False
     has_table: bool = False
     has_list: bool = False
@@ -353,7 +355,7 @@ class SemanticChunker:
             block_types = self._block_types(group)
             keywords = self._extract_keywords(final_content, heading_path)
             code_languages = self._code_languages(group)
-            embedding_text = self._add_context_prefix(
+            embedding_text = build_embedding_text(
                 page_title=page.page_title,
                 heading_path=heading_path,
                 content=final_content,
@@ -361,6 +363,7 @@ class SemanticChunker:
                 section_type=section_type,
                 block_types=block_types,
                 keywords=keywords,
+                tags=[],
             )
             children.append(
                 ChildChunk(
@@ -378,6 +381,7 @@ class SemanticChunker:
                     space_key=page.space_key,
                     last_modified=page.last_modified,
                     hash=self._hash(final_content),
+                    chunking_profile="",
                     domain=domain,
                     section_type=section_type,
                     block_types=block_types,
@@ -507,31 +511,6 @@ class SemanticChunker:
             chunks.append(MarkdownBlock(block.kind, " ".join(current).strip(), block.heading_path))
         return chunks or [block]
 
-    def _add_context_prefix(
-        self,
-        page_title: str,
-        heading_path: list[str],
-        content: str,
-        domain: str,
-        section_type: str,
-        block_types: list[str],
-        keywords: list[str],
-    ) -> str:
-        heading_text = " > ".join(heading_path) if heading_path else page_title
-        lines = [
-            f"문서: {page_title}",
-            f"도메인: {domain}",
-            f"경로: {heading_text}",
-        ]
-        if section_type:
-            lines.append(f"섹션 유형: {section_type}")
-        if block_types:
-            lines.append(f"블록 유형: {', '.join(block_types)}")
-        if keywords:
-            lines.append(f"키워드: {', '.join(keywords)}")
-        prefix = "\n".join(lines)
-        return f"{prefix}\n\n{content}"
-
     def _infer_domain(self, page_title: str, heading_path: list[str], content: str) -> str:
         haystack = self._normalize_for_match(" ".join([page_title, *heading_path, content[:1200]]))
         for domain, keywords in DOMAIN_KEYWORDS.items():
@@ -632,6 +611,40 @@ class SemanticChunker:
 JsonlRow = dict[str, Any] | ParentChunk | ChildChunk
 
 
+def build_embedding_text(
+    *,
+    page_title: str,
+    heading_path: list[str],
+    content: str,
+    domain: str,
+    section_type: str,
+    block_types: list[str],
+    keywords: list[str],
+    tags: list[str],
+    chunking_profile: str = "",
+) -> str:
+    """Build the final text sent to the embedding model."""
+
+    heading_text = " > ".join(heading_path) if heading_path else page_title
+    lines = [
+        f"문서: {page_title}",
+        f"도메인: {domain}",
+        f"경로: {heading_text}",
+    ]
+    if chunking_profile:
+        lines.append(f"청킹 프로필: {chunking_profile}")
+    if section_type:
+        lines.append(f"섹션 유형: {section_type}")
+    if block_types:
+        lines.append(f"블록 유형: {', '.join(block_types)}")
+    if tags:
+        lines.append(f"태그: {', '.join(tags)}")
+    if keywords:
+        lines.append(f"키워드: {', '.join(keywords)}")
+    prefix = "\n".join(lines)
+    return f"{prefix}\n\n{content}"
+
+
 def child_chunk_to_index_record(chunk: ChildChunk) -> dict[str, Any]:
     """Convert a child chunk to the JSONL contract used before embedding/indexing."""
 
@@ -651,10 +664,12 @@ def child_chunk_to_index_record(chunk: ChildChunk) -> dict[str, Any]:
             "chunk_index": chunk.chunk_index,
             "token_count": chunk.token_count,
             "overlap_from_previous": chunk.overlap_from_previous,
+            "chunking_profile": chunk.chunking_profile,
             "domain": chunk.domain,
             "section_type": chunk.section_type,
             "block_types": chunk.block_types or [],
             "keywords": chunk.keywords or [],
+            "tags": chunk.tags or [],
             "has_code": chunk.has_code,
             "has_table": chunk.has_table,
             "has_list": chunk.has_list,

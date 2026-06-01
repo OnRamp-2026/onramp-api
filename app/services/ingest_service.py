@@ -6,7 +6,9 @@ from dataclasses import dataclass
 
 from app.db.confluence import ConfluenceClient
 from app.rag.chunker import ChildChunk, MarkdownPage, ParentChunk, SemanticChunker
+from app.rag.classifier import ChunkMetadataClassifier, DocumentProfileClassifier
 from app.rag.cleaner import TextCleaner
+from app.rag.masker import MarkdownMasker
 
 
 @dataclass(frozen=True)
@@ -39,11 +41,17 @@ class IngestService:
         self,
         confluence: ConfluenceClient | None = None,
         cleaner: TextCleaner | None = None,
+        masker: MarkdownMasker | None = None,
         chunker: SemanticChunker | None = None,
+        profile_classifier: DocumentProfileClassifier | None = None,
+        metadata_classifier: ChunkMetadataClassifier | None = None,
     ) -> None:
         self.confluence = confluence or ConfluenceClient()
         self.cleaner = cleaner or TextCleaner()
+        self.masker = masker or MarkdownMasker()
         self.chunker = chunker or SemanticChunker()
+        self.profile_classifier = profile_classifier or DocumentProfileClassifier()
+        self.metadata_classifier = metadata_classifier or ChunkMetadataClassifier()
 
     async def clean_recent_pages(self, hours: int = 24, limit: int = 50) -> list[CleanedConfluencePage]:
         """Fetch recently modified Confluence pages and return cleaned Markdown."""
@@ -68,21 +76,50 @@ class IngestService:
         return cleaned_pages
 
     async def chunk_recent_pages(self, hours: int = 24, limit: int = 50) -> list[ChunkedConfluencePage]:
-        """Fetch recently modified pages, clean them, and return semantic chunks."""
+        """Fetch recent pages, mask cleaned Markdown, and return semantic chunks."""
 
         cleaned_pages = await self.clean_recent_pages(hours=hours, limit=limit)
-        chunked_pages: list[ChunkedConfluencePage] = []
+        return [self._chunk_cleaned_page(self._mask_page(page)) for page in cleaned_pages]
 
+    async def prepare_recent_pages_for_embedding(self, hours: int = 24, limit: int = 50) -> list[ChunkedConfluencePage]:
+        """Fetch, clean, mask, chunk, and classify recent pages before embedding."""
+
+        cleaned_pages = await self.clean_recent_pages(hours=hours, limit=limit)
+        prepared_pages: list[ChunkedConfluencePage] = []
         for page in cleaned_pages:
-            markdown_page = MarkdownPage(
-                page_id=page.page_id,
-                page_title=page.title,
-                markdown=page.markdown,
-                source_url=page.url,
-                space_key=page.space_key,
-                last_modified=page.last_modified,
+            masked_page = self._mask_page(page)
+            chunking_profile = self.profile_classifier.classify_page(masked_page.title, masked_page.markdown)
+            chunked_page = self._chunk_cleaned_page(masked_page)
+            prepared_pages.append(
+                ChunkedConfluencePage(
+                    page=chunked_page.page,
+                    parents=chunked_page.parents,
+                    children=self.metadata_classifier.classify_batch(chunked_page.children, chunking_profile),
+                )
             )
-            parents, children = self.chunker.chunk(markdown_page)
-            chunked_pages.append(ChunkedConfluencePage(page=page, parents=parents, children=children))
 
-        return chunked_pages
+        return prepared_pages
+
+    def _mask_page(self, page: CleanedConfluencePage) -> CleanedConfluencePage:
+        return CleanedConfluencePage(
+            page_id=page.page_id,
+            title=page.title,
+            space_key=page.space_key,
+            markdown=self.masker.mask(page.markdown),
+            html=page.html,
+            last_modified=page.last_modified,
+            version=page.version,
+            url=page.url,
+        )
+
+    def _chunk_cleaned_page(self, page: CleanedConfluencePage) -> ChunkedConfluencePage:
+        markdown_page = MarkdownPage(
+            page_id=page.page_id,
+            page_title=page.title,
+            markdown=page.markdown,
+            source_url=page.url,
+            space_key=page.space_key,
+            last_modified=page.last_modified,
+        )
+        parents, children = self.chunker.chunk(markdown_page)
+        return ChunkedConfluencePage(page=page, parents=parents, children=children)
