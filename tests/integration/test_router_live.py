@@ -30,6 +30,8 @@ CI 자동 실행과 비용을 막기 위해 기본은 전체를 주석 처리해
 #         ("DB 커넥션 풀 고갈로 서비스가 죽었을 때 대응 절차", Domain.INCIDENT),
 #         ("결제 API 응답에 어떤 필드가 내려오는지 명세 알려줘", Domain.API_SPEC),
 #         ("지난 스프린트 회고 회의에서 결정된 액션아이템 정리해줘", Domain.MEETING_NOTES),
+#         ("운영 서버 정기 점검 및 재기동 절차가 어떻게 돼?", Domain.OPS_MANUAL),
+#         ("이번 분기 신규 기능 기획 배경과 요구사항이 뭐였지?", Domain.PLANNING),
 #     ],
 # )
 # async def test_live_search_classification(query, expected_domain):
