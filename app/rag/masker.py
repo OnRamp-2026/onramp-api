@@ -47,8 +47,6 @@ class MarkdownMasker:
             value = match.group(0)
             if re.fullmatch(r"\d+", value):
                 return value
-            if re.fullmatch(r"[A-Fa-f0-9]{64}", value):
-                return value
             return "[MASKED_SECRET]"
 
         return self._LONG_SECRET_PATTERN.sub(replace, text)
@@ -62,7 +60,7 @@ class MarkdownMasker:
         return "\n".join(lines).strip() + "\n" if any(line.strip() for line in lines) else ""
 
     def _balance_code_fences(self, markdown: str) -> str:
-        fence_count = sum(1 for line in markdown.splitlines() if line.startswith("```"))
+        fence_count = sum(1 for line in markdown.splitlines() if re.match(r"^[ \t]{0,3}```", line))
         if fence_count % 2 == 0:
             return markdown
         return markdown.rstrip() + "\n```\n"

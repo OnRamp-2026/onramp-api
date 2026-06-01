@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 def _safe_stem(page: ChunkedConfluencePage) -> str:
     title = re.sub(r"[^A-Za-z0-9가-힣._-]+", "-", page.page.title).strip("-") or "page"
+    title = title[:120].rstrip("-.") or "page"
     return f"{page.page.page_id}-{title}"
 
 

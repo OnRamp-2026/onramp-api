@@ -76,10 +76,10 @@ class IngestService:
         return cleaned_pages
 
     async def chunk_recent_pages(self, hours: int = 24, limit: int = 50) -> list[ChunkedConfluencePage]:
-        """Fetch recently modified pages, clean them, and return semantic chunks."""
+        """Fetch recent pages, mask cleaned Markdown, and return semantic chunks."""
 
         cleaned_pages = await self.clean_recent_pages(hours=hours, limit=limit)
-        return [self._chunk_cleaned_page(page) for page in cleaned_pages]
+        return [self._chunk_cleaned_page(self._mask_page(page)) for page in cleaned_pages]
 
     async def prepare_recent_pages_for_embedding(self, hours: int = 24, limit: int = 50) -> list[ChunkedConfluencePage]:
         """Fetch, clean, mask, chunk, and classify recent pages before embedding."""
@@ -87,16 +87,7 @@ class IngestService:
         cleaned_pages = await self.clean_recent_pages(hours=hours, limit=limit)
         prepared_pages: list[ChunkedConfluencePage] = []
         for page in cleaned_pages:
-            masked_page = CleanedConfluencePage(
-                page_id=page.page_id,
-                title=page.title,
-                space_key=page.space_key,
-                markdown=self.masker.mask(page.markdown),
-                html=page.html,
-                last_modified=page.last_modified,
-                version=page.version,
-                url=page.url,
-            )
+            masked_page = self._mask_page(page)
             chunking_profile = self.profile_classifier.classify_page(masked_page.title, masked_page.markdown)
             chunked_page = self._chunk_cleaned_page(masked_page)
             prepared_pages.append(
@@ -108,6 +99,18 @@ class IngestService:
             )
 
         return prepared_pages
+
+    def _mask_page(self, page: CleanedConfluencePage) -> CleanedConfluencePage:
+        return CleanedConfluencePage(
+            page_id=page.page_id,
+            title=page.title,
+            space_key=page.space_key,
+            markdown=self.masker.mask(page.markdown),
+            html=page.html,
+            last_modified=page.last_modified,
+            version=page.version,
+            url=page.url,
+        )
 
     def _chunk_cleaned_page(self, page: CleanedConfluencePage) -> ChunkedConfluencePage:
         markdown_page = MarkdownPage(

@@ -50,6 +50,9 @@ async def test_chunk_recent_pages_fetches_cleans_and_chunks_confluence_pages() -
     assert pages[0].children[0].page_id == "123"
     assert pages[0].children[0].parent_id == pages[0].parents[0].parent_id
     assert "문서: API Runbook" in pages[0].children[0].embedding_text
+    joined_content = "\n".join(child.content for child in pages[0].children)
+    assert "admin@example.com" not in joined_content
+    assert "[MASKED_EMAIL]" in joined_content
 
 
 async def test_prepare_recent_pages_for_embedding_masks_and_classifies_chunks() -> None:
