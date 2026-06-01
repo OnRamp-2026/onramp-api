@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from app.rag.chunker import MarkdownPage, SemanticChunker, child_chunk_to_index_record, write_jsonl
+from app.rag.chunker import ControlDocChunker, MarkdownPage, SemanticChunker, child_chunk_to_index_record, write_jsonl
 
 
 def test_chunker_builds_parent_and_child_chunks_with_context_prefix() -> None:
@@ -62,6 +62,35 @@ kubectl logs api-0 -c app
     assert any("kubectl describe pod api-0" in child.keywords for child in children if child.keywords)
     assert any("섹션 유형: root_cause" in child.embedding_text for child in children)
     assert any("키워드:" in child.embedding_text for child in children)
+
+
+def test_control_doc_chunker_preserves_decision_action_and_risk_boundaries() -> None:
+    markdown = """
+# 결제 정책 회의록
+
+## 결정사항
+
+- Qdrant collection은 문서 domain으로 필터링한다.
+- 정책 변경은 다음 배치부터 적용한다.
+
+## 액션아이템
+
+- 담당자: 플랫폼팀
+- 기한: 2026-06-03
+- 상태: 진행 중
+
+## 리스크
+
+- 블로커: 회의록 문서가 길어지면 결정 맥락이 잘릴 수 있다.
+"""
+    page = MarkdownPage(page_id="meeting", page_title="결제 정책 회의록", markdown=markdown)
+    parents, children = ControlDocChunker(child_target_tokens=80, child_max_tokens=140).chunk(page)
+
+    assert {parent.section_type for parent in parents} >= {"decision", "action_item", "risk"}
+    assert any(parent.domain == "기획서" for parent in parents)
+    assert any(child.section_type == "action_item" for child in children)
+    assert any("플랫폼팀" in child.keywords for child in children if child.keywords)
+    assert any("2026-06-03" in child.keywords for child in children if child.keywords)
 
 
 def test_chunker_keeps_context_before_code_block() -> None:

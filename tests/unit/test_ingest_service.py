@@ -25,6 +25,34 @@ class FakeConfluenceClient:
         ]
 
 
+class FakeControlConfluenceClient:
+    async def fetch_recent_pages(self, hours: int, limit: int) -> list[ConfluencePage]:
+        return [
+            ConfluencePage(
+                page_id="456",
+                title="정책 회의록",
+                space_key="OnRamp",
+                html="""
+                <main>
+                  <h1>정책 회의록</h1>
+                  <h2>결정사항</h2>
+                  <p>Qdrant collection 정책을 확정한다.</p>
+                  <h2>액션아이템</h2>
+                  <ul>
+                    <li>담당자: 플랫폼팀</li>
+                    <li>기한: 2026-06-03</li>
+                  </ul>
+                  <h2>리스크</h2>
+                  <p>블로커: 문서가 길어지면 결정 맥락이 잘릴 수 있다.</p>
+                </main>
+                """,
+                last_modified="2026-06-01T12:35:00.000+0900",
+                version=3,
+                url="https://example.atlassian.net/wiki/spaces/OnRamp/pages/456/Policy+Meeting",
+            )
+        ]
+
+
 async def test_clean_recent_pages_fetches_and_cleans_confluence_pages() -> None:
     service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
 
@@ -74,3 +102,15 @@ async def test_prepare_recent_pages_for_embedding_masks_and_classifies_chunks() 
         child.domain in {"incident", "manual", "api_reference", "meeting_note", "planning"}
         for child in pages[0].children
     )
+
+
+async def test_prepare_recent_pages_for_embedding_uses_control_chunker_for_control_like_pages() -> None:
+    service = IngestService(confluence=FakeControlConfluenceClient())  # type: ignore[arg-type]
+
+    pages = await service.prepare_recent_pages_for_embedding(hours=24, limit=10)
+
+    assert len(pages) == 1
+    assert {parent.section_type for parent in pages[0].parents} >= {"decision", "action_item", "risk"}
+    assert all(child.chunking_profile == "control_like" for child in pages[0].children)
+    assert any(child.section_type == "action_item" for child in pages[0].children)
+    assert "청킹 프로필: control_like" in "\n".join(child.embedding_text for child in pages[0].children)

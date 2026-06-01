@@ -52,6 +52,17 @@ SECTION_TYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "decision": ("결정", "decision", "결정사항"),
 }
 
+CONTROL_SECTION_TYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "decision": ("결정", "decision", "결정사항", "의사결정"),
+    "action_item": ("action item", "액션아이템", "액션 아이템", "todo", "해야 할 일"),
+    "owner_due_date": ("담당자", "owner", "assignee", "기한", "due date", "마감", "상태"),
+    "risk": ("리스크", "risk", "블로커", "blocker", "이슈", "issue"),
+    "requirement_change": ("요구사항 변경", "변경사항", "scope change", "정책 변경", "policy change"),
+    "policy": ("정책", "policy", "운영 기준", "가이드라인"),
+    "handoff": ("인수인계", "handoff", "전달사항"),
+    "agenda": ("안건", "agenda", "회의 주제", "논의"),
+}
+
 
 @dataclass(frozen=True)
 class MarkdownPage:
@@ -606,6 +617,51 @@ class SemanticChunker:
 
     def _hash(self, content: str) -> str:
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+class ControlDocChunker(SemanticChunker):
+    """Chunk control-like documents around decisions, ownership, and follow-up work."""
+
+    def _infer_domain(self, page_title: str, heading_path: list[str], content: str) -> str:
+        haystack = self._normalize_for_match(" ".join([page_title, *heading_path, content[:1200]]))
+        if any(keyword in haystack for keyword in ("요구사항", "prd", "rfc", "정책", "설계", "기획")):
+            return "기획서"
+        return "회의록"
+
+    def _infer_section_type(self, heading_path: list[str], content: str) -> str:
+        heading_haystack = self._normalize_for_match(" ".join(heading_path))
+        for section_type, keywords in CONTROL_SECTION_TYPE_KEYWORDS.items():
+            if any(keyword in heading_haystack for keyword in keywords):
+                return section_type
+        haystack = self._normalize_for_match(content[:800])
+        for section_type, keywords in CONTROL_SECTION_TYPE_KEYWORDS.items():
+            if any(keyword in haystack for keyword in keywords):
+                return section_type
+        return super()._infer_section_type(heading_path, content)
+
+    def _is_semantic_boundary(self, block: MarkdownBlock) -> bool:
+        if block.heading_level and block.heading_level > 3:
+            return False
+        return self._infer_section_type(block.heading_path, block.content) in CONTROL_SECTION_TYPE_KEYWORDS
+
+    def _extract_keywords(self, content: str, heading_path: list[str]) -> list[str]:
+        candidates = super()._extract_keywords(content, heading_path)
+        candidates.extend(re.findall(r"(?:담당자|owner|assignee)\s*[:：]\s*([^\n|]{1,40})", content, re.IGNORECASE))
+        candidates.extend(re.findall(r"(?:기한|due date|마감)\s*[:：]\s*([^\n|]{1,40})", content, re.IGNORECASE))
+        candidates.extend(heading_path[-2:])
+
+        seen: set[str] = set()
+        keywords: list[str] = []
+        for candidate in candidates:
+            normalized = re.sub(r"\s+", " ", candidate).strip(" .,;:()[]")
+            key = normalized.lower()
+            if not normalized or key in seen:
+                continue
+            seen.add(key)
+            keywords.append(normalized)
+            if len(keywords) >= 12:
+                break
+        return keywords
 
 
 JsonlRow = dict[str, Any] | ParentChunk | ChildChunk
