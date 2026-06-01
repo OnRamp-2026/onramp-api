@@ -32,16 +32,24 @@ class OpenAIEmbedder:
             self._client = AsyncOpenAI(api_key=self.settings.openai_api_key)
         return self._client
 
+    def _extra_kwargs(self) -> dict:
+        # dimensions는 text-embedding-3 계열만 지원 (ada-002 등 구모델은 미지원)
+        if self.model.startswith("text-embedding-3"):
+            return {"dimensions": self.dim}
+        return {}
+
     async def embed_documents(self, texts: list[str], batch_size: int = 100) -> list[list[float]]:
         # rate limit 고려해 batch_size 단위로 분할 요청
         vectors: list[list[float]] = []
         for start in range(0, len(texts), batch_size):
-            resp = await self.client.embeddings.create(model=self.model, input=texts[start : start + batch_size])
+            resp = await self.client.embeddings.create(
+                model=self.model, input=texts[start : start + batch_size], **self._extra_kwargs()
+            )
             vectors.extend(item.embedding for item in resp.data)
         return vectors
 
     async def embed_query(self, text: str) -> list[float]:
-        resp = await self.client.embeddings.create(model=self.model, input=[text])
+        resp = await self.client.embeddings.create(model=self.model, input=[text], **self._extra_kwargs())
         return resp.data[0].embedding
 
 

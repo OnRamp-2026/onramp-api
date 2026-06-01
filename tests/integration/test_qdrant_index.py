@@ -2,7 +2,7 @@
 
 import pytest
 from qdrant_client import QdrantClient
-from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
 
 from app.config import Settings
 from app.db.qdrant import ensure_collection
@@ -56,3 +56,10 @@ def test_ensure_collection_dim_mismatch_raises(qclient):
     ensure_collection(client=qclient, settings=Settings(qdrant_collection=COLLECTION, embedding_dim=DIM))
     with pytest.raises(ValueError, match="차원 불일치"):
         ensure_collection(client=qclient, settings=Settings(qdrant_collection=COLLECTION, embedding_dim=DIM + 1))
+
+
+def test_ensure_collection_rejects_named_vector_schema(qclient):
+    # named vector 스키마 컬렉션 → ensure_collection이 거부해야 함
+    qclient.create_collection(COLLECTION, vectors_config={"text": VectorParams(size=DIM, distance=Distance.COSINE)})
+    with pytest.raises(ValueError, match="unnamed"):
+        ensure_collection(client=qclient, settings=Settings(qdrant_collection=COLLECTION, embedding_dim=DIM))
