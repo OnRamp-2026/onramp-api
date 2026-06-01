@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app.db.confluence import ConfluenceClient
-from app.rag.chunker import ChildChunk, MarkdownPage, ParentChunk, SemanticChunker
+from app.rag.chunker import ChildChunk, ControlDocChunker, MarkdownPage, ParentChunk, SemanticChunker
 from app.rag.classifier import ChunkMetadataClassifier, DocumentProfileClassifier
 from app.rag.cleaner import TextCleaner
 from app.rag.masker import MarkdownMasker
@@ -43,6 +43,7 @@ class IngestService:
         cleaner: TextCleaner | None = None,
         masker: MarkdownMasker | None = None,
         chunker: SemanticChunker | None = None,
+        control_chunker: ControlDocChunker | None = None,
         profile_classifier: DocumentProfileClassifier | None = None,
         metadata_classifier: ChunkMetadataClassifier | None = None,
     ) -> None:
@@ -50,6 +51,7 @@ class IngestService:
         self.cleaner = cleaner or TextCleaner()
         self.masker = masker or MarkdownMasker()
         self.chunker = chunker or SemanticChunker()
+        self.control_chunker = control_chunker or ControlDocChunker()
         self.profile_classifier = profile_classifier or DocumentProfileClassifier()
         self.metadata_classifier = metadata_classifier or ChunkMetadataClassifier()
 
@@ -89,7 +91,7 @@ class IngestService:
         for page in cleaned_pages:
             masked_page = self._mask_page(page)
             chunking_profile = self.profile_classifier.classify_page(masked_page.title, masked_page.markdown)
-            chunked_page = self._chunk_cleaned_page(masked_page)
+            chunked_page = self._chunk_cleaned_page(masked_page, chunking_profile=chunking_profile)
             prepared_pages.append(
                 ChunkedConfluencePage(
                     page=chunked_page.page,
@@ -112,7 +114,9 @@ class IngestService:
             url=page.url,
         )
 
-    def _chunk_cleaned_page(self, page: CleanedConfluencePage) -> ChunkedConfluencePage:
+    def _chunk_cleaned_page(
+        self, page: CleanedConfluencePage, chunking_profile: str = "runbook_like"
+    ) -> ChunkedConfluencePage:
         markdown_page = MarkdownPage(
             page_id=page.page_id,
             page_title=page.title,
@@ -121,5 +125,6 @@ class IngestService:
             space_key=page.space_key,
             last_modified=page.last_modified,
         )
-        parents, children = self.chunker.chunk(markdown_page)
+        chunker = self.control_chunker if chunking_profile == "control_like" else self.chunker
+        parents, children = chunker.chunk(markdown_page)
         return ChunkedConfluencePage(page=page, parents=parents, children=children)
