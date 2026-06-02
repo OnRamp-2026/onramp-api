@@ -20,7 +20,7 @@ async def test_route_incident(monkeypatch):
         node_mod,
         "call_llm",
         _mock_llm(
-            '{"use_case": "검색", "domain": "장애대응", "refined_query": "EKS Pod CrashLoop 해결", "confidence": 0.95}'
+            '{"use_case": "검색", "domain": "incident", "refined_query": "EKS Pod CrashLoop 해결", "confidence": 0.95}'
         ),
     )
     out = await route_node({"query": "EKS Pod CrashLoop 해결법"})
@@ -35,11 +35,11 @@ async def test_route_api_spec(monkeypatch):
         node_mod,
         "call_llm",
         _mock_llm(
-            '{"use_case": "검색", "domain": "API명세", "refined_query": "결제 API 응답 필드", "confidence": 0.9}'
+            '{"use_case": "검색", "domain": "api_reference", "refined_query": "결제 API 응답 필드", "confidence": 0.9}'
         ),
     )
     out = await route_node({"query": "결제 API 응답에 뭐가 오는지 알려줘"})
-    assert out["domain"] == Domain.API_SPEC
+    assert out["domain"] == Domain.API_REFERENCE
 
 
 @pytest.mark.asyncio
@@ -48,9 +48,7 @@ async def test_route_unanswerable(monkeypatch):
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm(
-            '{"use_case": "답변불가", "domain": "운영매뉴얼", "refined_query": "잘못 채운 값", "confidence": 0.99}'
-        ),
+        _mock_llm('{"use_case": "답변불가", "domain": "manual", "refined_query": "잘못 채운 값", "confidence": 0.99}'),
     )
     out = await route_node({"query": "오늘 날씨 어때?"})
     assert out["use_case"] == UseCase.UNANSWERABLE
@@ -64,7 +62,7 @@ async def test_route_no_asset_case(monkeypatch):
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm('{"use_case": "검색", "domain": "기획서", "refined_query": "기획 의도", "confidence": 0.8}'),
+        _mock_llm('{"use_case": "검색", "domain": "planning", "refined_query": "기획 의도", "confidence": 0.8}'),
     )
     out = await route_node({"query": "이 기능 왜 만들었어?"})
     assert out["use_case"] in (UseCase.SEARCH, UseCase.UNANSWERABLE)
@@ -72,15 +70,15 @@ async def test_route_no_asset_case(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_route_low_confidence_fallback(monkeypatch):
-    # confidence < 0.5 → domain만 OPS_MANUAL로 fallback (검색은 진행)
+    # confidence < 0.5 → domain만 MANUAL로 fallback (검색은 진행)
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm('{"use_case": "검색", "domain": "API명세", "refined_query": "x", "confidence": 0.3}'),
+        _mock_llm('{"use_case": "검색", "domain": "api_reference", "refined_query": "x", "confidence": 0.3}'),
     )
     out = await route_node({"query": "애매한 질문"})
     assert out["use_case"] == UseCase.SEARCH
-    assert out["domain"] == Domain.OPS_MANUAL
+    assert out["domain"] == Domain.MANUAL
 
 
 @pytest.mark.asyncio
@@ -89,10 +87,10 @@ async def test_route_confidence_boundary_keeps_domain(monkeypatch):
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm('{"use_case": "검색", "domain": "API명세", "refined_query": "x", "confidence": 0.5}'),
+        _mock_llm('{"use_case": "검색", "domain": "api_reference", "refined_query": "x", "confidence": 0.5}'),
     )
     out = await route_node({"query": "경계값 질문"})
-    assert out["domain"] == Domain.API_SPEC
+    assert out["domain"] == Domain.API_REFERENCE
 
 
 @pytest.mark.asyncio
@@ -100,7 +98,7 @@ async def test_route_parse_error_fallback(monkeypatch):
     monkeypatch.setattr(node_mod, "call_llm", _mock_llm("이건 JSON이 아님"))
     out = await route_node({"query": "원본 질문"})
     assert out["use_case"] == UseCase.SEARCH
-    assert out["domain"] == Domain.OPS_MANUAL
+    assert out["domain"] == Domain.MANUAL
     assert out["refined_query"] == "원본 질문"  # 파싱 실패 시 원본 유지
 
 
@@ -112,7 +110,7 @@ async def test_route_llm_failure_fallback(monkeypatch):
     monkeypatch.setattr(node_mod, "call_llm", _boom)
     out = await route_node({"query": "질문"})
     assert out["use_case"] == UseCase.SEARCH
-    assert out["domain"] == Domain.OPS_MANUAL
+    assert out["domain"] == Domain.MANUAL
     assert out["refined_query"] == "질문"  # 원본 질문 유지
     assert "LLM down" in out["error"]  # 예외 메시지가 error에 기록
 
@@ -122,7 +120,9 @@ async def test_route_adds_trace(monkeypatch):
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm('{"use_case": "검색", "domain": "회의록", "refined_query": "회고 결정사항", "confidence": 0.88}'),
+        _mock_llm(
+            '{"use_case": "검색", "domain": "meeting_note", "refined_query": "회고 결정사항", "confidence": 0.88}'
+        ),
     )
     out = await route_node({"query": "회고 결정사항 정리해줘"})
     assert out["agent_trace"] == ["router"]
