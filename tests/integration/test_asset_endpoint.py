@@ -171,6 +171,10 @@ async def test_approve_confluence_failure_502(client, stub_asset, monkeypatch):
     monkeypatch.setattr("app.db.confluence.ConfluenceClient.create_page", _boom)
     resp = await client.post(f"/v1/asset/{rid}/approve")
     assert resp.status_code == 502
+    # 실패 후에도 상태 불변 — draft 유지 + confluence_url 비어 있어야 재시도 가능
+    after = (await client.get(f"/v1/asset/{rid}")).json()
+    assert after["status"] == "draft"
+    assert after["confluence_url"] == ""
 
 
 @pytest.mark.asyncio
