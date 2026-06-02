@@ -6,6 +6,7 @@ import pytest
 
 from app.agents.answer import node as node_mod
 from app.agents.answer.answerability import GateFlags, decide_answerability
+from app.agents.answer.formatter import format_answer
 from app.agents.answer.node import answer_node
 from app.agents.state import AnswerabilityStatus, FiveElements, SourceDocument
 
@@ -135,9 +136,9 @@ async def test_answer_source_mapping(monkeypatch):
     assert out["sources"][1].title == "C"
 
 
-@pytest.mark.asyncio
-async def test_answer_unknown_status_maps_not_enough(monkeypatch):
-    # LLM이 enum에 없는 status를 줘도 ValidationError로 5요소를 통째로 버리지 않고 NOT_ENOUGH로 안전 매핑
+def test_format_answer_unknown_status_coerces_but_keeps_five():
+    # enum에 없는 status여도 파싱은 성공(parse_ok=True)하고, status만 NOT_ENOUGH로 보수 매핑돼야 한다.
+    # (format_answer를 직접 검증 — node를 거치면 coercion 성공과 파싱 실패가 같은 결과라 구분 불가)
     payload = {
         "situation": "상황",
         "cause": "원인",
@@ -147,9 +148,11 @@ async def test_answer_unknown_status_maps_not_enough(monkeypatch):
         "answerability_status": "totally_unknown_state",
         "source_indices": [0],
     }
-    monkeypatch.setattr(node_mod, "call_llm", _mock_llm(json.dumps(payload)))
-    out = await answer_node({"refined_query": "q", "documents": [_doc()]})
-    assert out["answerability_status"] == AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
+    five, sources, status, parse_ok = format_answer(json.dumps(payload), [_doc()])
+    assert parse_ok is True  # 통째로 버려지지 않음
+    assert status == AnswerabilityStatus.NOT_ENOUGH_EVIDENCE  # status만 안전 매핑
+    assert five.situation == "상황"  # 5요소 보존
+    assert len(sources) == 1
 
 
 # ── decide_answerability 판단 경계 단위 (P1 점수·게이트 경로 미리 검증) ──
