@@ -48,9 +48,7 @@ async def test_route_unanswerable(monkeypatch):
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm(
-            '{"use_case": "답변불가", "domain": "manual", "refined_query": "잘못 채운 값", "confidence": 0.99}'
-        ),
+        _mock_llm('{"use_case": "답변불가", "domain": "manual", "refined_query": "잘못 채운 값", "confidence": 0.99}'),
     )
     out = await route_node({"query": "오늘 날씨 어때?"})
     assert out["use_case"] == UseCase.UNANSWERABLE
@@ -122,7 +120,9 @@ async def test_route_adds_trace(monkeypatch):
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm('{"use_case": "검색", "domain": "meeting_note", "refined_query": "회고 결정사항", "confidence": 0.88}'),
+        _mock_llm(
+            '{"use_case": "검색", "domain": "meeting_note", "refined_query": "회고 결정사항", "confidence": 0.88}'
+        ),
     )
     out = await route_node({"query": "회고 결정사항 정리해줘"})
     assert out["agent_trace"] == ["router"]
