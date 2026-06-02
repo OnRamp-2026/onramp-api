@@ -61,12 +61,13 @@ class TestGraphSearchFlow:
         assert result["domain"] == Domain.MANUAL
         assert result["refined_query"] == "EKS Pod 장애 해결법"
 
-    async def test_stub_returns_default_answer(self) -> None:
-        """stub이 기본 답변 구조를 반환하는지 확인한다."""
+    async def test_empty_docs_holds_answer(self) -> None:
+        """검색 결과 0건이면 Answer가 보류(NOT_ENOUGH)로 수렴하는지 확인한다."""
         result = await compiled_graph.ainvoke({"query": "테스트 질문"})
 
-        assert result["answerability_status"] == AnswerabilityStatus.ANSWERABLE
-        assert result["answerability_reason"] == ""
+        # retriever mock이 빈 결과 → answer 결정론 floor → 보류
+        assert result["answerability_status"] == AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
+        assert result["answerability_reason"]  # 보류 사유 메시지
         assert result["documents"] == []
         assert result["sources"] == []
 
