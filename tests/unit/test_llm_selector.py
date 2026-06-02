@@ -57,6 +57,12 @@ def test_resolve_provider_config_takes_precedence_over_model_name():
     assert resolve_provider("", s) == "azure"
 
 
+def test_resolve_provider_normalizes_config_value():
+    # 대소문자/공백 섞인 config 값도 정규화돼 분기와 매칭된다
+    assert resolve_provider("", Settings(llm_provider=" Azure ")) == "azure"
+    assert resolve_provider("", Settings(llm_provider="OpenAI")) == "openai"
+
+
 # ── 에러 경로 ──
 @pytest.mark.asyncio
 async def test_call_llm_openai_no_key_raises():

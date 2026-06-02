@@ -34,8 +34,9 @@ def resolve_provider(model: str, settings: Settings) -> str:
     이름으로만 사용한다 (default_model이 provider 선택을 좌우하지 않도록). llm_provider가
     비어 있을 때만 model 이름으로 추론하고, 그것도 없으면 openai 기본.
     """
-    if settings.llm_provider:
-        return settings.llm_provider
+    provider = settings.llm_provider.strip().lower()
+    if provider:
+        return provider
     name = model.strip().lower()
     if name.startswith(_AZURE_PREFIX):
         return "azure"
