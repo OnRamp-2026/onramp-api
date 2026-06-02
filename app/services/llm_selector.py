@@ -145,7 +145,10 @@ async def _call_azure(
 ) -> str:
     if not settings.azure_openai_endpoint or not settings.azure_openai_api_key:
         raise LLMError("Azure OpenAI 설정(endpoint/key)이 없습니다")
-    deployment = model.removeprefix(_AZURE_PREFIX) or settings.default_model or _DEFAULT_MODEL
+    # "azure-" 접두사를 대소문자 무시로 제거하되 deployment 이름의 원본 케이스는 보존
+    stripped = model.strip()
+    base = stripped[len(_AZURE_PREFIX) :] if stripped.lower().startswith(_AZURE_PREFIX) else stripped
+    deployment = base or settings.default_model or _DEFAULT_MODEL
     resp = await _get_azure_client(settings).chat.completions.create(
         model=deployment,  # Azure는 deployment 이름
         messages=[

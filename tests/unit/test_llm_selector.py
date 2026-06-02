@@ -3,7 +3,7 @@
 import pytest
 
 from app.config import Settings
-from app.middleware.error_handler import LLMError, OnRampError
+from app.middleware.error_handler import LLMError
 from app.services import llm_selector
 from app.services.llm_selector import call_llm, resolve_provider
 
@@ -53,7 +53,7 @@ def test_resolve_provider_default_openai():
 @pytest.mark.asyncio
 async def test_call_llm_openai_no_key_raises():
     s = Settings(llm_provider="openai", openai_api_key="")
-    with pytest.raises(OnRampError):  # LLMError는 OnRampError 하위
+    with pytest.raises(LLMError):  # 에러 정규화 회귀를 잡도록 LLMError로 고정
         await call_llm("sys", "user", model="gpt-4o-mini", settings=s)
 
 
@@ -92,3 +92,52 @@ async def test_call_llm_empty_response_raises(monkeypatch):
     s = Settings(llm_provider="openai", openai_api_key="sk-test")
     with pytest.raises(LLMError):
         await call_llm("sys", "user", model="gpt-4o-mini", settings=s)
+
+
+@pytest.mark.asyncio
+async def test_call_llm_azure_success_maps_deployment(monkeypatch):
+    fake = _FakeClient("azure 응답")
+    monkeypatch.setattr(llm_selector, "_get_azure_client", lambda settings: fake)
+    s = Settings(
+        llm_provider="azure",
+        azure_openai_endpoint="https://x.openai.azure.com",
+        azure_openai_api_key="key",
+    )
+    out = await call_llm("sys", "user", model="Azure-gpt4", settings=s)
+    assert out == "azure 응답"
+    # "Azure-" 접두사가 대소문자 무시로 제거된 deployment 이름이 전달돼야 한다
+    assert fake.chat.completions.calls[0]["model"] == "gpt4"
+
+
+@pytest.mark.asyncio
+async def test_call_llm_self_hosted_success(monkeypatch):
+    captured: dict = {}
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": "local 응답"}}]}
+
+    class _HttpClient:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> bool:
+            return False
+
+        async def post(self, url, json=None):
+            captured["url"] = url
+            captured["body"] = json
+            return _Resp()
+
+    monkeypatch.setattr(llm_selector.httpx, "AsyncClient", _HttpClient)
+    s = Settings(llm_provider="self_hosted", self_hosted_llm_url="http://local:8000/v1")
+    out = await call_llm("sys", "user", model="mistral-7b", settings=s)
+    assert out == "local 응답"
+    assert captured["url"] == "http://local:8000/v1/chat/completions"
+    assert captured["body"]["model"] == "mistral-7b"
