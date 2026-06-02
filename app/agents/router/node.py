@@ -18,7 +18,7 @@ from app.services.llm_selector import call_llm
 logger = logging.getLogger(__name__)
 
 _CONFIDENCE_THRESHOLD = 0.5  # 미만이면 domain을 fallback으로
-_FALLBACK_DOMAIN = Domain.OPS_MANUAL
+_FALLBACK_DOMAIN = Domain.MANUAL  # classifier 기본 도메인과 동일
 _UNANSWERABLE_REASON = "사내 지식 범위를 벗어난 질문입니다."
 
 

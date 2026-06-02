@@ -29,13 +29,18 @@ from typing import Annotated, TypedDict
 
 
 class Domain(StrEnum):
-    """Confluence 문서 5도메인 분류. Router와 Auto-Classifier가 동일 Enum을 공유한다."""
+    """Confluence 문서 5도메인 분류.
 
-    INCIDENT = "장애대응"
-    OPS_MANUAL = "운영매뉴얼"
-    API_SPEC = "API명세"
-    MEETING_NOTES = "회의록"
-    PLANNING = "기획서"
+    값은 인덱싱 분류기(app/rag/classifier.py, 정의: docs/Hyeonmoon/05_classifier.md)가
+    Qdrant payload `domain`에 쓰는 **영문 키**와 일치한다. Router(질문 분류)와
+    Auto-Classifier(문서 태깅)가 동일 키를 써야 Retriever의 도메인 필터가 동작한다.
+    """
+
+    INCIDENT = "incident"  # 장애 대응, 원인 분석, 재발 방지
+    MANUAL = "manual"  # 설치, 설정, 운영 절차, How-to (기본값)
+    API_REFERENCE = "api_reference"  # API 명세, 파라미터, 명령어 레퍼런스
+    MEETING_NOTE = "meeting_note"  # 회의록, 의사결정 기록
+    PLANNING = "planning"  # 설계 문서, 아키텍처, 기획서, RFC/PRD
 
 
 class UseCase(StrEnum):

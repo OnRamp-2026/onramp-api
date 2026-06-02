@@ -33,7 +33,7 @@ def _no_network(monkeypatch):
 
     async def _fake_router_llm(system_prompt, user_prompt, **kwargs):
         # 검색 경로로 분류, 질문을 그대로 refined_query로 echo
-        return json.dumps({"use_case": "검색", "domain": "운영매뉴얼", "refined_query": user_prompt, "confidence": 0.9})
+        return json.dumps({"use_case": "검색", "domain": "manual", "refined_query": user_prompt, "confidence": 0.9})
 
     async def _empty_search(*args, **kwargs):
         return []
@@ -58,7 +58,7 @@ class TestGraphSearchFlow:
 
         assert result["query"] == "EKS Pod 장애 해결법"
         assert result["use_case"] == UseCase.SEARCH
-        assert result["domain"] == Domain.OPS_MANUAL
+        assert result["domain"] == Domain.MANUAL
         assert result["refined_query"] == "EKS Pod 장애 해결법"
 
     async def test_stub_returns_default_answer(self) -> None:
@@ -81,7 +81,7 @@ class TestGraphUnanswerableFlow:
             """검색 범위 밖 질문을 retrieve 전에 차단하는 route_node 대체 스텁."""
             return {
                 "use_case": UseCase.UNANSWERABLE,
-                "domain": Domain.OPS_MANUAL,
+                "domain": Domain.MANUAL,
                 "refined_query": state["query"],
                 "answerability_reason": "사내 지식 범위 밖 질문입니다.",
                 "agent_trace": ["router"],
