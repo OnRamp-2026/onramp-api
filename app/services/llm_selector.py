@@ -28,15 +28,22 @@ _azure_client: AsyncAzureOpenAI | None = None
 
 
 def resolve_provider(model: str, settings: Settings) -> str:
-    """model 이름 → provider. 비면 config.llm_provider, 그것도 비면 openai 기본."""
+    """provider 결정 — config.llm_provider가 authoritative.
+
+    llm_provider가 설정돼 있으면 그대로 쓰고, model은 해당 provider에 넘길 모델/deployment
+    이름으로만 사용한다 (default_model이 provider 선택을 좌우하지 않도록). llm_provider가
+    비어 있을 때만 model 이름으로 추론하고, 그것도 없으면 openai 기본.
+    """
+    if settings.llm_provider:
+        return settings.llm_provider
     name = model.strip().lower()
+    if name.startswith(_AZURE_PREFIX):
+        return "azure"
+    if name.startswith(_OPENAI_PREFIXES):
+        return "openai"
     if name:
-        if name.startswith(_AZURE_PREFIX):
-            return "azure"
-        if name.startswith(_OPENAI_PREFIXES):
-            return "openai"
         return "self_hosted"
-    return settings.llm_provider or "openai"
+    return "openai"
 
 
 async def call_llm(

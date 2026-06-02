@@ -49,6 +49,14 @@ def test_resolve_provider_default_openai():
     assert resolve_provider("", Settings(llm_provider="")) == "openai"
 
 
+def test_resolve_provider_config_takes_precedence_over_model_name():
+    # LLM_PROVIDER가 설정되면 default_model/model 이름이 openai여도 config가 이긴다
+    # (LLM_PROVIDER=azure, DEFAULT_MODEL=gpt-4o 조합이 openai로 새던 버그 방지)
+    s = Settings(llm_provider="azure", default_model="gpt-4o")
+    assert resolve_provider("gpt-4o", s) == "azure"
+    assert resolve_provider("", s) == "azure"
+
+
 # ── 에러 경로 ──
 @pytest.mark.asyncio
 async def test_call_llm_openai_no_key_raises():
