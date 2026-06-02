@@ -161,6 +161,19 @@ async def test_reapprove_blocked(client, stub_asset):
 
 
 @pytest.mark.asyncio
+async def test_approve_confluence_failure_502(client, stub_asset, monkeypatch):
+    """Confluence 등록 실패는 일반 500이 아니라 502로 변환."""
+    rid = (await client.post("/v1/asset", json={"transcript": "회의 녹취 텍스트입니다"})).json()["report_id"]
+
+    async def _boom(self, title, html, space_key=None):
+        raise RuntimeError("Confluence 5xx")
+
+    monkeypatch.setattr("app.db.confluence.ConfluenceClient.create_page", _boom)
+    resp = await client.post(f"/v1/asset/{rid}/approve")
+    assert resp.status_code == 502
+
+
+@pytest.mark.asyncio
 async def test_create_empty_report_502(client, monkeypatch):
     """LLM이 형식만 맞고 내용이 빈 응답 → 502 (빈 보고서 저장 방지)."""
 

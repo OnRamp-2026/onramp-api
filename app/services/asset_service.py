@@ -146,7 +146,15 @@ async def approve_report(report_id: str) -> AssetApproveResponse:
     if report.status == "published":
         raise OnRampError("이미 등록된 보고서입니다", status_code=409)
     html = _five_elements_to_wiki(report.report, report.category)
-    page = await ConfluenceClient().create_page(title=report.title, html=html)
+    try:
+        page = await ConfluenceClient().create_page(title=report.title, html=html)
+    except ValueError as exc:  # 빈 제목 등 입력 문제
+        raise OnRampError(str(exc), status_code=422) from exc
+    except OnRampError:
+        raise
+    except Exception as exc:  # httpx/Confluence 4xx·5xx 등 업스트림 실패
+        logger.exception("Confluence 페이지 생성 실패")
+        raise OnRampError("Confluence 등록에 실패했습니다", status_code=502) from exc
 
     data = report.model_dump()
     data["status"] = "published"
