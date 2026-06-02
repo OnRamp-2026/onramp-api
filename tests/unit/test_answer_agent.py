@@ -164,8 +164,13 @@ def test_decide_gate_conflicting_outdated():
 
 def test_decide_p1_score_thresholds():
     docs = [_doc()]
+    # ANSWERABLE 경계 (>= 0.80)
     assert decide_answerability(docs, evidence_score=0.85) == AnswerabilityStatus.ANSWERABLE
+    assert decide_answerability(docs, evidence_score=0.80) == AnswerabilityStatus.ANSWERABLE
+    assert decide_answerability(docs, evidence_score=0.79) == AnswerabilityStatus.PARTIALLY_ANSWERABLE
+    # PARTIALLY 경계 (>= 0.60)
     assert decide_answerability(docs, evidence_score=0.60) == AnswerabilityStatus.PARTIALLY_ANSWERABLE
+    assert decide_answerability(docs, evidence_score=0.59) == AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
     assert decide_answerability(docs, evidence_score=0.40) == AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
 
 
