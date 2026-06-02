@@ -5,7 +5,7 @@ import json
 import pytest
 
 from app.agents.answer import node as node_mod
-from app.agents.answer.answerability import decide_answerability
+from app.agents.answer.answerability import GateFlags, decide_answerability
 from app.agents.answer.node import answer_node
 from app.agents.state import AnswerabilityStatus, FiveElements, SourceDocument
 
@@ -135,7 +135,30 @@ async def test_answer_source_mapping(monkeypatch):
     assert out["sources"][1].title == "C"
 
 
-# ── decide_answerability 판단 경계 단위 (P1 점수 경로 미리 검증) ──
+@pytest.mark.asyncio
+async def test_answer_unknown_status_maps_not_enough(monkeypatch):
+    # LLM이 enum에 없는 status를 줘도 ValidationError로 5요소를 통째로 버리지 않고 NOT_ENOUGH로 안전 매핑
+    payload = {
+        "situation": "상황",
+        "cause": "원인",
+        "evidence": "근거",
+        "solution": "해결",
+        "infra_context": "맥락",
+        "answerability_status": "totally_unknown_state",
+        "source_indices": [0],
+    }
+    monkeypatch.setattr(node_mod, "call_llm", _mock_llm(json.dumps(payload)))
+    out = await answer_node({"refined_query": "q", "documents": [_doc()]})
+    assert out["answerability_status"] == AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
+
+
+# ── decide_answerability 판단 경계 단위 (P1 점수·게이트 경로 미리 검증) ──
+def test_decide_gate_conflicting_outdated():
+    docs = [_doc()]
+    assert decide_answerability(docs, gate=GateFlags(conflicting=True)) == AnswerabilityStatus.CONFLICTING_EVIDENCE
+    assert decide_answerability(docs, gate=GateFlags(deprecated_only=True)) == AnswerabilityStatus.OUTDATED_EVIDENCE
+
+
 def test_decide_p1_score_thresholds():
     docs = [_doc()]
     assert decide_answerability(docs, evidence_score=0.85) == AnswerabilityStatus.ANSWERABLE

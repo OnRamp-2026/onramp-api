@@ -86,7 +86,9 @@ async def answer_node(state: AgentState) -> dict:
     else:
         reason = reason_for(status)
 
-    # 상태별 응답 처리: 보류 상태는 5요소 비움
+    # 상태별 응답 처리: 보류 상태는 5요소 비움.
+    # 단 CONFLICTING/OUTDATED는 "왜 보류됐는지" 근거 문서를 보여줘야 하므로 sources는 유지(P1).
     if status in _HOLD_STATUSES:
-        return _result(FiveElements(), [], status, reason)
+        held_sources = [] if status == AnswerabilityStatus.NOT_ENOUGH_EVIDENCE else sources
+        return _result(FiveElements(), held_sources, status, reason)
     return _result(five, sources, status, reason)

@@ -32,3 +32,20 @@ class AnswerOutput(BaseModel):
         if value is None:
             return ""
         return str(value)
+
+    @field_validator("answerability_status", mode="before")
+    @classmethod
+    def _coerce_status(cls, value: object) -> object:
+        # P0 LLM 자기판정은 answerable/partially/not_enough만 유효하다.
+        # 오탈자·대소문자, 그리고 LLM이 임의로 낸 conflicting/outdated(이건 P1 Trust 게이트가 결정)는
+        # 보수적으로 NOT_ENOUGH로 매핑해 status 한 글자 때문에 5요소가 통째로 버려지지 않게 한다.
+        allowed = {
+            AnswerabilityStatus.ANSWERABLE.value,
+            AnswerabilityStatus.PARTIALLY_ANSWERABLE.value,
+            AnswerabilityStatus.NOT_ENOUGH_EVIDENCE.value,
+        }
+        if isinstance(value, AnswerabilityStatus):
+            value = value.value
+        if isinstance(value, str) and value.strip().lower() in allowed:
+            return value.strip().lower()
+        return AnswerabilityStatus.NOT_ENOUGH_EVIDENCE

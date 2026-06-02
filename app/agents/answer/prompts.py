@@ -15,6 +15,7 @@ ANSWER_SYSTEM_PROMPT = """너는 사내 지식 기반 답변 생성기다.
 - answerable: 컨텍스트로 충분히 답할 수 있음 → 5요소를 채운다
 - partially_answerable: 일부만 답할 수 있음 → 5요소를 채우되 부족한 부분을 명시
 - not_enough_evidence: 컨텍스트에 관련 근거가 거의 없음 → 5요소는 빈 문자열
+- (참고) 문서 간 충돌·최신성 부족은 시스템(Trust)이 별도로 판정한다. 너는 위 3개 중에서만 고른다.
 
 [출처 인용]
 - source_indices: 실제 근거로 사용한 문서 인덱스(0부터)를 배열로 기록
