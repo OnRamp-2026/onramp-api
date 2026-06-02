@@ -62,6 +62,9 @@ class ConfluenceClient:
     async def create_page(self, title: str, html: str, space_key: str | None = None) -> ConfluencePage:
         """Create a new Confluence page (storage HTML) and return it."""
 
+        if not title or not title.strip():
+            raise ValueError("Confluence page title must not be empty")
+
         payload = {
             "type": "page",
             "title": title,

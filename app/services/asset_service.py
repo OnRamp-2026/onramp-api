@@ -145,7 +145,7 @@ async def approve_report(report_id: str) -> AssetApproveResponse:
     report = get_report(report_id)
     if report.status == "published":
         raise OnRampError("이미 등록된 보고서입니다", status_code=409)
-    html = _five_elements_to_wiki(report.title, report.report, report.category)
+    html = _five_elements_to_wiki(report.report, report.category)
     page = await ConfluenceClient().create_page(title=report.title, html=html)
 
     data = report.model_dump()
@@ -156,7 +156,7 @@ async def approve_report(report_id: str) -> AssetApproveResponse:
     return AssetApproveResponse(report_id=report_id, status="published", confluence_url=page.url)
 
 
-def _five_elements_to_wiki(title: str, report: FiveElementsResponse, category: str) -> str:
+def _five_elements_to_wiki(report: FiveElementsResponse, category: str) -> str:
     """5요소를 Confluence storage HTML(헤딩 구조)로 변환한다 — 인덱싱 청킹 친화적."""
     sections = [
         ("현재 상황", report.situation),

@@ -70,10 +70,10 @@ async def test_create_report(client, stub_asset):
 
 @pytest.mark.asyncio
 async def test_create_report_auto_title(client, stub_asset):
-    """title 미지정 시 자동 생성."""
+    """title 미지정 시 LLM이 생성한 제목을 사용한다."""
     resp = await client.post("/v1/asset", json={"transcript": "회의 녹취 텍스트 충분히 김"})
     assert resp.status_code == 200
-    assert resp.json()["title"] != ""
+    assert resp.json()["title"] == "장애 회의 보고서"  # stub LLM이 반환한 제목
 
 
 @pytest.mark.asyncio
