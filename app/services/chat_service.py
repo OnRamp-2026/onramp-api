@@ -33,6 +33,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 
 def _to_response(state: dict, request: ChatRequest) -> ChatResponse:
+    """그래프 최종 AgentState를 ChatResponse로 매핑한다 (status 미설정 시 NOT_ENOUGH 기본)."""
     answer: FiveElements = state.get("answer") or FiveElements()
     # router가 UNANSWERABLE로 차단해 answer가 안 돈 경로는 status 미설정 → NOT_ENOUGH 기본
     status = state.get("answerability_status") or AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
@@ -54,6 +55,7 @@ def _to_response(state: dict, request: ChatRequest) -> ChatResponse:
 
 
 def _to_source(doc: SourceDocument) -> SourceDoc:
+    """내부 SourceDocument를 응답용 SourceDoc로 변환한다."""
     return SourceDoc(
         title=doc.title,
         url=doc.url,

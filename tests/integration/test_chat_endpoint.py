@@ -10,10 +10,12 @@ import pytest
 
 
 def _router_resp(use_case: str = "검색", domain: str = "incident") -> str:
+    """Router LLM 응답(JSON 문자열)을 만든다."""
     return json.dumps({"use_case": use_case, "domain": domain, "refined_query": "정제된 질문", "confidence": 0.9})
 
 
 def _answer_resp() -> str:
+    """Answer LLM 응답(answerable 5요소 JSON)을 만든다."""
     return json.dumps(
         {
             "situation": "상황",
@@ -28,6 +30,8 @@ def _answer_resp() -> str:
 
 
 def _mk(resp: str):
+    """고정 문자열을 반환하는 call_llm 대체(async) 함수를 만든다."""
+
     async def _call(*args, **kwargs):
         return resp
 
@@ -35,11 +39,15 @@ def _mk(resp: str):
 
 
 class _Embedder:
+    """retriever용 임베더 stub."""
+
     async def embed_query(self, text: str) -> list[float]:
+        """쿼리 임베딩 대신 고정 벡터를 반환한다."""
         return [0.0, 0.0, 0.0]
 
 
 def _hit():
+    """Qdrant 검색 결과 한 건(payload + score)을 흉내 낸다."""
     payload = {
         "chunk_id": "c1",
         "content": "EKS Pod CrashLoopBackOff 대응 절차",
@@ -53,7 +61,10 @@ def _hit():
 
 
 class _Reranker:
+    """리랭커 stub."""
+
     def rerank(self, query, candidates):
+        """후보를 고정 점수로 통과시킨다."""
         return [(0.5, payload) for _, payload in candidates]
 
 
@@ -74,6 +85,7 @@ def stub_pipeline(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_chat_success(client, stub_pipeline):
+    """검색 질문 → 200 + answerable 5요소 + 출처 매핑."""
     resp = await client.post("/v1/chat", json={"query": "EKS Pod 장애 해결법"})
     assert resp.status_code == 200
     data = resp.json()
@@ -85,7 +97,7 @@ async def test_chat_success(client, stub_pipeline):
 
 @pytest.mark.asyncio
 async def test_chat_unanswerable(client, stub_pipeline):
-    # router가 UNANSWERABLE → 그래프 즉시 종료, answer 미실행 → status 미설정 → 기본 NOT_ENOUGH
+    """router가 UNANSWERABLE → 즉시 종료, status 미설정 → 기본 NOT_ENOUGH."""
     stub_pipeline.setattr("app.agents.router.node.call_llm", _mk(_router_resp(use_case="답변불가")))
     resp = await client.post("/v1/chat", json={"query": "오늘 점심 뭐 먹지"})
     assert resp.status_code == 200
@@ -94,12 +106,14 @@ async def test_chat_unanswerable(client, stub_pipeline):
 
 @pytest.mark.asyncio
 async def test_chat_empty_query(client):
+    """빈 query는 Pydantic 검증 실패로 422."""
     resp = await client.post("/v1/chat", json={"query": ""})
     assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_chat_with_model(client, stub_pipeline):
+    """요청 model이 응답 model_used로 전달된다."""
     resp = await client.post("/v1/chat", json={"query": "테스트 질문", "model": "gpt-4o"})
     assert resp.status_code == 200
     assert resp.json()["model_used"] == "gpt-4o"
@@ -107,5 +121,6 @@ async def test_chat_with_model(client, stub_pipeline):
 
 @pytest.mark.asyncio
 async def test_chat_swagger(client):
+    """Swagger 문서(/docs) 접근 가능."""
     resp = await client.get("/docs")
     assert resp.status_code == 200
