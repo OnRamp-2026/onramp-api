@@ -84,6 +84,7 @@ async def call_llm(
 
 
 def _extra_kwargs(max_tokens: int | None, json_mode: bool) -> dict[str, Any]:
+    """json_mode·max_tokens를 chat.completions create kwargs로 변환 (azure/self_hosted 공용)."""
     kwargs: dict[str, Any] = {}
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
@@ -93,12 +94,14 @@ def _extra_kwargs(max_tokens: int | None, json_mode: bool) -> dict[str, Any]:
 
 
 def _content(choices: list[Any]) -> str:
+    """choices에서 첫 메시지 텍스트를 추출한다 (없으면 LLMError)."""
     if not choices:
         raise LLMError("LLM 응답에 choices가 없습니다")
     return choices[0].message.content or ""
 
 
 def _get_openai_client(settings: Settings) -> AsyncOpenAI:
+    """OpenAI 비동기 클라이언트 싱글톤."""
     global _openai_client
     if _openai_client is None:
         _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
@@ -106,6 +109,7 @@ def _get_openai_client(settings: Settings) -> AsyncOpenAI:
 
 
 def _get_azure_client(settings: Settings) -> AsyncAzureOpenAI:
+    """Azure OpenAI 비동기 클라이언트 싱글톤."""
     global _azure_client
     if _azure_client is None:
         _azure_client = AsyncAzureOpenAI(
@@ -126,18 +130,29 @@ async def _call_openai(
     json_mode: bool,
     settings: Settings,
 ) -> str:
+    """OpenAI chat.completions 호출 (o1/o3 reasoning 모델은 temperature 생략·max_completion_tokens)."""
     if not settings.openai_api_key:
         raise LLMError("OpenAI API 키가 설정되지 않았습니다")
-    resp = await _get_openai_client(settings).chat.completions.create(
-        model=model or settings.default_model or _DEFAULT_MODEL,
-        messages=[
+    model_name = model or settings.default_model or _DEFAULT_MODEL
+    create_kwargs: dict[str, Any] = {
+        "model": model_name,
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=temperature,
-        timeout=timeout,
-        **_extra_kwargs(max_tokens, json_mode),
-    )
+        "timeout": timeout,
+    }
+    if json_mode:
+        create_kwargs["response_format"] = {"type": "json_object"}
+    if model_name.lower().startswith(("o1", "o3")):
+        # reasoning 모델: temperature 미지원, max_tokens 대신 max_completion_tokens
+        if max_tokens is not None:
+            create_kwargs["max_completion_tokens"] = max_tokens
+    else:
+        create_kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            create_kwargs["max_tokens"] = max_tokens
+    resp = await _get_openai_client(settings).chat.completions.create(**create_kwargs)
     return _content(resp.choices)
 
 
@@ -151,6 +166,7 @@ async def _call_azure(
     json_mode: bool,
     settings: Settings,
 ) -> str:
+    """Azure OpenAI 호출 ("azure-" 접두사를 뗀 이름을 deployment로 사용)."""
     if not settings.azure_openai_endpoint or not settings.azure_openai_api_key:
         raise LLMError("Azure OpenAI 설정(endpoint/key)이 없습니다")
     # "azure-" 접두사를 대소문자 무시로 제거하되 deployment 이름의 원본 케이스는 보존
@@ -180,6 +196,7 @@ async def _call_self_hosted(
     json_mode: bool,
     settings: Settings,
 ) -> str:
+    """Self-hosted OpenAI 호환 서버(/chat/completions)를 httpx로 호출."""
     if not settings.self_hosted_llm_url:
         raise LLMError("Self-hosted LLM URL이 설정되지 않았습니다")
     body: dict[str, Any] = {
