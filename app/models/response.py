@@ -34,3 +34,24 @@ class ChatResponse(BaseModel):
     answerability_reason: str = ""
     domain: str = ""  # Domain.value (classifier 영문 키)
     model_used: str = ""
+
+
+class AssetResponse(BaseModel):
+    """자산화 보고서 (draft/published)."""
+
+    report_id: str
+    title: str
+    report: FiveElementsResponse
+    category: str
+    status: str  # "draft" | "published"
+    confluence_url: str = ""
+    created_at: str
+    updated_at: str
+
+
+class AssetApproveResponse(BaseModel):
+    """POST /v1/asset/{id}/approve 응답."""
+
+    report_id: str
+    status: str  # "published"
+    confluence_url: str

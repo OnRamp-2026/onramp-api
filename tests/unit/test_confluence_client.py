@@ -110,3 +110,21 @@ async def test_fetch_candidate_pages_uses_title_order_not_recent_order() -> None
 
     cql = fake_client.requests[0]["params"]["cql"]
     assert cql == 'type = page AND space = "TRUSTRAG" ORDER BY title ASC'
+
+
+async def test_create_page_posts_storage_payload() -> None:
+    fake_client = FakeAsyncClient({"id": "999", "title": "보고서", "_links": {"webui": "/spaces/TRUSTRAG/pages/999"}})
+    client = ConfluenceClient(settings=_settings(), client=fake_client)  # type: ignore[arg-type]
+
+    page = await client.create_page(title="보고서", html="<h2>현재 상황</h2><p>내용</p>")
+
+    request = fake_client.requests[0]
+    assert request["method"] == "POST"
+    assert request["url"] == "https://example.atlassian.net/wiki/rest/api/content"
+    body = request["json"]
+    assert body["type"] == "page"
+    assert body["title"] == "보고서"
+    assert body["space"]["key"] == "TRUSTRAG"
+    assert body["body"]["storage"]["value"] == "<h2>현재 상황</h2><p>내용</p>"
+    assert body["body"]["storage"]["representation"] == "storage"
+    assert page.page_id == "999"

@@ -59,6 +59,23 @@ class ConfluenceClient:
         )
         return await self._search_pages(cql=cql, limit=limit)
 
+    async def create_page(self, title: str, html: str, space_key: str | None = None) -> ConfluencePage:
+        """Create a new Confluence page (storage HTML) and return it."""
+
+        payload = {
+            "type": "page",
+            "title": title,
+            "space": {"key": space_key or self.settings.confluence_space_key},
+            "body": {
+                "storage": {
+                    "value": html,
+                    "representation": "storage",
+                }
+            },
+        }
+        result = await self._request_json("POST", "/content", json=payload)
+        return self._to_page(result)
+
     async def update_page(self, page: ConfluencePage, updated_html: str, next_version: int) -> None:
         """Update a Confluence page storage body."""
 
