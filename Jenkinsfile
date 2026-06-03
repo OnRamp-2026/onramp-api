@@ -78,7 +78,33 @@ spec:
       }
     }
 
+    stage('Build Image Check') {
+      when {
+        changeRequest()
+      }
+      steps {
+        container('kaniko') {
+          sh '''
+            set -eu
+            /kaniko/executor \
+              --context "${WORKSPACE}" \
+              --dockerfile "${WORKSPACE}/Dockerfile" \
+              --destination "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
+              --no-push
+          '''
+        }
+      }
+    }
+
     stage('Build and Push Image') {
+      when {
+        allOf {
+          branch 'main'
+          not {
+            changeRequest()
+          }
+        }
+      }
       steps {
         container('kaniko') {
           withCredentials([usernamePassword(
@@ -111,7 +137,12 @@ EOF
 
     stage('Update GitOps Image Digest') {
       when {
-        branch 'main'
+        allOf {
+          branch 'main'
+          not {
+            changeRequest()
+          }
+        }
       }
       steps {
         withCredentials([usernamePassword(
