@@ -16,10 +16,11 @@ logger = logging.getLogger(__name__)
 
 async def chat(request: ChatRequest) -> ChatResponse:
     """질문을 그래프로 흘려 5요소 구조화 답변(ChatResponse)을 만든다."""
-    settings = get_settings()
+    # routing model에는 request.model만 — default_model을 섞으면 provider 선택이 그쪽으로 샌다.
+    # 빈 model이면 selector가 config.llm_provider로 라우팅하고, default_model은 모델 이름으로만 쓰인다.
     initial_state = {
         "query": request.query,
-        "model": request.model or settings.default_model,
+        "model": request.model,
     }
     try:
         state = await compiled_graph.ainvoke(initial_state)
@@ -50,7 +51,7 @@ def _to_response(state: dict, request: ChatRequest) -> ChatResponse:
         answerability_status=status.value if isinstance(status, AnswerabilityStatus) else str(status),
         answerability_reason=state.get("answerability_reason", ""),
         domain=domain.value if isinstance(domain, Domain) else (domain or ""),
-        model_used=state.get("model") or request.model,
+        model_used=state.get("model") or request.model or get_settings().default_model,
     )
 
 
