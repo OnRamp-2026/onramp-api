@@ -33,20 +33,9 @@ spec:
     skipDefaultCheckout(true)
   }
 
-  parameters {
-    string(
-      name: 'IMAGE_REPOSITORY',
-      defaultValue: 'amdp-registry.skala-ai.com/skala26a-cloud/onramp-api',
-      description: 'Harbor image repository for onramp-api'
-    )
-    string(
-      name: 'GITOPS_REPOSITORY',
-      defaultValue: 'https://github.com/OnRamp-2026/gitops.git',
-      description: 'GitOps repository URL'
-    )
-  }
-
   environment {
+    IMAGE_REPOSITORY = 'amdp-registry.skala-ai.com/skala26a-cloud/onramp-api'
+    GITOPS_REPOSITORY = 'https://github.com/OnRamp-2026/gitops.git'
     GITOPS_VALUES_FILE = 'apps/onramp-api/values-dev.yaml'
   }
 
