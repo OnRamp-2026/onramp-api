@@ -24,19 +24,20 @@ _OPENAI_PREFIXES = ("gpt-", "o1", "o3", "chatgpt")
 _AZURE_PREFIX = "azure-"
 
 _openai_client: AsyncOpenAI | None = None
+_openai_client_cfg: tuple[str, ...] | None = None
 _azure_client: AsyncAzureOpenAI | None = None
+_azure_client_cfg: tuple[str, ...] | None = None
 
 
 def resolve_provider(model: str, settings: Settings) -> str:
-    """provider 결정 — config.llm_provider가 authoritative.
+    """provider 결정 — **명시된 model 이름 우선**, 비면 config.llm_provider fallback.
 
-    llm_provider가 설정돼 있으면 그대로 쓰고, model은 해당 provider에 넘길 모델/deployment
-    이름으로만 사용한다 (default_model이 provider 선택을 좌우하지 않도록). llm_provider가
-    비어 있을 때만 model 이름으로 추론하고, 그것도 없으면 openai 기본.
+    - model이 주어지면 이름으로 추론(gpt-*/o1/o3→openai, azure-*→azure, 그 외→self_hosted).
+    - model이 비면 `config.llm_provider`(정규화)로 fallback, 그것도 비면 openai 기본.
+
+    주의: `default_model`은 provider 선택 근거가 아니다(모델/deployment 이름으로만 사용).
+    그래서 chat_service는 routing model에 default_model을 섞지 않고 request.model만 넘긴다.
     """
-    provider = settings.llm_provider.strip().lower()
-    if provider:
-        return provider
     name = model.strip().lower()
     if name.startswith(_AZURE_PREFIX):
         return "azure"
@@ -44,7 +45,7 @@ def resolve_provider(model: str, settings: Settings) -> str:
         return "openai"
     if name:
         return "self_hosted"
-    return "openai"
+    return settings.llm_provider.strip().lower() or "openai"
 
 
 async def call_llm(
@@ -101,22 +102,26 @@ def _content(choices: list[Any]) -> str:
 
 
 def _get_openai_client(settings: Settings) -> AsyncOpenAI:
-    """OpenAI 비동기 클라이언트 싱글톤."""
-    global _openai_client
-    if _openai_client is None:
+    """OpenAI 비동기 클라이언트 (관련 설정이 바뀌면 재생성)."""
+    global _openai_client, _openai_client_cfg
+    cfg = (settings.openai_api_key,)
+    if _openai_client is None or _openai_client_cfg != cfg:
         _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+        _openai_client_cfg = cfg
     return _openai_client
 
 
 def _get_azure_client(settings: Settings) -> AsyncAzureOpenAI:
-    """Azure OpenAI 비동기 클라이언트 싱글톤."""
-    global _azure_client
-    if _azure_client is None:
+    """Azure OpenAI 비동기 클라이언트 (endpoint/key가 바뀌면 재생성)."""
+    global _azure_client, _azure_client_cfg
+    cfg = (settings.azure_openai_endpoint, settings.azure_openai_api_key)
+    if _azure_client is None or _azure_client_cfg != cfg:
         _azure_client = AsyncAzureOpenAI(
             azure_endpoint=settings.azure_openai_endpoint,
             api_key=settings.azure_openai_api_key,
             api_version=_AZURE_API_VERSION,
         )
+        _azure_client_cfg = cfg
     return _azure_client
 
 
@@ -221,6 +226,8 @@ async def _call_self_hosted(
 
 def reset_clients() -> None:
     """테스트용 클라이언트 싱글톤 초기화."""
-    global _openai_client, _azure_client
+    global _openai_client, _openai_client_cfg, _azure_client, _azure_client_cfg
     _openai_client = None
+    _openai_client_cfg = None
     _azure_client = None
+    _azure_client_cfg = None

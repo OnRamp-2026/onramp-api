@@ -105,6 +105,20 @@ async def test_chat_unanswerable(client, stub_pipeline):
 
 
 @pytest.mark.asyncio
+async def test_chat_no_model_passes_empty_to_router(client, stub_pipeline):
+    """model 미지정 시 routing model은 빈 문자열 — default_model이 provider 선택으로 새지 않음."""
+    captured: dict = {}
+
+    async def _router(system, user, **kwargs):
+        captured["model"] = kwargs.get("model", "MISSING")
+        return _router_resp()
+
+    stub_pipeline.setattr("app.agents.router.node.call_llm", _router)
+    await client.post("/v1/chat", json={"query": "테스트"})
+    assert captured["model"] == ""
+
+
+@pytest.mark.asyncio
 async def test_chat_empty_query(client):
     """빈 query는 Pydantic 검증 실패로 422."""
     resp = await client.post("/v1/chat", json={"query": ""})

@@ -57,14 +57,15 @@ def test_resolve_provider_default_openai():
     assert resolve_provider("", Settings(llm_provider="")) == "openai"
 
 
-def test_resolve_provider_config_takes_precedence_over_model_name():
-    """LLM_PROVIDER가 설정되면 model 이름이 openai여도 config가 이긴다.
+def test_resolve_provider_model_overrides_config_else_fallback():
+    """명시 model이 config보다 우선, model이 비면 config로 fallback.
 
-    (LLM_PROVIDER=azure, DEFAULT_MODEL=gpt-4o 조합이 openai로 새던 버그 방지)
+    (default_model은 routing에 안 쓰므로 chat_service가 model을 안 넘기면 config가 결정 —
+    LLM_PROVIDER=azure + DEFAULT_MODEL=gpt-4o 조합이 openai로 새던 버그는 chat_service에서 차단)
     """
-    s = Settings(llm_provider="azure", default_model="gpt-4o")
-    assert resolve_provider("gpt-4o", s) == "azure"
-    assert resolve_provider("", s) == "azure"
+    s = Settings(llm_provider="azure")
+    assert resolve_provider("gpt-4o", s) == "openai"  # 명시 model이 우선 (전환 가능)
+    assert resolve_provider("", s) == "azure"  # model 비면 config
 
 
 def test_resolve_provider_normalizes_config_value():
