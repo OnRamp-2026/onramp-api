@@ -29,14 +29,21 @@ spec:
   }
 
   options {
-    timestamps()
     disableConcurrentBuilds()
     skipDefaultCheckout(true)
   }
 
   parameters {
-    string(name: 'IMAGE_REPOSITORY', defaultValue: 'amdp-registry.skala-ai.com/skala26a-cloud/onramp-api', description: 'Harbor image repository for onramp-api')
-    string(name: 'GITOPS_REPOSITORY', defaultValue: 'https://github.com/OnRamp-2026/gitops.git', description: 'GitOps repository URL')
+    string(
+      name: 'IMAGE_REPOSITORY',
+      defaultValue: 'amdp-registry.skala-ai.com/skala26a-cloud/onramp-api',
+      description: 'Harbor image repository for onramp-api'
+    )
+    string(
+      name: 'GITOPS_REPOSITORY',
+      defaultValue: 'https://github.com/OnRamp-2026/gitops.git',
+      description: 'GitOps repository URL'
+    )
   }
 
   environment {
@@ -58,8 +65,15 @@ spec:
     stage('Checkout') {
       steps {
         checkout scm
+        sh '''
+          set -eu
+          git config --global --add safe.directory "${WORKSPACE}"
+        '''
         script {
-          env.IMAGE_TAG = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
+          env.IMAGE_TAG = sh(
+            script: 'git rev-parse --short=12 HEAD',
+            returnStdout: true
+          ).trim()
         }
       }
     }
@@ -67,13 +81,14 @@ spec:
     stage('Lint and Test') {
       steps {
         sh '''
+          set -eu
           python -m venv .venv
           . .venv/bin/activate
           pip install --upgrade pip
           pip install ".[dev]"
           ruff format --check app tests
           ruff check app tests
-          pytest tests/unit -v
+          PYTHONPATH="${WORKSPACE}" pytest tests/unit -v
         '''
       }
     }
@@ -89,6 +104,7 @@ spec:
             /kaniko/executor \
               --context "${WORKSPACE}" \
               --dockerfile "${WORKSPACE}/Dockerfile" \
+              --custom-platform=linux/amd64 \
               --destination "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
               --no-push
           '''
@@ -114,19 +130,24 @@ spec:
           )]) {
             sh '''
               set -eu
+
               REGISTRY_HOST="${IMAGE_REPOSITORY%%/*}"
               AUTH="$(printf '%s:%s' "${HARBOR_USERNAME}" "${HARBOR_PASSWORD}" | base64 | tr -d '\\n')"
+
               cat > /kaniko/.docker/config.json <<EOF
 {"auths":{"${REGISTRY_HOST}":{"auth":"${AUTH}"}}}
 EOF
+
               /kaniko/executor \
                 --context "${WORKSPACE}" \
                 --dockerfile "${WORKSPACE}/Dockerfile" \
+                --custom-platform=linux/amd64 \
                 --destination "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
                 --digest-file "${WORKSPACE}/image-digest.txt"
             '''
           }
         }
+
         script {
           env.IMAGE_DIGEST = readFile('image-digest.txt').trim()
           env.FULL_IMAGE = "${env.IMAGE_REPOSITORY}@${env.IMAGE_DIGEST}"
@@ -152,31 +173,59 @@ EOF
         )]) {
           sh '''
             set -eu
+
             rm -rf gitops
+
             ENCODED_GITOPS_USERNAME="$(python -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["GITOPS_USERNAME"], safe=""))')"
             ENCODED_GITOPS_TOKEN="$(python -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["GITOPS_TOKEN"], safe=""))')"
+
             AUTHED_REPO="$(printf '%s' "${GITOPS_REPOSITORY}" | sed "s#https://#https://${ENCODED_GITOPS_USERNAME}:${ENCODED_GITOPS_TOKEN}@#")"
+
             git clone "${AUTHED_REPO}" gitops
+
             cd gitops
             git config user.name "onramp-jenkins"
             git config user.email "onramp-jenkins@users.noreply.github.com"
-            python - <<'PY'
-from pathlib import Path
-import os
-import re
+          '''
 
-path = Path(os.environ["GITOPS_VALUES_FILE"])
-text = path.read_text()
-text = re.sub(r"(repository:\s*).+", lambda m: m.group(1) + os.environ["IMAGE_REPOSITORY"], text, count=1)
-text = re.sub(r"(tag:\s*).+", lambda m: m.group(1) + os.environ["IMAGE_TAG"], text, count=1)
-text = re.sub(r"(digest:\s*).+", lambda m: m.group(1) + os.environ["IMAGE_DIGEST"], text, count=1)
-path.write_text(text)
-PY
+          script {
+            def valuesPath = "gitops/${env.GITOPS_VALUES_FILE}"
+            def updatedLines = readFile(valuesPath).readLines().collect { line ->
+              def keyStart = 0
+              while (keyStart < line.length() && line.charAt(keyStart) == ' ') {
+                keyStart += 1
+              }
+              def indent = line.substring(0, keyStart)
+              def trimmed = line.trim()
+
+              if (trimmed.startsWith('repository:')) {
+                return "${indent}repository: ${env.IMAGE_REPOSITORY}"
+              }
+              if (trimmed.startsWith('tag:')) {
+                return "${indent}tag: ${env.IMAGE_TAG}"
+              }
+              if (trimmed.startsWith('digest:')) {
+                return "${indent}digest: ${env.IMAGE_DIGEST}"
+              }
+
+              return line
+            }
+
+            writeFile file: valuesPath, text: updatedLines.join('\n') + '\n'
+          }
+
+          sh '''
+            set -eu
+
+            cd gitops
+
             git diff -- "${GITOPS_VALUES_FILE}"
+
             if git diff --quiet -- "${GITOPS_VALUES_FILE}"; then
               echo "No GitOps image digest change."
               exit 0
             fi
+
             git add "${GITOPS_VALUES_FILE}"
             git commit -m "chore: update onramp-api image ${IMAGE_TAG} [skip ci]"
             git push origin main
