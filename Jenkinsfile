@@ -175,39 +175,33 @@ EOF
             cd gitops
             git config user.name "onramp-jenkins"
             git config user.email "onramp-jenkins@users.noreply.github.com"
-          '''
 
-          script {
-            def valuesPath = "gitops/${env.GITOPS_VALUES_FILE}"
-            def updatedLines = readFile(valuesPath).readLines().collect { line ->
-              def keyStart = 0
-              while (keyStart < line.length() && line.charAt(keyStart) == ' ') {
-                keyStart += 1
-              }
-              def indent = line.substring(0, keyStart)
-              def trimmed = line.trim()
+            python - <<'PY'
+import os
+from pathlib import Path
 
-              if (trimmed.startsWith('repository:')) {
-                return "${indent}repository: ${env.IMAGE_REPOSITORY}"
-              }
-              if (trimmed.startsWith('tag:')) {
-                return "${indent}tag: ${env.IMAGE_TAG}"
-              }
-              if (trimmed.startsWith('digest:')) {
-                return "${indent}digest: ${env.IMAGE_DIGEST}"
-              }
+path = Path(os.environ["GITOPS_VALUES_FILE"])
+newline = chr(10)
+replacements = {
+    "repository:": os.environ["IMAGE_REPOSITORY"],
+    "tag:": os.environ["IMAGE_TAG"],
+    "digest:": os.environ["IMAGE_DIGEST"],
+}
 
-              return line
-            }
+updated_lines = []
+for line in path.read_text().splitlines():
+    stripped = line.lstrip(" ")
+    indent = line[: len(line) - len(stripped)]
 
-            writeFile file: valuesPath, text: updatedLines.join('\n') + '\n'
-          }
+    for key, value in replacements.items():
+        if stripped.startswith(key):
+            updated_lines.append(f"{indent}{key} {value}")
+            break
+    else:
+        updated_lines.append(line)
 
-          sh '''
-            set -eu
-
-            cd gitops
-
+path.write_text(newline.join(updated_lines) + newline)
+PY
             git diff -- "${GITOPS_VALUES_FILE}"
 
             if git diff --quiet -- "${GITOPS_VALUES_FILE}"; then
