@@ -25,11 +25,15 @@ def _safe_stem(page: ChunkedConfluencePage) -> str:
     return f"{page.page.page_id}-{title}"
 
 
-async def run(hours: int, limit: int, output_dir: str, parents_output_dir: str | None) -> None:
+async def run(hours: int, limit: int, output_dir: str, parents_output_dir: str | None, all_pages: bool = False) -> None:
     """Run the local batch entrypoint for embedding-ready chunks."""
 
     service = IngestService()
-    pages = await service.prepare_recent_pages_for_embedding(hours=hours, limit=limit)
+    pages = await (
+        service.prepare_all_pages_for_embedding(limit=limit)
+        if all_pages
+        else service.prepare_recent_pages_for_embedding(hours=hours, limit=limit)
+    )
     chunks_root = Path(output_dir)
     parents_root = Path(parents_output_dir) if parents_output_dir else None
 
@@ -51,6 +55,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Write masked and classified recent Confluence chunk JSONL.")
     parser.add_argument("--hours", type=int, default=24, help="Lookback window for Confluence modified pages.")
     parser.add_argument("--limit", type=int, default=50, help="Maximum number of Confluence pages to fetch.")
+    parser.add_argument(
+        "--all", action="store_true", dest="all_pages", help="전체 스페이스 적재(증분 lastmodified 무시)"
+    )
     parser.add_argument("--output-dir", default="data/processed/prepared_chunks")
     parser.add_argument("--parents-output-dir", help="Optional directory for parent chunk JSONL files.")
     parser.add_argument("--log-level", default="INFO")
@@ -63,6 +70,7 @@ def main() -> None:
             limit=args.limit,
             output_dir=args.output_dir,
             parents_output_dir=args.parents_output_dir,
+            all_pages=args.all_pages,
         )
     )
 

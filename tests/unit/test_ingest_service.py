@@ -24,8 +24,14 @@ class FakeConfluenceClient:
             )
         ]
 
+    async def fetch_all_pages(self, limit: int) -> list[ConfluencePage]:
+        return await self.fetch_recent_pages(hours=0, limit=limit)
+
 
 class FakeControlConfluenceClient:
+    async def fetch_all_pages(self, limit: int) -> list[ConfluencePage]:
+        return await self.fetch_recent_pages(hours=0, limit=limit)
+
     async def fetch_recent_pages(self, hours: int, limit: int) -> list[ConfluencePage]:
         return [
             ConfluencePage(
@@ -114,3 +120,40 @@ async def test_prepare_recent_pages_for_embedding_uses_control_chunker_for_contr
     assert all(child.chunking_profile == "control_like" for child in pages[0].children)
     assert any(child.section_type == "action_item" for child in pages[0].children)
     assert "청킹 프로필: control_like" in "\n".join(child.embedding_text for child in pages[0].children)
+
+
+async def test_clean_all_pages_fetches_and_cleans_confluence_pages() -> None:
+    service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
+
+    pages = await service.clean_all_pages(limit=10)
+
+    assert len(pages) == 1
+    assert pages[0].page_id == "123"
+    assert "# API Runbook" in pages[0].markdown
+    assert "Restart pod." in pages[0].markdown
+    assert "Noise" not in pages[0].markdown
+
+
+async def test_chunk_all_pages_fetches_cleans_and_chunks_confluence_pages() -> None:
+    service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
+
+    pages = await service.chunk_all_pages(limit=10)
+
+    assert len(pages) == 1
+    assert pages[0].page.page_id == "123"
+    assert pages[0].children
+    joined_content = "\n".join(child.content for child in pages[0].children)
+    assert "admin@example.com" not in joined_content
+    assert "[MASKED_EMAIL]" in joined_content
+
+
+async def test_prepare_all_pages_for_embedding_masks_and_classifies_chunks() -> None:
+    service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
+
+    pages = await service.prepare_all_pages_for_embedding(limit=10)
+
+    assert len(pages) == 1
+    embedding_text = "\n".join(child.embedding_text for child in pages[0].children)
+    assert "abc.def.ghi1234567890" not in embedding_text
+    assert "[MASKED_TOKEN]" in embedding_text
+    assert all(child.tags for child in pages[0].children)
