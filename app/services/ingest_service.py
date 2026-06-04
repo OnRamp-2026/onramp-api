@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.db.confluence import ConfluenceClient
+from app.db.confluence import ConfluenceClient, ConfluencePage
 from app.rag.chunker import ChildChunk, ControlDocChunker, MarkdownPage, ParentChunk, SemanticChunker
 from app.rag.classifier import ChunkMetadataClassifier, DocumentProfileClassifier
 from app.rag.cleaner import TextCleaner
@@ -55,38 +55,60 @@ class IngestService:
         self.profile_classifier = profile_classifier or DocumentProfileClassifier()
         self.metadata_classifier = metadata_classifier or ChunkMetadataClassifier()
 
+    # ── recent (증분, lastmodified 기준) ──────────────────────────────────
     async def clean_recent_pages(self, hours: int = 24, limit: int = 50) -> list[CleanedConfluencePage]:
         """Fetch recently modified Confluence pages and return cleaned Markdown."""
 
         pages = await self.confluence.fetch_recent_pages(hours=hours, limit=limit)
-        cleaned_pages: list[CleanedConfluencePage] = []
-
-        for page in pages:
-            cleaned_pages.append(
-                CleanedConfluencePage(
-                    page_id=page.page_id,
-                    title=page.title,
-                    space_key=page.space_key,
-                    markdown=self.cleaner.clean(page.html),
-                    html=page.html,
-                    last_modified=page.last_modified,
-                    version=page.version,
-                    url=page.url,
-                )
-            )
-
-        return cleaned_pages
+        return self._clean(pages)
 
     async def chunk_recent_pages(self, hours: int = 24, limit: int = 50) -> list[ChunkedConfluencePage]:
         """Fetch recent pages, mask cleaned Markdown, and return semantic chunks."""
 
-        cleaned_pages = await self.clean_recent_pages(hours=hours, limit=limit)
-        return [self._chunk_cleaned_page(self._mask_page(page)) for page in cleaned_pages]
+        return self._chunk(await self.clean_recent_pages(hours=hours, limit=limit))
 
     async def prepare_recent_pages_for_embedding(self, hours: int = 24, limit: int = 50) -> list[ChunkedConfluencePage]:
         """Fetch, clean, mask, chunk, and classify recent pages before embedding."""
 
-        cleaned_pages = await self.clean_recent_pages(hours=hours, limit=limit)
+        return self._prepare(await self.clean_recent_pages(hours=hours, limit=limit))
+
+    # ── all (전체 적재, lastmodified 무시) ────────────────────────────────
+    async def clean_all_pages(self, limit: int = 50) -> list[CleanedConfluencePage]:
+        """Fetch every page in the space (initial full load) and return cleaned Markdown."""
+
+        pages = await self.confluence.fetch_all_pages(limit=limit)
+        return self._clean(pages)
+
+    async def chunk_all_pages(self, limit: int = 50) -> list[ChunkedConfluencePage]:
+        """Fetch all pages, mask cleaned Markdown, and return semantic chunks."""
+
+        return self._chunk(await self.clean_all_pages(limit=limit))
+
+    async def prepare_all_pages_for_embedding(self, limit: int = 50) -> list[ChunkedConfluencePage]:
+        """Fetch, clean, mask, chunk, and classify all pages before embedding."""
+
+        return self._prepare(await self.clean_all_pages(limit=limit))
+
+    # ── recent/all 공통 변환부 (fetch만 다르고 이하 동일) ─────────────────
+    def _clean(self, pages: list[ConfluencePage]) -> list[CleanedConfluencePage]:
+        return [
+            CleanedConfluencePage(
+                page_id=page.page_id,
+                title=page.title,
+                space_key=page.space_key,
+                markdown=self.cleaner.clean(page.html),
+                html=page.html,
+                last_modified=page.last_modified,
+                version=page.version,
+                url=page.url,
+            )
+            for page in pages
+        ]
+
+    def _chunk(self, cleaned_pages: list[CleanedConfluencePage]) -> list[ChunkedConfluencePage]:
+        return [self._chunk_cleaned_page(self._mask_page(page)) for page in cleaned_pages]
+
+    def _prepare(self, cleaned_pages: list[CleanedConfluencePage]) -> list[ChunkedConfluencePage]:
         prepared_pages: list[ChunkedConfluencePage] = []
         for page in cleaned_pages:
             masked_page = self._mask_page(page)

@@ -24,11 +24,13 @@ def _safe_stem(page: ChunkedConfluencePage) -> str:
     return f"{page.page.page_id}-{title}"
 
 
-async def run(hours: int, limit: int, output_dir: str, parents_output_dir: str | None) -> None:
-    """Run the local batch entrypoint for recent-page chunking."""
+async def run(hours: int, limit: int, output_dir: str, parents_output_dir: str | None, all_pages: bool = False) -> None:
+    """Run the local batch entrypoint for recent-page (or full) chunking."""
 
     service = IngestService()
-    pages = await service.chunk_recent_pages(hours=hours, limit=limit)
+    pages = await (
+        service.chunk_all_pages(limit=limit) if all_pages else service.chunk_recent_pages(hours=hours, limit=limit)
+    )
     chunks_root = Path(output_dir)
     parents_root = Path(parents_output_dir) if parents_output_dir else None
 
@@ -48,21 +50,29 @@ async def run(hours: int, limit: int, output_dir: str, parents_output_dir: str |
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fetch recent Confluence pages and write semantic chunk JSONL.")
-    parser.add_argument("--hours", type=int, default=24, help="Lookback window for Confluence modified pages.")
+    parser = argparse.ArgumentParser(
+        description="Confluence 페이지를 청킹해 JSONL로 저장. 증분(--hours) 또는 초기 전체 적재(--all) 모드를 지원한다."
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--hours", type=int, help="증분: 최근 N시간 내 수정된 페이지만 (미지정 시 24)")
+    mode.add_argument(
+        "--all", action="store_true", dest="all_pages", help="전체: 스페이스 전체를 적재(증분 lastmodified 무시)"
+    )
     parser.add_argument("--limit", type=int, default=50, help="Maximum number of Confluence pages to fetch.")
     parser.add_argument("--output-dir", default="data/processed/chunks", help="Directory for child chunk JSONL files.")
     parser.add_argument("--parents-output-dir", help="Optional directory for parent chunk JSONL files.")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
+    hours = 24 if args.hours is None else args.hours
 
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s - %(message)s")
     asyncio.run(
         run(
-            hours=args.hours,
+            hours=hours,
             limit=args.limit,
             output_dir=args.output_dir,
             parents_output_dir=args.parents_output_dir,
+            all_pages=args.all_pages,
         )
     )
 

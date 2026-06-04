@@ -45,9 +45,14 @@ class _FakeIngestService:
     def __init__(self, pages: list[ChunkedConfluencePage]) -> None:
         self.pages = pages
         self.calls: list[tuple[int, int]] = []
+        self.all_calls: list[int] = []
 
     async def prepare_recent_pages_for_embedding(self, hours: int, limit: int) -> list[ChunkedConfluencePage]:
         self.calls.append((hours, limit))
+        return self.pages
+
+    async def prepare_all_pages_for_embedding(self, limit: int) -> list[ChunkedConfluencePage]:
+        self.all_calls.append(limit)
         return self.pages
 
 
@@ -72,6 +77,25 @@ async def test_index_recent_pages_flattens_children_and_returns_summary() -> Non
     assert [child.chunk_id for child in captured_children] == ["p1_000", "p1_001", "p2_000"]
     assert result.pages_indexed == 2
     assert result.chunks_indexed == 3
+
+
+async def test_index_all_pages_uses_full_prepare_path() -> None:
+    captured_children: list[ChildChunk] = []
+
+    async def fake_index_children(children: list[ChildChunk]) -> int:
+        captured_children.extend(children)
+        return len(children)
+
+    ingest = _FakeIngestService([_page("p1", [_child("p1_000"), _child("p1_001")])])
+    service = IndexService(ingest_service=ingest, index_children_fn=fake_index_children)  # type: ignore[arg-type]
+
+    result = await service.index_all_pages(limit=9)
+
+    assert ingest.all_calls == [9]
+    assert ingest.calls == []  # recent 경로는 타지 않음
+    assert [child.chunk_id for child in captured_children] == ["p1_000", "p1_001"]
+    assert result.pages_indexed == 1
+    assert result.chunks_indexed == 2
 
 
 async def test_index_recent_pages_handles_pages_without_children() -> None:

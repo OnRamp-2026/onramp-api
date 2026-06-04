@@ -109,7 +109,18 @@ async def test_fetch_candidate_pages_uses_title_order_not_recent_order() -> None
     await client.fetch_candidate_pages(limit=10)
 
     cql = fake_client.requests[0]["params"]["cql"]
-    assert cql == 'type = page AND space = "TRUSTRAG" ORDER BY title ASC'
+    assert cql == 'type = page AND space = "TRUSTRAG" ORDER BY title ASC, id ASC'
+
+
+async def test_fetch_all_pages_omits_lastmodified() -> None:
+    fake_client = FakeAsyncClient({"results": []})
+    client = ConfluenceClient(settings=_settings(), client=fake_client)  # type: ignore[arg-type]
+
+    await client.fetch_all_pages(limit=10)
+
+    cql = fake_client.requests[0]["params"]["cql"]
+    assert cql == 'type = page AND space = "TRUSTRAG" ORDER BY title ASC, id ASC'
+    assert "lastmodified" not in cql
 
 
 async def test_create_page_posts_storage_payload() -> None:

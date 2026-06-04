@@ -160,7 +160,16 @@ Response:
     CONFLUENCE_SPACE_KEY=TRUSTRAG
     CONFLUENCE_TIMEZONE=Asia/Seoul
 
-## Confluence 변경분 수집
+## Confluence 수집
+
+수집 스크립트는 두 가지 모드를 지원합니다.
+
+- **초기 전체 적재 (`--all`)**: 최초 구축 시 전체 지식베이스를 색인. `lastmodified` 필터 없이 스페이스 전체를 조회한다.
+- **일배치 증분 (`--hours N`)**: 최근 N시간 내 수정된 페이지만 수집 (기본값 `--hours 24`).
+
+`--all`을 주면 `--hours`는 무시됩니다. 4개 스크립트(fetch → chunk → prepare → index) 모두 동일하게 두 모드를 지원합니다.
+
+### 변경분 수집 (증분)
 
 최근 수정된 Confluence 페이지를 가져와 storage HTML을 Markdown으로 정제합니다. 이 단계는 Confluence API와 TextCleaner만 사용하므로 Qdrant/PostgreSQL/Redis가 없어도 실행할 수 있습니다.
 
@@ -174,6 +183,17 @@ Response:
 
     data/cleaned/recent/{page_id}-{title}.md
     data/cleaned/recent/{page_id}-{title}.html
+
+### 초기 전체 적재 (`--all`)
+
+최초 구축 시 스페이스 전체를 색인합니다. 수정일과 무관하게 모든 페이지를 수집합니다.
+
+    # 정제만 확인 (Qdrant/PostgreSQL/Redis 불필요)
+    python scripts/fetch_recent_confluence_pages.py --all --limit 500 --output-dir data/cleaned/all
+
+    # 전체 적재 파이프라인 (Qdrant 필요)
+    python scripts/prepare_recent_confluence_pages.py --all --limit 500
+    python scripts/index_recent_confluence_pages.py --all --limit 500
 
 주기 테스트용으로 Confluence 페이지 몇 개에 테스트 섹션을 추가하거나 갱신할 수 있습니다. 기본은 dry-run입니다.
 

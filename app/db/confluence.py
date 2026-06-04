@@ -48,16 +48,24 @@ class ConfluenceClient:
         logger.info("Searching Confluence with CQL: %s", cql)
         return await self._search_pages(cql=cql, limit=limit)
 
-    async def fetch_candidate_pages(self, limit: int = 100) -> list[ConfluencePage]:
-        """Return recent pages from the configured space for test mutation."""
+    async def fetch_all_pages(self, limit: int = 100) -> list[ConfluencePage]:
+        """Return every page in the configured space (no lastmodified filter).
+
+        Used for the initial full ingestion (`--all`), unlike fetch_recent_pages
+        which only returns pages modified within the last N hours.
+        """
 
         if limit <= 0:
             raise ValueError("limit must be greater than 0")
 
-        cql = (
-            f'type = page AND space = "{self._quote_cql_value(self.settings.confluence_space_key)}" ORDER BY title ASC'
-        )
+        cql = self._build_pages_cql(since=None)
+        logger.info("Searching Confluence with CQL: %s", cql)
         return await self._search_pages(cql=cql, limit=limit)
+
+    async def fetch_candidate_pages(self, limit: int = 100) -> list[ConfluencePage]:
+        """Return pages from the configured space for test mutation (same query as fetch_all_pages)."""
+
+        return await self.fetch_all_pages(limit=limit)
 
     async def create_page(self, title: str, html: str, space_key: str | None = None) -> ConfluencePage:
         """Create a new Confluence page (storage HTML) and return it."""
@@ -157,8 +165,16 @@ class ConfluenceClient:
         return cast(dict[str, Any], payload)
 
     def _build_recent_pages_cql(self, since: datetime) -> str:
-        since_text = since.strftime("%Y-%m-%d %H:%M")
+        return self._build_pages_cql(since=since)
+
+    def _build_pages_cql(self, since: datetime | None) -> str:
+        """Build the page-search CQL. With `since`, filter by lastmodified (recent);
+        without it, return the whole space ordered by title (full ingestion)."""
         space_key = self._quote_cql_value(self.settings.confluence_space_key)
+        if since is None:
+            # id ASC 타이브레이커 — 동일 title 다수일 때 페이지네이션(start/limit)이 안정적이도록
+            return f'type = page AND space = "{space_key}" ORDER BY title ASC, id ASC'
+        since_text = since.strftime("%Y-%m-%d %H:%M")
         return f'type = page AND space = "{space_key}" AND lastmodified >= "{since_text}" ORDER BY lastmodified DESC'
 
     def _to_page(self, result: dict[str, Any]) -> ConfluencePage:

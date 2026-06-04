@@ -48,6 +48,15 @@ class IndexService:
         """Prepare recent pages and upsert all child chunks into Qdrant."""
 
         pages = await self.ingest_service.prepare_recent_pages_for_embedding(hours=hours, limit=limit)
+        return await self._index_prepared(pages)
+
+    async def index_all_pages(self, limit: int = 50) -> IndexResult:
+        """Prepare every page in the space (initial full load) and upsert all child chunks into Qdrant."""
+
+        pages = await self.ingest_service.prepare_all_pages_for_embedding(limit=limit)
+        return await self._index_prepared(pages)
+
+    async def _index_prepared(self, pages: list[ChunkedConfluencePage]) -> IndexResult:
         children = self._flatten_children(pages)
         chunks_indexed = await self._index_children(children)
         return IndexResult(pages_indexed=len(pages), chunks_indexed=chunks_indexed)
