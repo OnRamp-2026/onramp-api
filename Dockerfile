@@ -13,7 +13,7 @@ COPY --chown=onramp:onramp pyproject.toml ./
 COPY --chown=onramp:onramp app ./app
 
 RUN pip install --upgrade pip \
-    && pip install --index-url https://download.pytorch.org/whl/cpu torch \
+    && pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.5.1" \
     && pip install ".[rerank]"
 
 COPY --chown=onramp:onramp scripts ./scripts

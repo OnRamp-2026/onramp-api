@@ -84,3 +84,21 @@ async def test_node_rerank_oom_fallback(monkeypatch):
     # 리랭커 실패 → vector score 순 폴백 (c2=0.9 먼저)
     assert out["documents"][0].content_snippet == "b"
     assert out["documents"][0].rerank_score == 0.0
+
+
+@pytest.mark.asyncio
+async def test_node_rerank_missing_dependency_fallback(monkeypatch):
+    """sentence-transformers 미설치(ModuleNotFoundError)도 vector score 순 폴백."""
+    hits = [_hit("c1", "a", 0.3), _hit("c2", "b", 0.9)]
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return hits
+
+    class _R:
+        def rerank(self, q, cands):
+            raise ModuleNotFoundError("No module named 'sentence_transformers'")
+
+    _patch(monkeypatch, fake_search, _R())
+    out = await retrieve_node({"refined_query": "q", "domain": "장애대응"})
+    assert out["documents"][0].content_snippet == "b"  # vec score 0.9 우선
+    assert out["documents"][0].rerank_score == 0.0
