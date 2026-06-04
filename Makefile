@@ -65,6 +65,12 @@ install:
 	uv pip install -e ".[dev]"
 	pre-commit install
 
+# 리랭커(bge-reranker-v2-m3) 의존성 — CPU torch 휠 고정(CUDA 미설치, 이미지/디스크 경량화).
+# Dockerfile과 동일 순서: ① CPU torch 선설치 → ② sentence-transformers(.[rerank]).
+install-rerank:
+	uv pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.5.1"
+	uv pip install -e ".[rerank]"
+
 # ─── 도움말 ───
 help:
 	@echo ""
@@ -80,5 +86,6 @@ help:
 	@echo "  make up               로컬 인프라 실행 (docker compose)"
 	@echo "  make down             로컬 인프라 중지"
 	@echo "  make install          의존성 + pre-commit 설치"
+	@echo "  make install-rerank   리랭커 의존성(CPU torch + sentence-transformers)"
 	@echo "  make clean            캐시 파일 정리"
 	@echo ""

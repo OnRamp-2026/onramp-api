@@ -38,16 +38,24 @@ async def retrieve_node(state: AgentState) -> dict:
         reranked = await anyio.to_thread.run_sync(get_reranker().rerank, refined, candidates)
         ranked = [(apply_metadata_weight(score, payload, settings), payload) for score, payload in reranked]
         ranked.sort(key=lambda item: item[0], reverse=True)  # 가중 반영 후 재정렬
-    except Exception:  # 리랭커 실패(OOM 등) → vector score 순 폴백
-        logger.warning("리랭커 실패 — vector score 순으로 폴백", exc_info=True)
-        ordered = sorted(results, key=lambda item: item[0], reverse=True)
-        ranked = [(0.0, payload) for _, payload in ordered]
+    except ModuleNotFoundError:  # sentence-transformers 미설치 → 리랭커 비활성
+        logger.warning("리랭커 비활성 — sentence-transformers 미설치. vector score 순 폴백 (설치: make install-rerank)")
+        ranked = _vector_fallback(results)
+    except Exception:  # 리랭커 로드/실행 실패(OOM 등) → vector score 순 폴백
+        logger.warning("리랭커 로드/실행 실패 — vector score 순으로 폴백", exc_info=True)
+        ranked = _vector_fallback(results)
 
     docs = [
         _to_source_doc(payload, rerank_score, vec_score.get(payload.get("chunk_id"), 0.0), settings)
         for rerank_score, payload in ranked[: settings.retriever_top_n]
     ]
     return {"documents": docs, "agent_trace": ["retriever"]}
+
+
+def _vector_fallback(results: list[tuple[float, dict]]) -> list[tuple[float, dict]]:
+    """리랭커 불가 시 vector score 순으로 정렬 (rerank_score는 0.0으로 표기)."""
+    ordered = sorted(results, key=lambda item: item[0], reverse=True)
+    return [(0.0, payload) for _, payload in ordered]
 
 
 def _to_source_doc(payload: dict, rerank_score: float, score: float, settings: Settings) -> SourceDocument:
