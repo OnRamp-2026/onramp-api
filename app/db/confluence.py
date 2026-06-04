@@ -172,7 +172,8 @@ class ConfluenceClient:
         without it, return the whole space ordered by title (full ingestion)."""
         space_key = self._quote_cql_value(self.settings.confluence_space_key)
         if since is None:
-            return f'type = page AND space = "{space_key}" ORDER BY title ASC'
+            # id ASC 타이브레이커 — 동일 title 다수일 때 페이지네이션(start/limit)이 안정적이도록
+            return f'type = page AND space = "{space_key}" ORDER BY title ASC, id ASC'
         since_text = since.strftime("%Y-%m-%d %H:%M")
         return f'type = page AND space = "{space_key}" AND lastmodified >= "{since_text}" ORDER BY lastmodified DESC'
 

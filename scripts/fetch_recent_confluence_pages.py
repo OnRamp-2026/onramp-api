@@ -46,21 +46,25 @@ async def run(hours: int, limit: int, output_dir: str | None, save_html: bool, a
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fetch recently modified Confluence pages and clean them.")
-    parser.add_argument("--hours", type=int, default=24)
-    parser.add_argument("--limit", type=int, default=50)
-    parser.add_argument(
-        "--all", action="store_true", dest="all_pages", help="전체 스페이스 적재(증분 lastmodified 무시)"
+    parser = argparse.ArgumentParser(
+        description="Confluence 페이지를 정제(Markdown). 증분(--hours) 또는 초기 전체 적재(--all) 모드를 지원한다."
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--hours", type=int, help="증분: 최근 N시간 내 수정된 페이지만 (미지정 시 24)")
+    mode.add_argument(
+        "--all", action="store_true", dest="all_pages", help="전체: 스페이스 전체를 적재(증분 lastmodified 무시)"
+    )
+    parser.add_argument("--limit", type=int, default=50)
     parser.add_argument("--output-dir")
     parser.add_argument("--save-html", action="store_true")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
+    hours = 24 if args.hours is None else args.hours
 
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s - %(message)s")
     asyncio.run(
         run(
-            hours=args.hours,
+            hours=hours,
             limit=args.limit,
             output_dir=args.output_dir,
             save_html=args.save_html,
