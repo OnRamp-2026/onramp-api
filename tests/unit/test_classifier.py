@@ -124,31 +124,41 @@ def _batch_child(content: str, chunk_id: str, parent_id: str = "p1") -> ChildChu
     )
 
 
-def test_classify_batch_unifies_parent_domain_by_majority() -> None:
+def test_classify_batch_inherits_parent_domain() -> None:
+    # parent domain(incident)을 child가 상속 — child 추론값(manual/api_reference)과 무관 (다수결 아님)
     children = [
-        _batch_child("kubectl 설치 절차 운영 매뉴얼", "c0"),  # manual
-        _batch_child("운영 절차 troubleshooting 디버그", "c1"),  # manual
-        _batch_child("api endpoint request response 요청 응답", "c2"),  # api_reference
+        _batch_child("kubectl 운영 절차", "c0", parent_id="p1"),  # 단독 추론 manual
+        _batch_child("api endpoint request response 요청 응답", "c1", parent_id="p1"),  # 단독 추론 api_reference
     ]
 
-    out = ChunkMetadataClassifier().classify_batch(children, "runbook_like")
+    out = ChunkMetadataClassifier().classify_batch(children, "runbook_like", parent_domains={"p1": "incident"})
 
-    assert {c.domain for c in out} == {"manual"}  # 다수결(manual 2 > api_reference 1)로 통일
-    c2 = next(c for c in out if c.chunk_id == "c2")
-    assert "domain:api_reference" in (c2.tags or [])  # child 자기 추론은 보조 태그로 보존
-    assert "도메인: manual" in c2.embedding_text  # embedding_text도 통일 도메인으로 재생성
+    assert {c.domain for c in out} == {"incident"}  # parent domain 상속
+    c1 = next(c for c in out if c.chunk_id == "c1")
+    assert "domain:api_reference" in (c1.tags or [])  # child 자기 추론은 보조 태그로 보존
+    assert "도메인: incident" in c1.embedding_text  # embedding_text도 상속 도메인으로 재생성
 
 
-def test_classify_batch_separate_parents_independent() -> None:
+def test_classify_batch_normalizes_korean_parent_domain() -> None:
+    # ParentChunk.domain은 한글 키 → 영문으로 정규화되어 상속된다
+    children = [_batch_child("api endpoint", "c0", parent_id="p1")]
+
+    out = ChunkMetadataClassifier().classify_batch(children, "runbook_like", parent_domains={"p1": "운영매뉴얼"})
+
+    assert out[0].domain == "manual"  # 운영매뉴얼 → manual
+
+
+def test_classify_batch_without_parent_domains_uses_inferred() -> None:
+    # parent_domains 미지정이면 child 추론값 유지 (하위호환)
     children = [
-        _batch_child("api endpoint response", "a0", parent_id="pa"),  # api_reference
-        _batch_child("kubectl 운영 절차", "b0", parent_id="pb"),  # manual
+        _batch_child("api endpoint response", "c0", parent_id="p1"),  # api_reference
+        _batch_child("kubectl 운영 절차", "c1", parent_id="p1"),  # manual
     ]
 
     out = ChunkMetadataClassifier().classify_batch(children, "runbook_like")
     by_id = {c.chunk_id: c for c in out}
-    assert by_id["a0"].domain == "api_reference"  # parent별 독립
-    assert by_id["b0"].domain == "manual"
+    assert by_id["c0"].domain == "api_reference"
+    assert by_id["c1"].domain == "manual"
 
 
 def test_classify_chunk_inherits_explicit_primary_domain() -> None:

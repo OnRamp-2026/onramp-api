@@ -1,4 +1,5 @@
 from app.db.confluence import ConfluencePage
+from app.rag.classifier import KOREAN_DOMAIN_MAP
 from app.services.ingest_service import IngestService
 
 
@@ -145,6 +146,19 @@ async def test_chunk_all_pages_fetches_cleans_and_chunks_confluence_pages() -> N
     joined_content = "\n".join(child.content for child in pages[0].children)
     assert "admin@example.com" not in joined_content
     assert "[MASKED_EMAIL]" in joined_content
+
+
+async def test_prepare_children_inherit_parent_domain() -> None:
+    # prepare 경로에서 각 child는 소속 parent의 domain(영문 정규화)을 상속한다 (#51)
+    service = IngestService(confluence=FakeControlConfluenceClient())  # type: ignore[arg-type]
+
+    pages = await service.prepare_recent_pages_for_embedding(hours=24, limit=10)
+
+    page = pages[0]
+    parent_domain = {p.parent_id: KOREAN_DOMAIN_MAP.get(p.domain, p.domain) for p in page.parents}
+    assert page.children
+    for child in page.children:
+        assert child.domain == parent_domain[child.parent_id]
 
 
 async def test_prepare_all_pages_for_embedding_masks_and_classifies_chunks() -> None:
