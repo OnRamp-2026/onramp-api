@@ -95,3 +95,22 @@ def test_draft_flag_loaded(tmp_path: Path) -> None:
 def test_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         load_golden_set(tmp_path / "nope.jsonl", tmp_path / "nope2.jsonl")
+
+
+def test_non_dict_line_raises(tmp_path: Path) -> None:
+    q = tmp_path / "queries.jsonl"
+    r = tmp_path / "qrels.jsonl"
+    q.write_text("[1, 2, 3]\n", encoding="utf-8")  # 배열 = dict 아님
+    r.write_text('{"qid":"q1","relevant_chunk_ids":[]}\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="딕셔너리"):
+        load_golden_set(q, r)
+
+
+def test_non_bool_is_answerable_raises(tmp_path: Path) -> None:
+    q, r = _paths(
+        tmp_path,
+        [{"qid": "q1", "query": "a", "is_answerable": "false"}],
+        [{"qid": "q1", "relevant_chunk_ids": []}],
+    )
+    with pytest.raises(ValueError, match="bool"):
+        load_golden_set(q, r)

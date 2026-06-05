@@ -46,9 +46,12 @@ def _read_jsonl(path: Path) -> list[dict]:
         if not line:
             continue
         try:
-            rows.append(json.loads(line))
+            obj = json.loads(line)
         except json.JSONDecodeError as exc:
             raise ValueError(f"{path}:{i} JSON 파싱 실패: {exc}") from exc
+        if not isinstance(obj, dict):
+            raise ValueError(f"{path}:{i} JSON 객체(딕셔너리)여야 합니다")
+        rows.append(obj)
     return rows
 
 
@@ -95,6 +98,9 @@ def load_golden_set(
             raise ValueError(f"{queries_path}: '{qid}' query 누락")
         if qid not in qrels:
             raise ValueError(f"qrels 누락: '{qid}' (queries 에 있으나 qrels 없음)")
+        is_answerable = row.get("is_answerable", True)
+        if not isinstance(is_answerable, bool):
+            raise ValueError(f"{queries_path}: '{qid}' is_answerable 는 bool 이어야 합니다")
         is_draft = bool(row.get("_draft", False))
         draft_n += int(is_draft)
         golden.append(
@@ -102,7 +108,7 @@ def load_golden_set(
                 qid=qid,
                 query=str(row["query"]),
                 domain=row.get("domain"),
-                is_answerable=bool(row.get("is_answerable", True)),
+                is_answerable=is_answerable,
                 relevant_chunk_ids=qrels[qid],
                 ground_truth_answer=row.get("ground_truth_answer"),
                 is_draft=is_draft,

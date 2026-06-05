@@ -65,8 +65,11 @@ def qclient(settings):
     client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
     try:
         client.get_collections()
-    except Exception:
-        pytest.skip("Qdrant 미가동 (make up 필요)")
+    except Exception as exc:  # 연결 실패만 skip, 그 외(회귀)는 그대로 실패
+        msg = str(exc).lower()
+        if any(token in msg for token in ("connect", "connection", "refused", "timed out", "timeout")):
+            pytest.skip("Qdrant 미가동 (make up 필요)")
+        raise
     if COLLECTION in {c.name for c in client.get_collections().collections}:
         client.delete_collection(COLLECTION)
     yield client

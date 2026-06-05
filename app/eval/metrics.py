@@ -12,8 +12,15 @@ import math
 from dataclasses import dataclass
 
 
+def _validate_k(k: int, name: str = "k") -> None:
+    """k 는 1 이상이어야 한다 (음수 슬라이싱으로 인한 조용한 왜곡 방지)."""
+    if k <= 0:
+        raise ValueError(f"{name} 는 1 이상이어야 합니다: {k}")
+
+
 def hit_rate_at_k(ranked: list[str], relevant: set[str], k: int) -> float:
     """top-k 안에 정답 chunk가 하나라도 있으면 1.0, 없으면 0.0."""
+    _validate_k(k)
     if not relevant:
         return 0.0
     return 1.0 if any(c in relevant for c in ranked[:k]) else 0.0
@@ -21,6 +28,7 @@ def hit_rate_at_k(ranked: list[str], relevant: set[str], k: int) -> float:
 
 def reciprocal_rank(ranked: list[str], relevant: set[str], k: int) -> float:
     """top-k 내 첫 정답의 역순위(1/rank). 없으면 0.0."""
+    _validate_k(k)
     if not relevant:
         return 0.0
     for i, chunk_id in enumerate(ranked[:k], start=1):
@@ -31,6 +39,7 @@ def reciprocal_rank(ranked: list[str], relevant: set[str], k: int) -> float:
 
 def recall_at_k(ranked: list[str], relevant: set[str], k: int) -> float:
     """top-k 가 정답 집합을 얼마나 덮는가 (|정답 ∩ top-k| / |정답|)."""
+    _validate_k(k)
     if not relevant:
         return 0.0
     found = sum(1 for c in set(ranked[:k]) if c in relevant)
@@ -39,6 +48,7 @@ def recall_at_k(ranked: list[str], relevant: set[str], k: int) -> float:
 
 def ndcg_at_k(ranked: list[str], relevant: set[str], k: int) -> float:
     """binary-gain nDCG@k. 없으면 0.0."""
+    _validate_k(k)
     if not relevant:
         return 0.0
     dcg = 0.0
@@ -85,6 +95,10 @@ def aggregate(
 
     relevant 가 빈셋(unanswerable)인 질문은 검색 지표 대상에서 제외한다.
     """
+    _validate_k(k_hit, "k_hit")
+    _validate_k(k_mrr, "k_mrr")
+    _validate_k(k_recall, "k_recall")
+    _validate_k(k_ndcg, "k_ndcg")
     scored = [(ranked, rel) for ranked, rel in per_query if rel]
     n = len(scored)
     if n == 0:

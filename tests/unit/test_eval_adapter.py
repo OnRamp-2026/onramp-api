@@ -83,6 +83,11 @@ async def test_reranker_failure_falls_back_to_vector(monkeypatch, patch_embedder
     assert ids == ["c1", "c2"]  # vector score 순 폴백
 
 
+async def test_non_positive_top_raises(patch_embedder) -> None:
+    with pytest.raises(ValueError, match="1 이상"):
+        await adapter.retrieve_for_eval("q", mode="dense", top_n=0, settings=Settings())
+
+
 def test_predicted_answerable() -> None:
     r = RetrievalResult(chunk_ids=["c1"], top_score=0.5, n=1)
     assert predicted_answerable(r, floor=0.4, min_docs=1) is True

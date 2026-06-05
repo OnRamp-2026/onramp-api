@@ -90,8 +90,17 @@ def _check_gate(report: dict, baseline_path: Path, tolerance: float) -> int:
         logger.error("baseline 없음: %s (먼저 --write-baseline)", baseline_path)
         return 1
     baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
-    base = baseline.get(GATED_MODE, {})
-    curr = report.get(GATED_MODE, {})
+    if GATED_MODE not in baseline:
+        logger.error("baseline 에 게이트 모드 '%s' 가 없습니다", GATED_MODE)
+        return 1
+    if GATED_MODE not in report:
+        logger.error("현재 리포트에 게이트 모드 '%s' 가 없습니다 (--modes 확인)", GATED_MODE)
+        return 1
+    base = baseline[GATED_MODE]
+    curr = report[GATED_MODE]
+    if not base:
+        logger.error("baseline 의 '%s' 지표가 비어 있습니다", GATED_MODE)
+        return 1
     regressions = []
     for key, base_val in base.items():
         curr_val = curr.get(key, 0.0)
@@ -142,6 +151,8 @@ async def run(args) -> int:
 
 def _parse_modes(value: str) -> list[Mode]:
     modes = [m.strip() for m in value.split(",") if m.strip()]
+    if not modes:
+        raise argparse.ArgumentTypeError("최소 1개의 mode가 필요합니다 (dense, rerank)")
     valid = {"dense", "rerank"}
     bad = [m for m in modes if m not in valid]
     if bad:

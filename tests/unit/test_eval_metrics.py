@@ -98,3 +98,15 @@ def test_answerability_perfect() -> None:
 def test_answerability_length_mismatch() -> None:
     with pytest.raises(ValueError, match="길이"):
         answerability_accuracy([True], [True, False])
+
+
+@pytest.mark.parametrize("fn", [hit_rate_at_k, reciprocal_rank, recall_at_k, ndcg_at_k])
+@pytest.mark.parametrize("bad_k", [0, -1])
+def test_non_positive_k_raises(fn, bad_k) -> None:
+    with pytest.raises(ValueError, match="1 이상"):
+        fn(RANKED, REL, bad_k)
+
+
+def test_aggregate_non_positive_k_raises() -> None:
+    with pytest.raises(ValueError, match="k_hit"):
+        aggregate([(RANKED, REL)], k_hit=0)

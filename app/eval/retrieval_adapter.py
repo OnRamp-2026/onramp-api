@@ -11,6 +11,7 @@ mode:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Literal
 
@@ -20,6 +21,8 @@ from app.agents.retriever.rerank import apply_metadata_weight, get_reranker
 from app.agents.retriever.search import dense_search
 from app.config import Settings, get_settings
 from app.rag.embedder import get_embedder
+
+logger = logging.getLogger(__name__)
 
 Mode = Literal["dense", "rerank"]
 
@@ -44,13 +47,15 @@ async def retrieve_for_eval(
 ) -> RetrievalResult:
     """query를 검색해 ranked chunk_id와 1위 점수를 반환한다 (retrieve_node 미러)."""
     settings = settings or get_settings()
-    top_k = top_k or settings.retriever_top_k
-    top_n = top_n or settings.retriever_top_n
+    top_k = settings.retriever_top_k if top_k is None else top_k
+    top_n = settings.retriever_top_n if top_n is None else top_n
+    if top_k <= 0 or top_n <= 0:
+        raise ValueError(f"top_k/top_n 은 1 이상이어야 합니다: top_k={top_k}, top_n={top_n}")
 
     qvec = await get_embedder().embed_query(query)
-    hits = await dense_search(qvec, top_k, domain=domain)
+    hits = await dense_search(qvec, top_k, domain=domain, settings=settings)
     if not hits and domain:  # 도메인 과필터 0건 → 무필터 재검색 (recall 안전, retrieve_node 동일)
-        hits = await dense_search(qvec, top_k, domain=None)
+        hits = await dense_search(qvec, top_k, domain=None, settings=settings)
 
     results = [(point.score, point.payload or {}) for point in hits]
 
@@ -62,7 +67,8 @@ async def retrieve_for_eval(
             reranked = await anyio.to_thread.run_sync(get_reranker().rerank, query, candidates)
             ranked = [(apply_metadata_weight(score, payload, settings), payload) for score, payload in reranked]
             ranked.sort(key=lambda item: item[0], reverse=True)
-        except Exception:  # 리랭커 실패 → vector score 순 폴백 (retrieve_node 동일)
+        except Exception as exc:  # 리랭커 실패 → vector score 순 폴백 (retrieve_node 동일)
+            logger.warning("리랭커 실패로 dense 폴백: %s", exc, exc_info=True)
             ranked = sorted(results, key=lambda item: item[0], reverse=True)
 
     top = ranked[:top_n]
