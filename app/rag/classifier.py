@@ -126,13 +126,26 @@ class DocumentProfileClassifier:
 class ChunkMetadataClassifier:
     """Refine chunk metadata without sending unmasked content to an LLM."""
 
-    def classify_chunk(self, chunk: ChildChunk, chunking_profile: ChunkingProfile) -> ChildChunk:
-        """Return a copy of the chunk with final P0 metadata."""
+    def classify_chunk(
+        self,
+        chunk: ChildChunk,
+        chunking_profile: ChunkingProfile,
+        primary_domain: str | None = None,
+    ) -> ChildChunk:
+        """Return a copy of the chunk with final P0 metadata.
 
-        domain = self._infer_domain(chunk)
+        primary_domain이 주어지면 그 값을 최종 domain으로 상속하고(parent 단위 일관화),
+        child 자체 추론 도메인은 ``domain:{x}`` 보조 태그로 보존한다. 없으면 child 추론값을 쓴다.
+        """
+
+        inferred = self._infer_domain(chunk)
+        domain = primary_domain or inferred
         section_type = self._infer_section_type(chunk)
         keywords = self._merge_keywords(chunk)
         tags = self._infer_tags(chunk, domain, keywords)
+        if primary_domain and inferred != primary_domain:
+            # limit으로 잘리지 않게 보조 도메인 태그를 앞에 둔다
+            tags = self._dedupe([f"domain:{inferred}", *tags], limit=12)
         block_types = chunk.block_types or []
         embedding_text = build_embedding_text(
             page_title=chunk.page_title,
@@ -155,10 +168,32 @@ class ChunkMetadataClassifier:
             embedding_text=embedding_text,
         )
 
-    def classify_batch(self, chunks: list[ChildChunk], chunking_profile: ChunkingProfile) -> list[ChildChunk]:
-        """Classify chunks in order."""
+    def classify_batch(
+        self,
+        chunks: list[ChildChunk],
+        chunking_profile: ChunkingProfile,
+        parent_domains: dict[str, str] | None = None,
+    ) -> list[ChildChunk]:
+        """Classify chunks. parent_domains가 주어지면 child는 해당 parent의 domain을 상속한다.
 
-        return [self.classify_chunk(chunk, chunking_profile) for chunk in chunks]
+        parent_domains: parent_id → parent domain(한글/영문 키 허용 — 영문으로 정규화).
+        없으면 child별 추론값을 그대로 쓴다(하위호환).
+        """
+        return [
+            self.classify_chunk(
+                chunk,
+                chunking_profile,
+                self._normalize_domain(parent_domains.get(chunk.parent_id)) if parent_domains else None,
+            )
+            for chunk in chunks
+        ]
+
+    def _normalize_domain(self, value: str | None) -> str | None:
+        """parent domain(한글/영문)을 최종 영문 키로 정규화. 알 수 없으면 None(child 추론 사용)."""
+        if not value:
+            return None
+        english = KOREAN_DOMAIN_MAP.get(value, value)
+        return english if english in DOMAIN_RULES else None
 
     def _infer_domain(self, chunk: ChildChunk) -> str:
         existing = KOREAN_DOMAIN_MAP.get(chunk.domain, chunk.domain)
@@ -245,10 +280,18 @@ class AutoClassifier(ChunkMetadataClassifier):
     ChunkMetadataClassifier explicitly.
     """
 
-    def classify_chunk(self, chunk: ChildChunk, chunking_profile: ChunkingProfile = "runbook_like") -> ChildChunk:
-        return super().classify_chunk(chunk, chunking_profile)
+    def classify_chunk(
+        self,
+        chunk: ChildChunk,
+        chunking_profile: ChunkingProfile = "runbook_like",
+        primary_domain: str | None = None,
+    ) -> ChildChunk:
+        return super().classify_chunk(chunk, chunking_profile, primary_domain)
 
     def classify_batch(
-        self, chunks: list[ChildChunk], chunking_profile: ChunkingProfile = "runbook_like"
+        self,
+        chunks: list[ChildChunk],
+        chunking_profile: ChunkingProfile = "runbook_like",
+        parent_domains: dict[str, str] | None = None,
     ) -> list[ChildChunk]:
-        return super().classify_batch(chunks, chunking_profile)
+        return super().classify_batch(chunks, chunking_profile, parent_domains)

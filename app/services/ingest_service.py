@@ -114,11 +114,15 @@ class IngestService:
             masked_page = self._mask_page(page)
             chunking_profile = self.profile_classifier.classify_page(masked_page.title, masked_page.markdown)
             chunked_page = self._chunk_cleaned_page(masked_page, chunking_profile=chunking_profile)
+            # child가 자기 추론이 아니라 소속 parent의 domain을 상속하도록 parent domain 맵 전달
+            parent_domains = {parent.parent_id: parent.domain for parent in chunked_page.parents}
             prepared_pages.append(
                 ChunkedConfluencePage(
                     page=chunked_page.page,
                     parents=chunked_page.parents,
-                    children=self.metadata_classifier.classify_batch(chunked_page.children, chunking_profile),
+                    children=self.metadata_classifier.classify_batch(
+                        chunked_page.children, chunking_profile, parent_domains
+                    ),
                 )
             )
 
