@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -54,8 +55,13 @@ class Settings(BaseSettings):
     retriever_top_n: int = 5  # 리랭킹 후 최종
     classifier_model: str = "gpt-4o-mini"
     snippet_max_chars: int = 500  # SourceDocument content_snippet 길이
-    rerank_recency_weight: float = 0.1  # 최신성 가중 상한 (rerank 순서 우선)
+    rerank_recency_weight: float = 0.1  # 최신성 가산값 (additive, rerank 순서 우선)
     rerank_recency_half_life_days: int = 180
+    # 도메인 필터 보정 (임계값은 #49에서 골든셋으로 튜닝)
+    # min_score: dense 유사도 임계값 → [0, 1]. match_weight: rerank 가산값(additive, logit 스케일) → 음수만 금지.
+    retriever_domain_min_score: float = Field(default=0.45, ge=0.0, le=1.0)
+    retriever_domain_match_weight: float = Field(default=0.1, ge=0.0)
+    retriever_domain_expand_low_quality: bool = True  # 저품질 filtered 결과의 무필터 확장 on/off
 
     model_config = {
         "env_file": ".env",

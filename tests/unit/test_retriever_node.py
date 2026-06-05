@@ -15,7 +15,7 @@ def _hit(chunk_id, content, score, domain="장애대응"):
         "domain": domain,
         "last_modified": "",
     }
-    return type("SP", (), {"payload": payload, "score": score})()
+    return type("SP", (), {"id": chunk_id, "payload": payload, "score": score})()
 
 
 class _FakeEmbedder:
@@ -102,3 +102,57 @@ async def test_node_rerank_missing_dependency_fallback(monkeypatch):
     out = await retrieve_node({"refined_query": "q", "domain": "장애대응"})
     assert out["documents"][0].content_snippet == "b"  # vec score 0.9 우선
     assert out["documents"][0].rerank_score == 0.0
+
+
+@pytest.mark.asyncio
+async def test_node_low_quality_filtered_expands_and_recovers(monkeypatch):
+    """filtered 결과가 비어있지 않아도 저품질(최고 score < 임계)이면 무필터 확장 → 정답 회수."""
+    calls = []
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        calls.append(domain)
+        # filtered: 저품질 오답(0.3만) / unfiltered: 오답 + 정답(0.9)
+        return [_hit("c1", "wrong", 0.3)] if domain else [_hit("c1", "wrong", 0.3), _hit("c2", "right", 0.9)]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(1.0 if "right" in text else 0.1, p) for text, p in cands]
+
+    _patch(monkeypatch, fake_search, _R())
+    out = await retrieve_node({"refined_query": "q", "domain": "manual"})
+    assert calls == ["manual", None]  # 저품질 filtered → 무필터 확장
+    assert out["documents"][0].content_snippet == "right"  # merge 후 정답 회수
+
+
+@pytest.mark.asyncio
+async def test_node_high_quality_filtered_no_expand(monkeypatch):
+    """filtered 최고 score가 임계 이상이면 무필터 확장하지 않는다."""
+    calls = []
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        calls.append(domain)
+        return [_hit("c1", "a", 0.9)]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.5, p) for _, p in cands]
+
+    _patch(monkeypatch, fake_search, _R())
+    await retrieve_node({"refined_query": "q", "domain": "manual"})
+    assert calls == ["manual"]  # 고품질 → 확장 없음
+
+
+@pytest.mark.asyncio
+async def test_node_domain_match_bonus(monkeypatch):
+    """기저 rerank 점수가 같으면 도메인 일치 문서가 가산으로 우선된다."""
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return [_hit("c1", "a", 0.9, domain="api_reference"), _hit("c2", "b", 0.9, domain="manual")]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.5, p) for _, p in cands]  # 동일 기저 점수
+
+    _patch(monkeypatch, fake_search, _R())
+    out = await retrieve_node({"refined_query": "q", "domain": "manual"})
+    assert out["documents"][0].content_snippet == "b"  # domain=manual 일치 → 가산으로 먼저

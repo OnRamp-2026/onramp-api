@@ -131,7 +131,7 @@ class AgentState(TypedDict, total=False):
 
     # ── Router Agent 출력 ──
     use_case: UseCase
-    domain: Domain
+    domain: Domain | None  # None이면 Retriever가 도메인 필터 없이 검색
     refined_query: str  # 검색용 정제 쿼리
 
     # ── Retriever Agent 출력 ──

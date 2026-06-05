@@ -38,9 +38,19 @@ class CrossEncoderReranker:
 
 
 def apply_metadata_weight(rerank_score: float, payload: dict, settings: Settings) -> float:
-    """최신성 가중 — 최근 문서일수록 소폭 가산 (상한 rerank_recency_weight, rerank 순서 우선)."""
+    """최신성 가산 — 최근 문서일수록 점수를 더한다. 가산식이라 음수 점수에서도 단조 증가한다."""
     factor = _recency_factor(payload.get("last_modified", ""), settings.rerank_recency_half_life_days)
-    return rerank_score * (1 + settings.rerank_recency_weight * factor)
+    return rerank_score + settings.rerank_recency_weight * factor
+
+
+def apply_domain_weight(rerank_score: float, payload: dict, domain: str | None, settings: Settings) -> float:
+    """도메인이 일치하면 점수를 더한다. 가산식이라 음수 점수(Cross-Encoder logit)에서도 단조 증가한다.
+
+    domain이 None이거나 불일치면 원점수를 그대로 반환한다.
+    """
+    if domain and payload.get("domain") == domain:
+        return rerank_score + settings.retriever_domain_match_weight
+    return rerank_score
 
 
 def _recency_factor(last_modified: str, half_life_days: int) -> float:

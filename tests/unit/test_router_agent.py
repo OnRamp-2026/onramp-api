@@ -69,8 +69,8 @@ async def test_route_no_asset_case(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_route_low_confidence_fallback(monkeypatch):
-    # confidence < 0.5 → domain만 MANUAL로 fallback (검색은 진행)
+async def test_route_low_confidence_no_filter(monkeypatch):
+    # confidence < 0.5 → 도메인 신뢰 불가 → None(무필터). manual로 가두지 않는다 (검색은 진행)
     monkeypatch.setattr(
         node_mod,
         "call_llm",
@@ -78,7 +78,7 @@ async def test_route_low_confidence_fallback(monkeypatch):
     )
     out = await route_node({"query": "애매한 질문"})
     assert out["use_case"] == UseCase.SEARCH
-    assert out["domain"] == Domain.MANUAL
+    assert out["domain"] is None
 
 
 @pytest.mark.asyncio
@@ -98,7 +98,7 @@ async def test_route_parse_error_fallback(monkeypatch):
     monkeypatch.setattr(node_mod, "call_llm", _mock_llm("이건 JSON이 아님"))
     out = await route_node({"query": "원본 질문"})
     assert out["use_case"] == UseCase.SEARCH
-    assert out["domain"] == Domain.MANUAL
+    assert out["domain"] is None  # 신뢰할 도메인 없음 → 무필터
     assert out["refined_query"] == "원본 질문"  # 파싱 실패 시 원본 유지
 
 
@@ -110,7 +110,7 @@ async def test_route_llm_failure_fallback(monkeypatch):
     monkeypatch.setattr(node_mod, "call_llm", _boom)
     out = await route_node({"query": "질문"})
     assert out["use_case"] == UseCase.SEARCH
-    assert out["domain"] == Domain.MANUAL
+    assert out["domain"] is None  # 신뢰할 도메인 없음 → 무필터
     assert out["refined_query"] == "질문"  # 원본 질문 유지
     assert "LLM down" in out["error"]  # 예외 메시지가 error에 기록
 

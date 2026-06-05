@@ -12,21 +12,20 @@ from pydantic import ValidationError
 
 from app.agents.router.prompts import ROUTER_SYSTEM_PROMPT
 from app.agents.router.schema import RouterOutput
-from app.agents.state import AgentState, Domain, UseCase
+from app.agents.state import AgentState, UseCase
 from app.services.llm_selector import call_llm
 
 logger = logging.getLogger(__name__)
 
-_CONFIDENCE_THRESHOLD = 0.5  # 미만이면 domain을 fallback으로
-_FALLBACK_DOMAIN = Domain.MANUAL  # classifier 기본 도메인과 동일
+_CONFIDENCE_THRESHOLD = 0.5  # 이 미만이면 도메인 미신뢰 → None
 _UNANSWERABLE_REASON = "사내 지식 범위를 벗어난 질문입니다."
 
 
 def _fallback(query: str, error: str = "") -> dict:
-    """LLM 실패·파싱 실패 시 기본값 (검색은 되게 SEARCH로)."""
+    """LLM/파싱 실패 시 기본 상태. 검색은 진행하되 도메인은 None(필터 미적용)."""
     result: dict = {
         "use_case": UseCase.SEARCH,
-        "domain": _FALLBACK_DOMAIN,
+        "domain": None,
         "refined_query": query,
         "agent_trace": ["router"],
     }
@@ -52,8 +51,8 @@ async def route_node(state: AgentState) -> dict:
         logger.warning("Router 응답 파싱 실패 — 기본값 fallback", exc_info=True)
         return _fallback(query)
 
-    # confidence 낮으면 도메인만 fallback (검색 자체는 진행)
-    domain = output.domain if output.confidence >= _CONFIDENCE_THRESHOLD else _FALLBACK_DOMAIN
+    # confidence가 낮으면 도메인을 신뢰하지 않고 None으로 둔다 (필터 없이 검색).
+    domain = output.domain if output.confidence >= _CONFIDENCE_THRESHOLD else None
     result: dict = {
         "use_case": output.use_case,
         "domain": domain,
