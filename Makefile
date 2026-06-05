@@ -1,4 +1,4 @@
-.PHONY: dev test lint format typecheck migrate seed clean
+.PHONY: dev test lint format typecheck migrate seed clean eval eval-gate
 
 # ─── 개발 서버 ───
 dev:
@@ -41,6 +41,13 @@ migrate-new:
 migrate-down:
 	alembic downgrade -1
 
+# ─── 검색 평가 (실 Qdrant + OpenAI 임베딩 필요) ───
+eval:
+	python scripts/eval_retrieval.py --modes dense,rerank
+
+eval-gate:
+	python scripts/eval_retrieval.py --gate
+
 # ─── 유틸 ───
 seed:
 	python scripts/seed_data.py
@@ -78,6 +85,8 @@ help:
 	@echo "  make test             전체 테스트"
 	@echo "  make test-unit        단위 테스트만"
 	@echo "  make test-cov         커버리지 리포트 생성"
+	@echo "  make eval             검색 평가 점수표 (dense vs rerank)"
+	@echo "  make eval-gate        baseline 대비 회귀 게이트"
 	@echo "  make lint             린트 검사"
 	@echo "  make format           자동 포맷 + 린트 수정"
 	@echo "  make typecheck        mypy 타입 체크"
