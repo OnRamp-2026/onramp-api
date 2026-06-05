@@ -35,6 +35,8 @@ htmlcov/
 # Generated batch outputs (코퍼스 대량 산출물은 제외, 평가 골든셋만 추적)
 data/*
 !data/eval/
+# 부트스트랩 초안(검수 전) 은 추적 제외 — 검수 후 queries/qrels.jsonl로 병합
+data/eval/*.draft.jsonl
 
 # Ruff
 .ruff_cache/
