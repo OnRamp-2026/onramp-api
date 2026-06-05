@@ -97,3 +97,64 @@ def test_chunk_metadata_classifier_maps_existing_korean_domain_when_no_stronger_
     assert classified.domain == "manual"
     assert classified.section_type == "procedure"
     assert "manual" in (classified.tags or [])
+
+
+def _batch_child(content: str, chunk_id: str, parent_id: str = "p1") -> ChildChunk:
+    """도메인이 content로만 추론되도록 page_title·heading·domain을 중립으로 둔 child."""
+    return ChildChunk(
+        chunk_id=chunk_id,
+        parent_id=parent_id,
+        page_id="pg",
+        page_title="문서",
+        content=content,
+        embedding_text=content,
+        heading_path=["섹션"],
+        chunk_index=0,
+        token_count=10,
+        overlap_from_previous=0,
+        source_url="u",
+        space_key="OnRamp",
+        last_modified="",
+        hash="h",
+        domain="",
+        section_type="general",
+        block_types=["paragraph"],
+        keywords=[],
+        code_languages=[],
+    )
+
+
+def test_classify_batch_unifies_parent_domain_by_majority() -> None:
+    children = [
+        _batch_child("kubectl 설치 절차 운영 매뉴얼", "c0"),  # manual
+        _batch_child("운영 절차 troubleshooting 디버그", "c1"),  # manual
+        _batch_child("api endpoint request response 요청 응답", "c2"),  # api_reference
+    ]
+
+    out = ChunkMetadataClassifier().classify_batch(children, "runbook_like")
+
+    assert {c.domain for c in out} == {"manual"}  # 다수결(manual 2 > api_reference 1)로 통일
+    c2 = next(c for c in out if c.chunk_id == "c2")
+    assert "domain:api_reference" in (c2.tags or [])  # child 자기 추론은 보조 태그로 보존
+    assert "도메인: manual" in c2.embedding_text  # embedding_text도 통일 도메인으로 재생성
+
+
+def test_classify_batch_separate_parents_independent() -> None:
+    children = [
+        _batch_child("api endpoint response", "a0", parent_id="pa"),  # api_reference
+        _batch_child("kubectl 운영 절차", "b0", parent_id="pb"),  # manual
+    ]
+
+    out = ChunkMetadataClassifier().classify_batch(children, "runbook_like")
+    by_id = {c.chunk_id: c for c in out}
+    assert by_id["a0"].domain == "api_reference"  # parent별 독립
+    assert by_id["b0"].domain == "manual"
+
+
+def test_classify_chunk_inherits_explicit_primary_domain() -> None:
+    child = _batch_child("api endpoint response", "c0")  # 단독 추론은 api_reference
+
+    out = ChunkMetadataClassifier().classify_chunk(child, "runbook_like", primary_domain="manual")
+
+    assert out.domain == "manual"  # 명시 primary_domain 상속
+    assert "domain:api_reference" in (out.tags or [])
