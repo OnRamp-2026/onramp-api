@@ -2,7 +2,12 @@ import sys
 import threading
 import types
 
-from app.agents.retriever.rerank import CrossEncoderReranker, _recency_factor, apply_metadata_weight
+from app.agents.retriever.rerank import (
+    CrossEncoderReranker,
+    _recency_factor,
+    apply_domain_weight,
+    apply_metadata_weight,
+)
 from app.config import Settings
 
 
@@ -38,6 +43,23 @@ def test_apply_metadata_weight_bounded():
     weighted = apply_metadata_weight(1.0, {"last_modified": "2026-06-01T00:00:00Z"}, settings)
     assert 1.0 <= weighted <= 1.1 + 1e-9
     assert apply_metadata_weight(1.0, {}, settings) == 1.0  # 날짜 없으면 무가중
+
+
+def test_apply_metadata_weight_additive_on_negative():
+    """음수 점수에서도 최신성 가산은 점수를 올린다 (곱셈이면 더 낮아지던 버그)."""
+    settings = Settings()
+    assert apply_metadata_weight(-0.5, {"last_modified": "2026-06-01T00:00:00Z"}, settings) > -0.5
+    assert apply_metadata_weight(-0.5, {}, settings) == -0.5  # 날짜 없으면 무가중
+
+
+def test_apply_domain_weight_additive_and_negative():
+    """도메인 일치 시 가산 — 음수 점수여도 단조 증가, 불일치/None은 무가중."""
+    settings = Settings()  # domain_match_weight 0.1
+    w = settings.retriever_domain_match_weight
+    assert apply_domain_weight(-0.5, {"domain": "manual"}, "manual", settings) == -0.5 + w
+    assert apply_domain_weight(0.5, {"domain": "manual"}, "manual", settings) == 0.5 + w
+    assert apply_domain_weight(-0.5, {"domain": "api_reference"}, "manual", settings) == -0.5  # 불일치
+    assert apply_domain_weight(-0.5, {"domain": "manual"}, None, settings) == -0.5  # 신뢰 도메인 없음
 
 
 def test_lazy_load_thread_safe(monkeypatch):
