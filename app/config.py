@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     snippet_max_chars: int = 500  # SourceDocument content_snippet 길이
     rerank_recency_weight: float = 0.1  # 최신성 가중 상한 (rerank 순서 우선)
     rerank_recency_half_life_days: int = 180
+    # 도메인 필터 보정 (임계값은 #49에서 골든셋으로 튜닝)
+    retriever_domain_min_score: float = 0.45  # filtered 최고 score가 이 미만이면 무필터로 확장
+    retriever_domain_match_weight: float = 0.1  # 도메인 일치 시 rerank 가산 상한
+    retriever_domain_expand_low_quality: bool = True  # 저품질 filtered 결과의 무필터 확장 on/off
 
     model_config = {
         "env_file": ".env",
