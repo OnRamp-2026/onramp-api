@@ -32,8 +32,9 @@ htmlcov/
 .pytest_cache/
 .mypy_cache/
 
-# Generated batch outputs
-data/
+# Generated batch outputs (코퍼스 대량 산출물은 제외, 평가 골든셋만 추적)
+data/*
+!data/eval/
 
 # Ruff
 .ruff_cache/
