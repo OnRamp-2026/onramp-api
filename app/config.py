@@ -64,9 +64,10 @@ class Settings(BaseSettings):
     retriever_domain_expand_low_quality: bool = True  # 저품질 filtered 결과의 무필터 확장 on/off
 
     # ── Trust Agent (Evidence Confidence, P1) ──
-    trust_max_retries: int = 1  # 재검색 최대 횟수 (무한루프 방지)
-    trust_rerank_floor: float = 0.288  # 재검색 트리거 τ (#A calibrate_answerability 보정값; top rerank<floor → 재검색)
-    trust_min_docs: int = 1
+    trust_max_retries: int = Field(default=1, ge=0)  # 재검색 최대 횟수 (무한루프 방지)
+    # 재검색 트리거 τ (#A calibrate_answerability 보정값; top rerank<floor → 재검색)
+    trust_rerank_floor: float = Field(default=0.288, ge=0.0)
+    trust_min_docs: int = Field(default=1, ge=0)
     # Evidence Confidence 5축 가중치 (기본 합 1.0).
     #   env로 덮어써 합이 1.0이 아니어도 score_trust()가 wsum으로 나눠 자동 정규화하므로 동작은 정상이다.
     #   단, 가중치 절댓값이 아니라 "상대 비율"로 해석된다는 점에 유의.
@@ -78,7 +79,8 @@ class Settings(BaseSettings):
     # owner_trust / verification_label: 색인 payload에 소스 없음 → 중립 (track-B 수집 의존성)
     trust_owner_neutral: float = Field(default=1.0, ge=0.0, le=1.0)
     trust_verification_neutral: float = Field(default=1.0, ge=0.0, le=1.0)
-    trust_conflict_score_gap: float = 0.05  # 서로 다른 page의 top rerank 점수 차 < 이 값이면 충돌 의심(gate)
+    # 서로 다른 page의 top rerank 점수 차 < 이 값이면 충돌 의심(gate)
+    trust_conflict_score_gap: float = Field(default=0.05, ge=0.0)
     # [MASKED_*] 마커 수가 이 값이면 sensitivity_risk=1.0 포화. ge=1 — 0/음수면 채점이 무력화됨.
     trust_sensitivity_masked_cap: int = Field(default=5, ge=1)
 

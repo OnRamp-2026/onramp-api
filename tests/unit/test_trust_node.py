@@ -1,11 +1,18 @@
 """Trust Agent 단위 테스트 (규칙기반·결정론, LLM/Qdrant 불필요)."""
 
+from datetime import UTC, datetime, timedelta
+
 from app.agents.state import SourceDocument, TrustScore
 from app.agents.trust.node import score_trust, should_re_retrieve, trust_decision, trust_node
 from app.config import Settings
 
+# 현재 시각 기준 상대 타임스탬프 — _recency_factor가 datetime.now(UTC)로 age를 계산하므로
+# 하드코딩 날짜는 시간이 지나면 staleness로 테스트가 깨진다. 항상 "오늘"을 기준으로 생성.
+_RECENT = datetime.now(UTC).isoformat()
+_OLD = (datetime.now(UTC) - timedelta(days=3000)).isoformat()
 
-def _doc(rerank=0.5, page_id="p1", last_modified="2026-06-07T00:00:00Z", h="h1", content="내용") -> SourceDocument:
+
+def _doc(rerank=0.5, page_id="p1", last_modified=_RECENT, h="h1", content="내용") -> SourceDocument:
     return SourceDocument(
         title="t", content_snippet=content, rerank_score=rerank, page_id=page_id, last_modified=last_modified, hash=h
     )
@@ -22,8 +29,8 @@ def test_score_empty_docs() -> None:
 
 
 def test_recency_recent_vs_old() -> None:
-    recent = score_trust([_doc(last_modified="2026-06-07T00:00:00Z")], S).recency
-    old = score_trust([_doc(last_modified="2018-01-01T00:00:00Z")], S).recency
+    recent = score_trust([_doc(last_modified=_RECENT)], S).recency
+    old = score_trust([_doc(last_modified=_OLD)], S).recency
     assert recent > 0.9
     assert old < 0.1
 
