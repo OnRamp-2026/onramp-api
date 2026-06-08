@@ -69,7 +69,7 @@ def test_gate_conflicting() -> None:
 def test_should_re_retrieve() -> None:
     assert should_re_retrieve([], S, retry_count=0, max_retries=1) is True  # 문서 0
     assert should_re_retrieve([_doc(rerank=0.1)], S, 0, 1) is True  # top < τ(0.288)
-    assert should_re_retrieve([_doc(rerank=0.9)], S, 0, 1) is False  # 충분
+    assert should_re_retrieve([_doc(rerank=0.9)] * 10, S, 0, 1) is False  # 충분 (trust_min_docs 설정 무관)
     assert should_re_retrieve([_doc(rerank=0.1)], S, retry_count=1, max_retries=1) is False  # 한도 초과
 
 
@@ -84,7 +84,8 @@ async def test_trust_node_triggers_retry() -> None:
 
 
 async def test_trust_node_no_retry_passes_to_answer() -> None:
-    state = {"documents": [_doc(rerank=0.9)], "retry_count": 0, "max_retries": 1}
+    # 충분한 rerank + 충분한 문서 개수 (trust_min_docs 설정과 무관하게)
+    state = {"documents": [_doc(rerank=0.9)] * 10, "retry_count": 0, "max_retries": 1}
     out = await trust_node(state)
     assert out["should_re_retrieve"] is False
     assert "domain" not in out  # 도메인 유지
