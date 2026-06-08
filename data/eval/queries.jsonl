@@ -1,3 +1,17 @@
-{"qid":"ex001","query":"mod_rewrite 무한 루프를 어떻게 방지하나요?","domain":"manual","is_answerable":true,"_draft":true}
-{"qid":"ex002","query":"Datadog Agent 로그 파일 경로는 어디인가요?","domain":"manual","is_answerable":true,"_draft":true}
-{"qid":"ex003","query":"이번 주 점심 메뉴 추천해줘","domain":null,"is_answerable":false,"_draft":true}
+{"qid": "d001", "query": "Apache의 <Directory> 지시문에서 디렉토리 경로가 어떻게 처리되는지 설명해 줄 수 있나요?", "domain": "manual", "is_answerable": true}
+{"qid": "d002", "query": "SymLinksIfOwnerMatch 옵션은 어떤 경우에 사용되며, 보안상의 주의사항은 무엇인가요?", "domain": "manual", "is_answerable": true}
+{"qid": "d003", "query": "분산 추적을 위한 전파 형식 설정은 어떻게 되나요?", "domain": "manual", "is_answerable": true}
+{"qid": "d004", "query": "분산 추적에서 어떤 전파 형식을 추출할 수 있나요?", "domain": "manual", "is_answerable": true}
+{"qid": "d005", "query": "트레이스 플러시 동작을 결정하는 설정은 무엇인가요?", "domain": "manual", "is_answerable": true}
+{"qid": "d006", "query": "Datadog에서 태그를 설정할 때, DD_ENV, DD_SERVICE, DD_VERSION이 설정되지 않으면 어떻게 되나요?", "domain": "api_reference", "is_answerable": true}
+{"qid": "d007", "query": "syslog를 사용하여 로그를 기록할 때 어떤 기본 설정이 있나요?", "domain": "api_reference", "is_answerable": true}
+{"qid": "d008", "query": "서버의 프로세스 리미트를 설정할 때 어떤 조건이 필요한가요?", "domain": "api_reference", "is_answerable": true}
+{"qid": "d009", "query": "AllowOverride와 AllowOverrideList의 차이점은 무엇인가요?", "domain": "api_reference", "is_answerable": true}
+{"qid": "d011", "query": "Datadog에서 커스텀 전송 어댑터를 어떻게 설정하나요?", "domain": "incident", "is_answerable": true}
+{"qid": "d012", "query": "에이전트 v5 사용자에게 어떤 영향이 있나요?", "domain": "incident", "is_answerable": true}
+{"qid": "d013", "query": "로거에서 커스텀 속성을 추가하거나 제거하는 방법은 무엇인가요?", "domain": "incident", "is_answerable": true}
+{"qid": "d014", "query": "Pod가 CrashLoopBackOff 상태일 때 어떻게 문제를 해결할 수 있나요?", "domain": "incident", "is_answerable": true}
+{"qid": "d015", "query": "사용자에게 영향을 미치는 오류가 발생했을 때, 어떤 기준으로 알림을 보내야 하나요?", "domain": "incident", "is_answerable": true}
+{"qid": "d016", "query": "이번 주 점심 메뉴 추천해줘", "domain": null, "is_answerable": false}
+{"qid": "d017", "query": "오늘 서울 날씨 어때?", "domain": null, "is_answerable": false}
+{"qid": "d018", "query": "다음 분기 연봉 인상률은 얼마야?", "domain": null, "is_answerable": false}

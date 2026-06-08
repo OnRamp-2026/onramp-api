@@ -1,0 +1,28 @@
+{
+  "generated_at": "2026-06-08T04:43:35.948193+00:00",
+  "n": 14,
+  "config": {
+    "top_k": 20,
+    "top_n": 5,
+    "embedding_model": "text-embedding-3-small",
+    "reranker_model": "BAAI/bge-reranker-v2-m3"
+  },
+  "dense": {
+    "hit_rate@5": 0.7857,
+    "mrr@10": 0.5786,
+    "recall@5": 0.7857,
+    "ndcg@10": 0.628
+  },
+  "rerank": {
+    "hit_rate@5": 0.8571,
+    "mrr@10": 0.8571,
+    "recall@5": 0.8571,
+    "ndcg@10": 0.8571
+  },
+  "answerability": {
+    "accuracy": 0.8235,
+    "precision": 0.8235,
+    "recall": 1.0,
+    "f1": 0.9032
+  }
+}
