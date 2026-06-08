@@ -40,7 +40,7 @@ def _no_network(monkeypatch):
 
     monkeypatch.setattr("app.agents.router.node.call_llm", _fake_router_llm)
     monkeypatch.setattr("app.agents.retriever.node.get_embedder", lambda *a, **k: _FakeEmbedder())
-    monkeypatch.setattr("app.agents.retriever.node.dense_search", _empty_search)
+    monkeypatch.setattr("app.agents.retriever.search.dense_search", _empty_search)
 
 
 class TestGraphSearchFlow:

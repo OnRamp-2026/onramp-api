@@ -1,8 +1,10 @@
 import pytest
 
 from app.agents.retriever import node as node_mod
+from app.agents.retriever import search as search_mod
 from app.agents.retriever.node import retrieve_node
 from app.agents.state import SourceDocument
+from app.config import Settings
 
 
 def _hit(chunk_id, content, score, domain="장애대응"):
@@ -25,7 +27,8 @@ class _FakeEmbedder:
 
 def _patch(monkeypatch, search_fn, rerank_obj):
     monkeypatch.setattr(node_mod, "get_embedder", lambda *a, **k: _FakeEmbedder())
-    monkeypatch.setattr(node_mod, "dense_search", search_fn)
+    # node는 search_with_mode를 거쳐 dense_search를 호출 → search 모듈의 dense_search를 패치
+    monkeypatch.setattr(search_mod, "dense_search", search_fn)
     monkeypatch.setattr(node_mod, "get_reranker", lambda *a, **k: rerank_obj)
 
 
@@ -156,3 +159,22 @@ async def test_node_domain_match_bonus(monkeypatch):
     _patch(monkeypatch, fake_search, _R())
     out = await retrieve_node({"refined_query": "q", "domain": "manual"})
     assert out["documents"][0].content_snippet == "b"  # domain=manual 일치 → 가산으로 먼저
+
+
+@pytest.mark.asyncio
+async def test_node_honors_config_filter_mode_hard(monkeypatch):
+    """config가 hard면 filtered가 저품질이어도 무필터 확장하지 않는다."""
+    calls = []
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        calls.append(domain)
+        return [_hit("c1", "x", 0.2)]  # 저품질
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.5, p) for _, p in cands]
+
+    _patch(monkeypatch, fake_search, _R())
+    monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(retriever_domain_filter_mode="hard"))
+    await retrieve_node({"refined_query": "q", "domain": "manual"})
+    assert calls == ["manual"]  # hard → 확장 없음

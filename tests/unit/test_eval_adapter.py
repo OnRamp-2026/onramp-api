@@ -7,13 +7,15 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.agents.retriever import search as search_mod
 from app.config import Settings
 from app.eval import retrieval_adapter as adapter
 from app.eval.retrieval_adapter import RetrievalResult, predicted_answerable
 
 
 def _point(chunk_id: str, score: float, content: str = "내용"):
-    return SimpleNamespace(score=score, payload={"chunk_id": chunk_id, "content": content})
+    # id: search_with_mode의 merge(dedupe)가 point.id를 사용
+    return SimpleNamespace(id=chunk_id, score=score, payload={"chunk_id": chunk_id, "content": content})
 
 
 class _Embedder:
@@ -30,7 +32,7 @@ async def test_dense_mode_orders_by_vector_score(monkeypatch, patch_embedder):
     async def _search(qvec, top_k, *, domain=None, **kw):
         return [_point("c2", 0.8), _point("c1", 0.9), _point("c3", 0.7)]
 
-    monkeypatch.setattr(adapter, "dense_search", _search)
+    monkeypatch.setattr(search_mod, "dense_search", _search)
     ids = await adapter.ranked_chunk_ids("q", mode="dense", top_n=2, settings=Settings())
     assert ids == ["c1", "c2"]  # score 내림차순, top_n=2
 
@@ -45,7 +47,7 @@ async def test_rerank_mode_reorders(monkeypatch, patch_embedder):
             scores = [0.1, 0.9, 0.5]
             return [(s, payload) for s, (_, payload) in zip(scores, candidates, strict=True)]
 
-    monkeypatch.setattr(adapter, "dense_search", _search)
+    monkeypatch.setattr(search_mod, "dense_search", _search)
     monkeypatch.setattr(adapter, "get_reranker", lambda *a, **k: _Reranker())
 
     result = await adapter.retrieve_for_eval("q", mode="rerank", top_n=2, settings=Settings())
@@ -63,7 +65,7 @@ async def test_domain_overfilter_falls_back(monkeypatch, patch_embedder):
             return []  # 도메인 과필터 0건
         return [_point("c1", 0.9)]
 
-    monkeypatch.setattr(adapter, "dense_search", _search)
+    monkeypatch.setattr(search_mod, "dense_search", _search)
     ids = await adapter.ranked_chunk_ids("q", mode="dense", domain="incident", settings=Settings())
     assert ids == ["c1"]
     assert calls == ["incident", None]  # 무필터 재검색 발생
@@ -77,7 +79,7 @@ async def test_reranker_failure_falls_back_to_vector(monkeypatch, patch_embedder
         def rerank(self, query, candidates):
             raise RuntimeError("OOM")
 
-    monkeypatch.setattr(adapter, "dense_search", _search)
+    monkeypatch.setattr(search_mod, "dense_search", _search)
     monkeypatch.setattr(adapter, "get_reranker", lambda *a, **k: _BoomReranker())
     ids = await adapter.ranked_chunk_ids("q", mode="rerank", settings=Settings())
     assert ids == ["c1", "c2"]  # vector score 순 폴백
