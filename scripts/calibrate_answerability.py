@@ -21,10 +21,12 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.eval.dataset import load_golden_set  # noqa: E402
-from app.eval.metrics import answerability_accuracy  # noqa: E402
+from app.eval.metrics import AnswerabilitySummary, answerability_accuracy  # noqa: E402
 from app.eval.retrieval_adapter import retrieve_for_eval  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+SweepRow = tuple[float, AnswerabilitySummary, float]  # (τ, 지표, Youden)
 
 
 async def _collect(golden, top_k, top_n) -> list[tuple[float, bool, int]]:
@@ -36,7 +38,7 @@ async def _collect(golden, top_k, top_n) -> list[tuple[float, bool, int]]:
     return rows
 
 
-def _sweep(rows: list[tuple[float, bool, int]], min_docs: int):
+def _sweep(rows: list[tuple[float, bool, int]], min_docs: int) -> tuple[list[SweepRow], tuple | None]:
     labels = [ans for _, ans, _ in rows]
     scores = sorted({s for s, _, _ in rows})
     # 후보 τ: 관측 점수들 사이 midpoint + 양 끝
@@ -63,6 +65,9 @@ async def run(args) -> None:
     rows = await _collect(golden, args.top_k, args.top_n)
     pos = [s for s, a, _ in rows if a]
     neg = [s for s, a, _ in rows if not a]
+    if not pos:
+        logger.error("골든셋에 answerable 쿼리가 없습니다 — 보정 불가")
+        return
     print("\n[top_score 분포]")
     print(f"  answerable   n={len(pos)}  min={min(pos):.3f}  mean={sum(pos) / len(pos):.3f}  max={max(pos):.3f}")
     if neg:

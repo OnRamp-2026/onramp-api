@@ -41,4 +41,5 @@ python scripts/eval_retrieval.py --write-baseline   # baseline.json 고정
 python scripts/eval_retrieval.py --gate   # baseline 대비 회귀 시 exit 1
 ```
 
-> 현재 `queries.jsonl`/`qrels.jsonl`의 `ex*` 행은 **포맷 예시**(`_draft:true`)이며, 부트스트랩+검수로 교체한다.
+> `qid`는 검수 중 일부 문항을 제외하면 **비연속**일 수 있다(예: d010 제외). 로더는 queries↔qrels가 qid로
+> 일치하기만 하면 연속성을 요구하지 않는다.
