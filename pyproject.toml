@@ -38,6 +38,8 @@ dependencies = [
 [project.optional-dependencies]
 rerank = [
     "sentence-transformers>=3.0",  # bge-reranker-v2-m3 (CrossEncoder)
+    # transformers 5.x는 sentence-transformers 5.x와 lazy import 비호환(PreTrainedModel) → 4.x 고정
+    "transformers>=4.41,<5",
 ]
 
 dev = [
