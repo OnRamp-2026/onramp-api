@@ -89,6 +89,18 @@ async def test_answer_citation_guard_demotes(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_answer_consumes_gate_flags_conflicting(monkeypatch):
+    # Trust가 state에 채운 gate_flags(conflicting)가 LLM 자기판정보다 우선 적용된다.
+    monkeypatch.setattr(node_mod, "call_llm", _mock_llm(_ans_json("answerable", (0,))))
+    out = await answer_node(
+        {"refined_query": "q", "documents": [_doc()], "gate_flags": GateFlags(conflicting=True)}
+    )
+    assert out["answerability_status"] == AnswerabilityStatus.CONFLICTING_EVIDENCE
+    # 충돌 보류는 "왜 보류됐는지" 근거를 보여줘야 하므로 sources 유지
+    assert len(out["sources"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_answer_parse_error_holds(monkeypatch):
     monkeypatch.setattr(node_mod, "call_llm", _mock_llm("이건 JSON이 아님"))
     out = await answer_node({"refined_query": "q", "documents": [_doc()]})
