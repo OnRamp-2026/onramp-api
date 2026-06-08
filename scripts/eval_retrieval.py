@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_BASELINE = ROOT_DIR / "data" / "eval" / "baseline.json"
 GATED_MODE = "rerank"  # 회귀 게이트 기준 모드 (운영 경로)
+# answerable 예측 임계값 τ — scripts/calibrate_answerability.py 로 보정한 운영값
+# (골든셋 60문항 기준 Youden's J 최대, precision 1.0 / recall 0.93). 골든셋 갱신 시 재보정.
+ANSWERABILITY_FLOOR = 0.288
 
 
 async def _eval_mode(golden, mode: Mode, *, top_k, top_n, ans_floor, ans_min_docs):
@@ -171,7 +174,9 @@ def main() -> None:
     parser.add_argument("--modes", type=_parse_modes, default="dense,rerank", help="쉼표 구분 (dense,rerank)")
     parser.add_argument("--top-k", type=int, default=None, help="Qdrant 후보 풀 (기본: config)")
     parser.add_argument("--top-n", type=int, default=None, help="최종 top-N (기본: config)")
-    parser.add_argument("--ans-floor", type=float, default=0.0, help="answerable 예측 점수 임계값 τ (보정 전 0)")
+    parser.add_argument(
+        "--ans-floor", type=float, default=ANSWERABILITY_FLOOR, help="answerable 예측 점수 임계값 τ (보정값)"
+    )
     parser.add_argument("--ans-min-docs", type=int, default=1)
     parser.add_argument("--write-baseline", action="store_true")
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
