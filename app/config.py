@@ -63,6 +63,22 @@ class Settings(BaseSettings):
     retriever_domain_match_weight: float = Field(default=0.1, ge=0.0)
     retriever_domain_expand_low_quality: bool = True  # 저품질 filtered 결과의 무필터 확장 on/off
 
+    # ── Trust Agent (Evidence Confidence, P1) ──
+    trust_max_retries: int = 1  # 재검색 최대 횟수 (무한루프 방지)
+    trust_rerank_floor: float = 0.288  # 재검색 트리거 τ (#A calibrate_answerability 보정값; top rerank<floor → 재검색)
+    trust_min_docs: int = 1
+    # Evidence Confidence 5축 가중치 (합 1.0)
+    trust_w_recency: float = Field(default=0.30, ge=0.0, le=1.0)
+    trust_w_owner: float = Field(default=0.10, ge=0.0, le=1.0)
+    trust_w_verification: float = Field(default=0.10, ge=0.0, le=1.0)
+    trust_w_duplication: float = Field(default=0.20, ge=0.0, le=1.0)
+    trust_w_sensitivity: float = Field(default=0.30, ge=0.0, le=1.0)
+    # owner_trust / verification_label: 색인 payload에 소스 없음 → 중립 (track-B 수집 의존성)
+    trust_owner_neutral: float = Field(default=1.0, ge=0.0, le=1.0)
+    trust_verification_neutral: float = Field(default=1.0, ge=0.0, le=1.0)
+    trust_conflict_score_gap: float = 0.05  # 서로 다른 page의 top rerank 점수 차 < 이 값이면 충돌 의심(gate)
+    trust_sensitivity_masked_cap: int = 5  # [MASKED_*] 마커 수가 이 값이면 sensitivity_risk=1.0 포화
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

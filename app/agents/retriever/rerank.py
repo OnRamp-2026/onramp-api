@@ -64,6 +64,10 @@ def _recency_factor(last_modified: str, half_life_days: int) -> float:
     return float(0.5 ** (age_days / half_life_days))
 
 
+# Trust Agent(Evidence Confidence)도 동일한 최신성 계수를 쓴다 — 공개 별칭.
+recency_factor = _recency_factor
+
+
 _reranker: CrossEncoderReranker | None = None
 
 

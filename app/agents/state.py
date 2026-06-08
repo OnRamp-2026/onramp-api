@@ -116,6 +116,19 @@ class TrustScore:
     overall: float = 0.0  # Final Evidence Score (종합 점수)
 
 
+@dataclass
+class GateFlags:
+    """Answerability 게이트 신호 (Trust가 채움). P0에선 미사용.
+
+    state.py에 두어 AgentState 어노테이션의 런타임 평가(LangGraph get_type_hints)와
+    answerability↔state 순환 import를 모두 피한다. answerability는 여기서 re-export.
+    """
+
+    conflicting: bool = False  # 동등 권위 문서 간 내용 충돌
+    deprecated_only: bool = False  # deprecated/archived 문서만 검색됨
+    sensitive_block: bool = False  # 고위험 민감정보 차단
+
+
 # ---------------------------------------------------------------------------
 # AgentState (LangGraph 공유 상태)
 # ---------------------------------------------------------------------------
@@ -144,6 +157,7 @@ class AgentState(TypedDict, total=False):
     # ── Trust Agent 출력 (Evidence Confidence, Sprint 3 P1 — 타입만 정의) ──
     #    문서 기반 5축 채점 → 근거 부족 시 should_re_retrieve로 retriever 재검색 루프
     trust_score: TrustScore
+    gate_flags: GateFlags  # Answerability 게이트 신호 (answer 노드가 소비)
     should_re_retrieve: bool
     retry_count: int
     max_retries: int
