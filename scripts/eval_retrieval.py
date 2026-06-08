@@ -119,14 +119,18 @@ async def run(args) -> int:
     golden = load_golden_set(args.queries, args.qrels)
     logger.info("골든셋 %d개 로드 (모드: %s)", len(golden), ", ".join(args.modes))
 
+    settings = get_settings()
+    top_k = args.top_k if args.top_k is not None else settings.retriever_top_k
+    top_n = args.top_n if args.top_n is not None else settings.retriever_top_n
+
     summaries: dict[str, MetricSummary] = {}
     ans = None
     for mode in args.modes:
         summary, ans_mode = await _eval_mode(
             golden,
             mode,
-            top_k=args.top_k,
-            top_n=args.top_n,
+            top_k=top_k,
+            top_n=top_n,
             ans_floor=args.ans_floor,
             ans_min_docs=args.ans_min_docs,
         )
@@ -137,7 +141,7 @@ async def run(args) -> int:
     _print_table(summaries)
     print(f"\nAnswerability: {ans.as_dict()}  (tp={ans.tp} fp={ans.fp} tn={ans.tn} fn={ans.fn})")
 
-    report = _build_report(summaries, ans, top_k=args.top_k, top_n=args.top_n)
+    report = _build_report(summaries, ans, top_k=top_k, top_n=top_n)
 
     if args.write_baseline:
         args.baseline.parent.mkdir(parents=True, exist_ok=True)
