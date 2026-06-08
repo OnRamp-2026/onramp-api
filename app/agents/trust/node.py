@@ -34,14 +34,18 @@ def _sensitivity(documents: list[SourceDocument], cap: int) -> float:
     return min(1.0, masked / cap)
 
 
-def _conflicting(documents: list[SourceDocument], gap: float) -> bool:
-    """서로 다른 page의 top rerank 점수 차가 gap 미만이면 충돌 의심."""
+def _conflicting(documents: list[SourceDocument], gap: float, floor: float) -> bool:
+    """동등 권위 충돌 의심: 서로 다른 page의 top 점수가 (1)둘 다 관련성 floor 이상이고 (2)점수 차 < gap.
+
+    floor 조건이 핵심 — 저관련 결과는 점수가 0 근처로 뭉쳐(차이<gap) 거의 항상 '충돌'로 오탐된다.
+    실제 충돌은 "둘 다 충분히 관련 있는데 막상막하"인 경우뿐이므로 floor(=재검색 τ)로 거른다.
+    """
     by_page: dict[str, float] = {}
     for d in documents:
         if d.page_id:
             by_page[d.page_id] = max(by_page.get(d.page_id, d.rerank_score), d.rerank_score)
     tops = sorted(by_page.values(), reverse=True)
-    return len(tops) >= 2 and (tops[0] - tops[1]) < gap
+    return len(tops) >= 2 and tops[1] >= floor and (tops[0] - tops[1]) < gap
 
 
 def score_trust(documents: list[SourceDocument], settings: Settings) -> TrustOutput:
@@ -86,7 +90,7 @@ def score_trust(documents: list[SourceDocument], settings: Settings) -> TrustOut
         duplication_conflict=duplication,
         sensitivity_risk=sensitivity,
         overall=overall,
-        gate_conflicting=_conflicting(documents, settings.trust_conflict_score_gap),
+        gate_conflicting=_conflicting(documents, settings.trust_conflict_score_gap, settings.trust_rerank_floor),
         gate_deprecated_only=False,  # verification 데이터 부재 → 항상 False (track-B)
         gate_sensitive_block=sensitivity >= 1.0,
     )

@@ -58,12 +58,15 @@ def test_overall_in_range_and_owner_neutral() -> None:
 
 
 def test_gate_conflicting() -> None:
-    # 서로 다른 page, top 점수 차 < gap(0.05) → 충돌
+    # 서로 다른 page, 둘 다 floor(τ) 이상 + 점수 차 < gap(0.05) → 충돌
     docs = [_doc(page_id="p1", rerank=0.9), _doc(page_id="p2", rerank=0.88)]
     assert score_trust(docs, S).gate_conflicting is True
     # 점수 차 큼 → 충돌 아님
     docs2 = [_doc(page_id="p1", rerank=0.9), _doc(page_id="p2", rerank=0.3)]
     assert score_trust(docs2, S).gate_conflicting is False
+    # 저관련 결과가 0 근처로 뭉친 경우 — 차이는 작지만 floor 미만이라 충돌 오탐 금지
+    docs3 = [_doc(page_id="p1", rerank=0.106), _doc(page_id="p2", rerank=0.103)]
+    assert score_trust(docs3, S).gate_conflicting is False
 
 
 def test_should_re_retrieve() -> None:
