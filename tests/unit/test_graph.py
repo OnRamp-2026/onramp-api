@@ -2,9 +2,9 @@
 LangGraph 워크플로우 테스트.
 
 검증 항목:
-    1. 검색 질문 → Router → Retriever → Answer 순차 실행
+    1. 검색 질문 → Router → Retriever → Trust → Answer 순차 실행
     2. 답변불가 질문 → Router → 즉시 종료 (Retriever, Answer 생략)
-    3. Sprint 2 그래프에 Trust 노드 미포함
+    3. Trust 노드 배선 + 재검색 루프(max_retries 한도) 종료
     4. route_decision 분기 로직 단위 검증
 
 retrieve_node가 async(임베딩/검색 I/O)이므로 그래프는 ainvoke로 실행한다.
@@ -46,11 +46,23 @@ def _no_network(monkeypatch):
 class TestGraphSearchFlow:
     """검색(SEARCH) 경로 테스트."""
 
-    async def test_runs_router_retriever_answer(self) -> None:
-        """검색 질문이 3개 Agent를 순서대로 통과하는지 확인한다."""
+    async def test_runs_router_retriever_trust_answer(self) -> None:
+        """검색 질문이 Router→Retriever→Trust→Answer 경로를 통과하는지 확인한다.
+
+        dense_search stub이 0건을 반환 → Trust가 1회 재검색(retriever→trust)을 유발하고,
+        max_retries(=1) 한도에서 종료 후 answer로 수렴한다.
+        """
         result = await compiled_graph.ainvoke({"query": "EKS Pod 장애 해결법"})
 
-        assert result["agent_trace"] == ["router", "retriever", "answer"]
+        # 재검색 루프 1회: router → (retriever → trust) → (retriever → trust) → answer
+        assert result["agent_trace"] == [
+            "router",
+            "retriever",
+            "trust",
+            "retriever",
+            "trust",
+            "answer",
+        ]
 
     async def test_returns_expected_state_keys(self) -> None:
         """결과에 필수 State 키가 모두 존재하는지 확인한다."""
@@ -58,7 +70,8 @@ class TestGraphSearchFlow:
 
         assert result["query"] == "EKS Pod 장애 해결법"
         assert result["use_case"] == UseCase.SEARCH
-        assert result["domain"] == Domain.MANUAL
+        # Router는 domain=manual로 분류하나, 0건 → Trust 재검색이 domain 필터를 해제(None)
+        assert result["domain"] is None
         assert result["refined_query"] == "EKS Pod 장애 해결법"
 
     async def test_empty_docs_holds_answer(self) -> None:
@@ -117,18 +130,31 @@ class TestRouteDecision:
 
 
 class TestGraphStructure:
-    """Sprint 2 그래프 구조 검증."""
+    """그래프 구조 검증."""
 
-    def test_no_trust_node(self) -> None:
-        """Sprint 2 그래프에 Trust 노드가 포함되지 않음을 확인한다."""
+    def test_has_trust_node(self) -> None:
+        """Trust 노드가 그래프에 배선되어 있는지 확인한다."""
         graph = compiled_graph.get_graph()
-        assert "trust" not in graph.nodes
+        assert "trust" in graph.nodes
 
     def test_has_required_nodes(self) -> None:
-        """Sprint 2 필수 노드(router, retriever, answer)가 존재하는지 확인한다."""
+        """필수 노드(router, retriever, trust, answer)가 존재하는지 확인한다."""
         graph = compiled_graph.get_graph()
         node_names = set(graph.nodes.keys())
 
         assert "router" in node_names
         assert "retriever" in node_names
+        assert "trust" in node_names
         assert "answer" in node_names
+
+    async def test_re_retrieve_loop_terminates(self) -> None:
+        """근거가 계속 부족해도 max_retries 한도에서 루프가 종료되는지 확인한다.
+
+        dense_search stub이 항상 0건 → 무한 재검색을 막고 answer로 수렴해야 한다.
+        """
+        result = await compiled_graph.ainvoke({"query": "근거 없는 질문"})
+
+        # trust가 정확히 max_retries(=1)+1회 = 2회만 실행되고 종료
+        assert result["agent_trace"].count("trust") == 2
+        assert result["agent_trace"][-1] == "answer"
+        assert result["retry_count"] == 1
