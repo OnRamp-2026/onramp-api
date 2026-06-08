@@ -83,6 +83,10 @@ class SourceDocument:
     content_snippet: str = ""
     score: float = 0.0  # 벡터 검색 유사도
     rerank_score: float = 0.0  # Cross-Encoder 리랭킹 점수
+    # Trust Agent(Evidence Confidence) 채점 입력 (응답에는 노출 안 함)
+    page_id: str = ""  # 중복/충돌 판단 (서로 다른 page 간)
+    last_modified: str = ""  # 최신성(recency)
+    hash: str = ""  # 중복 content 탐지
 
 
 @dataclass
