@@ -67,7 +67,9 @@ class Settings(BaseSettings):
     trust_max_retries: int = 1  # 재검색 최대 횟수 (무한루프 방지)
     trust_rerank_floor: float = 0.288  # 재검색 트리거 τ (#A calibrate_answerability 보정값; top rerank<floor → 재검색)
     trust_min_docs: int = 1
-    # Evidence Confidence 5축 가중치 (합 1.0)
+    # Evidence Confidence 5축 가중치 (기본 합 1.0).
+    #   env로 덮어써 합이 1.0이 아니어도 score_trust()가 wsum으로 나눠 자동 정규화하므로 동작은 정상이다.
+    #   단, 가중치 절댓값이 아니라 "상대 비율"로 해석된다는 점에 유의.
     trust_w_recency: float = Field(default=0.30, ge=0.0, le=1.0)
     trust_w_owner: float = Field(default=0.10, ge=0.0, le=1.0)
     trust_w_verification: float = Field(default=0.10, ge=0.0, le=1.0)
@@ -77,7 +79,8 @@ class Settings(BaseSettings):
     trust_owner_neutral: float = Field(default=1.0, ge=0.0, le=1.0)
     trust_verification_neutral: float = Field(default=1.0, ge=0.0, le=1.0)
     trust_conflict_score_gap: float = 0.05  # 서로 다른 page의 top rerank 점수 차 < 이 값이면 충돌 의심(gate)
-    trust_sensitivity_masked_cap: int = 5  # [MASKED_*] 마커 수가 이 값이면 sensitivity_risk=1.0 포화
+    # [MASKED_*] 마커 수가 이 값이면 sensitivity_risk=1.0 포화. ge=1 — 0/음수면 채점이 무력화됨.
+    trust_sensitivity_masked_cap: int = Field(default=5, ge=1)
 
     model_config = {
         "env_file": ".env",

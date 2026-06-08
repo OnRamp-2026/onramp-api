@@ -46,7 +46,8 @@ def test_sensitivity_masked_markers() -> None:
 def test_overall_in_range_and_owner_neutral() -> None:
     out = score_trust([_doc()], S)
     assert 0.0 <= out.overall <= 1.0
-    assert out.owner_trust == 1.0 and out.verification_label == 1.0
+    assert out.owner_trust == 1.0
+    assert out.verification_label == 1.0
 
 
 def test_gate_conflicting() -> None:
