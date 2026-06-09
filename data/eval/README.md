@@ -13,26 +13,52 @@
 
 ### `queries.jsonl`
 ```json
-{"qid":"q001","query":"...","domain":"incident","is_answerable":true,"ground_truth_answer":"...(선택)","_draft":false}
+{"qid":"q001","query":"...","domain":"incident","gold_domains":["incident","api_reference"],"is_answerable":true,"ground_truth_answer":"...(선택)","_draft":false}
 ```
-- `qid`: 고유 키 (qrels와 조인).
-- `domain`: `incident|manual|api_reference|meeting_note|planning` 또는 `null`(무필터).
+- `qid`: 고유 키 (qrels와 조인). 단일 도메인은 `d0xx`, 멀티 도메인은 `m0xx` 관례.
+- `domain`: **라우터가 고를 단일 도메인** = 프로덕션 하드 필터 입력. `incident|manual|api_reference|meeting_note|planning` 또는 `null`(무필터).
+- `gold_domains`: **정답 청크들이 실제로 걸친 도메인 집합**(선택). 장애 대응·온보딩처럼 근거가
+  여러 도메인에 흩어진 질문은 `len>=2`(멀티 도메인). 생략 시 answerable이면 `[domain]`로 기본.
+  `domain`(라우터 단일 픽)은 반드시 `gold_domains`에 포함돼야 한다(로더가 검증).
 - `is_answerable`: answerability 정확도 측정용. 범위 밖(답변 불가) 질문 일부 포함.
 - `ground_truth_answer`: 선택. RAGAS LLM-judge(#C) 전용 — 검색 평가(#A)는 미사용.
 - `_draft`: 부트스트랩 초안 표시. **팀 검수 후 제거**.
+
+> **`domain` vs `gold_domains` (역할 분리, IR 골든셋 모범사례)** — `domain`은 질문의 *의도 facet*
+> (라우터 단일 픽, #65의 하드 필터가 쓰는 값)이고, `gold_domains`는 *relevance judgment의 도메인
+> 커버리지*다. 둘을 분리해야 "단일 도메인 필터가 멀티 도메인 정답을 배제한다"(#65)를 골든셋 파일만으로
+> 측정할 수 있다.
 
 ### `qrels.jsonl`
 ```json
 {"qid":"q001","relevant_chunk_ids":["<page_id>_003","<page_id>_004"]}
 ```
 - unanswerable 질문이면 `[]`.
+- 멀티 도메인 질문은 정답 청크가 2~3개 도메인의 서로 다른 페이지에 걸친다.
 
 ## 구축 워크플로우
 
 1. **초안 부트스트랩** — `python scripts/bootstrap_golden.py`
    (Qdrant 색인분에서 chunk를 샘플링해 "그 chunk가 답이 되는 질문"을 LLM으로 생성, `_draft:true`로 출력)
 2. **팀 검수** — 질문 자연스러움·관련 chunk_id 정확성 확인, paraphrase로 다양화(문구 베끼기 누수 방지), `_draft` 제거.
-3. **확정** — 도메인 5종 균형, 30~50문항 권장. unanswerable 케이스 일부 포함.
+3. **확정** — 도메인 균형, 30~50문항 권장. unanswerable 케이스 일부 포함.
+
+### 현재 구성 (58문항)
+
+| 티어 | 수 | 비고 |
+|---|---|---|
+| 단일 도메인 answerable | 36 | manual 12 / api_reference 12 / incident 12 |
+| 멀티 도메인 answerable (`m0xx`) | 9 | 정답이 2~3개 도메인에 걸침 — #65 측정용 |
+| unanswerable | 13 | answerability 정확도 측정용 |
+
+> 코퍼스(현 색인분)에 존재하는 도메인은 `api_reference`·`manual`·`incident` 3종뿐이라
+> `meeting_note`·`planning`은 다루지 않는다(코퍼스 확장 시 추가). 멀티 도메인은 이 3종 조합으로 구성.
+
+### 멀티 도메인 측정
+```bash
+python scripts/eval_domain_filter.py --structural-only  # gold_domains 기반 구조 분석(오프라인)
+python scripts/eval_domain_filter.py --mode dense       # filter ON/OFF recall 격차 실측(#65)
+```
 
 ## 사용
 ```bash

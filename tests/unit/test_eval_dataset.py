@@ -114,3 +114,95 @@ def test_non_bool_is_answerable_raises(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="bool"):
         load_golden_set(q, r)
+
+
+# ── gold_domains (멀티 도메인) ────────────────────────────────────────────
+
+
+def test_gold_domains_explicit_multi(tmp_path: Path) -> None:
+    q, r = _paths(
+        tmp_path,
+        [
+            {
+                "qid": "m1",
+                "query": "장애 대응",
+                "domain": "incident",
+                "gold_domains": ["incident", "api_reference"],
+                "is_answerable": True,
+            }
+        ],
+        [{"qid": "m1", "relevant_chunk_ids": ["p1_000", "p2_003"]}],
+    )
+    g = load_golden_set(q, r)[0]
+    assert g.gold_domains == ("incident", "api_reference")
+    assert g.is_multi_domain is True
+
+
+def test_gold_domains_default_single(tmp_path: Path) -> None:
+    """gold_domains 생략 + answerable → (domain,) 기본."""
+    q, r = _paths(
+        tmp_path,
+        [{"qid": "q1", "query": "a", "domain": "manual", "is_answerable": True}],
+        [{"qid": "q1", "relevant_chunk_ids": ["p_000"]}],
+    )
+    g = load_golden_set(q, r)[0]
+    assert g.gold_domains == ("manual",)
+    assert g.is_multi_domain is False
+
+
+def test_gold_domains_default_unanswerable_empty(tmp_path: Path) -> None:
+    q, r = _paths(
+        tmp_path,
+        [{"qid": "q1", "query": "a", "domain": None, "is_answerable": False}],
+        [{"qid": "q1", "relevant_chunk_ids": []}],
+    )
+    g = load_golden_set(q, r)[0]
+    assert g.gold_domains == ()
+    assert g.is_multi_domain is False
+
+
+def test_gold_domains_unknown_value_raises(tmp_path: Path) -> None:
+    q, r = _paths(
+        tmp_path,
+        [
+            {
+                "qid": "q1",
+                "query": "a",
+                "domain": "incident",
+                "gold_domains": ["incident", "nonsense"],
+                "is_answerable": True,
+            }
+        ],
+        [{"qid": "q1", "relevant_chunk_ids": ["p_000"]}],
+    )
+    with pytest.raises(ValueError, match="알 수 없는 도메인"):
+        load_golden_set(q, r)
+
+
+def test_gold_domains_must_contain_domain(tmp_path: Path) -> None:
+    """라우터 단일 픽(domain)이 gold_domains에 없으면 라벨 불일치 에러."""
+    q, r = _paths(
+        tmp_path,
+        [
+            {
+                "qid": "q1",
+                "query": "a",
+                "domain": "manual",
+                "gold_domains": ["incident", "api_reference"],
+                "is_answerable": True,
+            }
+        ],
+        [{"qid": "q1", "relevant_chunk_ids": ["p_000"]}],
+    )
+    with pytest.raises(ValueError, match="라벨 불일치"):
+        load_golden_set(q, r)
+
+
+def test_gold_domains_not_list_raises(tmp_path: Path) -> None:
+    q, r = _paths(
+        tmp_path,
+        [{"qid": "q1", "query": "a", "domain": "manual", "gold_domains": "manual", "is_answerable": True}],
+        [{"qid": "q1", "relevant_chunk_ids": ["p_000"]}],
+    )
+    with pytest.raises(ValueError, match="리스트"):
+        load_golden_set(q, r)
