@@ -48,6 +48,10 @@ eval:
 eval-gate:
 	python scripts/eval_retrieval.py --gate
 
+# 생성 평가 (RAGAS LLM-judge, 비결정 → 비차단·nightly). 설치: uv pip install -e ".[eval]"
+eval-gen:
+	python scripts/eval_generation.py
+
 # ─── 유틸 ───
 seed:
 	python scripts/seed_data.py
