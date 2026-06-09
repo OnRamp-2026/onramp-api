@@ -43,12 +43,22 @@ def apply_metadata_weight(rerank_score: float, payload: dict, settings: Settings
     return rerank_score + settings.rerank_recency_weight * factor
 
 
-def apply_domain_weight(rerank_score: float, payload: dict, domain: str | None, settings: Settings) -> float:
-    """도메인이 일치하면 점수를 더한다. 가산식이라 음수 점수(Cross-Encoder logit)에서도 단조 증가한다.
+def payload_domains(payload: dict) -> list[str]:
+    """문서가 걸친 도메인 집합. 멀티도메인 `domains[]` 우선, 없으면 단일 `domain`(하위호환)."""
+    domains = payload.get("domains")
+    if domains:
+        return list(domains)
+    single = payload.get("domain")
+    return [single] if single else []
 
-    domain이 None이거나 불일치면 원점수를 그대로 반환한다.
+
+def apply_domain_weight(rerank_score: float, payload: dict, domain: str | None, settings: Settings) -> float:
+    """라우터 도메인이 문서 도메인 집합에 들면 점수를 더한다(Soft 가산).
+
+    가산식이라 음수 점수(Cross-Encoder logit)에서도 단조 증가. domain이 None이거나
+    문서 domains에 없으면 원점수를 그대로 반환한다. 멀티도메인 `domains[]`/단일 `domain` 모두 지원.
     """
-    if domain and payload.get("domain") == domain:
+    if domain and domain in payload_domains(payload):
         return rerank_score + settings.retriever_domain_match_weight
     return rerank_score
 

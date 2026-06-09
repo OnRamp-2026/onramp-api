@@ -66,9 +66,48 @@ async def test_node_domain_filter_fallback(monkeypatch):
             return [(0.1, p) for _, p in cands]
 
     _patch(monkeypatch, fake_search, _R())
+    monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(retriever_domain_filter_mode="hybrid"))
     out = await retrieve_node({"refined_query": "q", "domain": "장애대응"})
-    assert calls == ["장애대응", None]  # 필터→0건→무필터 재검색
+    assert calls == ["장애대응", None]  # hybrid: 필터→0건→무필터 재검색
     assert len(out["documents"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_node_soft_default_no_filter_but_bonus(monkeypatch):
+    """기본 soft: 도메인으로 필터하지 않고(무필터 검색) 일치 시 가산만 적용."""
+    calls = []
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        calls.append(domain)
+        return [_hit("c1", "a", 0.9, domain="api_reference"), _hit("c2", "b", 0.9, domain="manual")]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.5, p) for _, p in cands]
+
+    _patch(monkeypatch, fake_search, _R())  # 기본값 soft
+    out = await retrieve_node({"refined_query": "q", "domain": "manual"})
+    assert calls == [None]  # soft → 무필터 검색
+    assert out["documents"][0].content_snippet == "b"  # manual 일치 가산으로 우선
+
+
+@pytest.mark.asyncio
+async def test_node_fallback_applies_domain_bonus(monkeypatch):
+    """리랭커 실패 폴백에서도 soft 도메인 가산이 정렬에 반영된다."""
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        # 불일치 문서가 vec 약간 높지만, 일치 문서가 가산으로 역전
+        return [_hit("c1", "other", 0.55, domain="api_reference"), _hit("c2", "match", 0.5, domain="manual")]
+
+    class _R:
+        def rerank(self, q, cands):
+            raise RuntimeError("OOM")
+
+    _patch(monkeypatch, fake_search, _R())  # 기본값 soft
+    out = await retrieve_node({"refined_query": "q", "domain": "manual"})
+    # 폴백: 0.55(api_reference) vs 0.5+0.1(manual 가산)=0.6 → manual 먼저
+    assert out["documents"][0].content_snippet == "match"
+    assert out["documents"][0].rerank_score == 0.0
 
 
 @pytest.mark.asyncio
@@ -122,8 +161,9 @@ async def test_node_low_quality_filtered_expands_and_recovers(monkeypatch):
             return [(1.0 if "right" in text else 0.1, p) for text, p in cands]
 
     _patch(monkeypatch, fake_search, _R())
+    monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(retriever_domain_filter_mode="hybrid"))
     out = await retrieve_node({"refined_query": "q", "domain": "manual"})
-    assert calls == ["manual", None]  # 저품질 filtered → 무필터 확장
+    assert calls == ["manual", None]  # hybrid: 저품질 filtered → 무필터 확장
     assert out["documents"][0].content_snippet == "right"  # merge 후 정답 회수
 
 
@@ -141,8 +181,9 @@ async def test_node_high_quality_filtered_no_expand(monkeypatch):
             return [(0.5, p) for _, p in cands]
 
     _patch(monkeypatch, fake_search, _R())
+    monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(retriever_domain_filter_mode="hybrid"))
     await retrieve_node({"refined_query": "q", "domain": "manual"})
-    assert calls == ["manual"]  # 고품질 → 확장 없음
+    assert calls == ["manual"]  # hybrid 고품질 → 확장 없음
 
 
 @pytest.mark.asyncio

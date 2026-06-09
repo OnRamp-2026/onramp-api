@@ -58,8 +58,9 @@ class Settings(BaseSettings):
     snippet_max_chars: int = 500  # SourceDocument content_snippet 길이
     rerank_recency_weight: float = 0.1  # 최신성 가산값 (additive, rerank 순서 우선)
     rerank_recency_half_life_days: int = 180
-    # 도메인 필터 모드 (#49 골든셋 A/B로 확정) — hard: 필터만 / hybrid: 저품질 무필터 확장 / soft: 무필터+가산
-    retriever_domain_filter_mode: Literal["hard", "hybrid", "soft"] = "hybrid"
+    # 도메인 필터 모드 — soft 확정(#49 router-in-the-loop: 라우터 33%라 hard/hybrid 붕괴, soft 0.711)
+    # soft: 무필터+가산 / hybrid: 저품질 무필터 확장 / hard: 필터만
+    retriever_domain_filter_mode: Literal["hard", "hybrid", "soft"] = "soft"
     # 도메인 필터 보정 (임계값은 #49에서 골든셋으로 튜닝)
     # min_score: dense 유사도 임계값 → [0, 1]. match_weight: rerank 가산값(additive, logit 스케일) → 음수만 금지.
     retriever_domain_min_score: float = Field(default=0.45, ge=0.0, le=1.0)

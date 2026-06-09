@@ -66,7 +66,7 @@ async def test_domain_overfilter_falls_back(monkeypatch, patch_embedder):
         return [_point("c1", 0.9)]
 
     monkeypatch.setattr(search_mod, "dense_search", _search)
-    ids = await adapter.ranked_chunk_ids("q", mode="dense", domain="incident", settings=Settings())
+    ids = await adapter.ranked_chunk_ids("q", mode="dense", domain="incident", filter_mode="hybrid", settings=Settings())
     assert ids == ["c1"]
     assert calls == ["incident", None]  # 무필터 재검색 발생
 
