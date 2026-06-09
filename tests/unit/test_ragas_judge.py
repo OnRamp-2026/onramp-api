@@ -82,8 +82,75 @@ async def test_score_generation_aggregates_with_stubbed_scorers(monkeypatch) -> 
     assert scores.n_skipped == 0
     assert scores.faithfulness == 0.8
     assert scores.answer_relevancy == 0.6
+    # reference 미사용 → reference 지표는 None/0
+    assert scores.factual_correctness is None
+    assert scores.semantic_similarity is None
+    assert scores.n_reference_evaluated == 0
     d = scores.as_dict()
     assert d["faithfulness"] == 0.8 and d["n_evaluated"] == 2
+
+
+def _inject_fake_ragas(monkeypatch, **metric_classes) -> None:
+    """ragas.dataset_schema / ragas.metrics를 가짜 모듈로 주입한다."""
+    import sys
+    import types
+
+    class _Sample:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    schema_mod = types.ModuleType("ragas.dataset_schema")
+    schema_mod.SingleTurnSample = _Sample
+    metrics_mod = types.ModuleType("ragas.metrics")
+    for name, cls in metric_classes.items():
+        setattr(metrics_mod, name, cls)
+    monkeypatch.setitem(sys.modules, "ragas.dataset_schema", schema_mod)
+    monkeypatch.setitem(sys.modules, "ragas.metrics", metrics_mod)
+
+
+def _const_metric(value):
+    class _M:
+        def __init__(self, **_):
+            pass
+
+        async def single_turn_ascore(self, _sample):
+            return value
+
+    return _M
+
+
+async def test_score_generation_with_reference(monkeypatch) -> None:
+    # with_reference=True → GT 존재 샘플에만 reference 지표 채점
+    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda settings: (object(), object()))
+    _inject_fake_ragas(
+        monkeypatch,
+        Faithfulness=_const_metric(0.8),
+        ResponseRelevancy=_const_metric(0.6),
+        FactualCorrectness=_const_metric(0.7),
+        SemanticSimilarity=_const_metric(0.9),
+    )
+
+    results = [
+        _result(query="q1"),  # GT 없음 → reference 지표 제외
+        GenerationResult(query="q2", answer_text="답", retrieved_contexts=["c"], reference="정답"),
+    ]
+    scores = await score_generation(results, with_reference=True)
+    # reference-free는 둘 다(2건)
+    assert scores.n_evaluated == 2
+    # reference 지표는 GT 있는 1건만
+    assert scores.n_reference_evaluated == 1
+    assert scores.factual_correctness == 0.7
+    assert scores.semantic_similarity == 0.9
+
+
+async def test_score_generation_with_reference_but_no_gt(monkeypatch) -> None:
+    # with_reference=True여도 GT 없는 샘플뿐이면 reference 지표는 None (FactualCorrectness import도 안 함)
+    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda settings: (object(), object()))
+    _inject_fake_ragas(monkeypatch, Faithfulness=_const_metric(0.8), ResponseRelevancy=_const_metric(0.6))
+
+    scores = await score_generation([_result()], with_reference=True)
+    assert scores.factual_correctness is None
+    assert scores.n_reference_evaluated == 0
 
 
 async def test_score_generation_skips_failed_samples(monkeypatch) -> None:
