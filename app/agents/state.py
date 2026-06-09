@@ -83,6 +83,10 @@ class SourceDocument:
     content_snippet: str = ""
     score: float = 0.0  # 벡터 검색 유사도
     rerank_score: float = 0.0  # Cross-Encoder 리랭킹 점수
+    # Trust Agent(Evidence Confidence) 채점 입력 (응답에는 노출 안 함)
+    page_id: str = ""  # 중복/충돌 판단 (서로 다른 page 간)
+    last_modified: str = ""  # 최신성(recency)
+    hash: str = ""  # 중복 content 탐지
 
 
 @dataclass
@@ -110,6 +114,19 @@ class TrustScore:
     duplication_conflict: float = 0.0  # 중복도/충돌
     sensitivity_risk: float = 0.0  # 민감정보 위험
     overall: float = 0.0  # Final Evidence Score (종합 점수)
+
+
+@dataclass
+class GateFlags:
+    """Answerability 게이트 신호 (Trust가 채움). P0에선 미사용.
+
+    state.py에 두어 AgentState 어노테이션의 런타임 평가(LangGraph get_type_hints)와
+    answerability↔state 순환 import를 모두 피한다. answerability는 여기서 re-export.
+    """
+
+    conflicting: bool = False  # 동등 권위 문서 간 내용 충돌
+    deprecated_only: bool = False  # deprecated/archived 문서만 검색됨
+    sensitive_block: bool = False  # 고위험 민감정보 차단
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +157,7 @@ class AgentState(TypedDict, total=False):
     # ── Trust Agent 출력 (Evidence Confidence, Sprint 3 P1 — 타입만 정의) ──
     #    문서 기반 5축 채점 → 근거 부족 시 should_re_retrieve로 retriever 재검색 루프
     trust_score: TrustScore
+    gate_flags: GateFlags  # Answerability 게이트 신호 (answer 노드가 소비)
     should_re_retrieve: bool
     retry_count: int
     max_retries: int

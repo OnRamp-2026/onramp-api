@@ -75,10 +75,12 @@ async def answer_node(state: AgentState) -> dict:
         logger.warning("Answer 응답 파싱 실패 — NOT_ENOUGH fallback")
         return _result(FiveElements(), [], AnswerabilityStatus.NOT_ENOUGH_EVIDENCE, "답변 생성 실패 (파싱 오류)")
 
-    # P1: trust_score(Final Evidence Score)가 있으면 점수 기반, 없으면 P0 LLM 자기판정
-    trust = state.get("trust_score")
-    evidence_score = trust.overall if trust is not None else None
-    status = decide_answerability(documents, evidence_score=evidence_score, llm_status=llm_status)
+    # P1: Trust 게이트(충돌/만료/민감차단)를 먼저 적용하고, 그 외엔 P0 LLM 자기판정.
+    #   evidence_score는 v1에서 의도적으로 미사용 — trust.overall(가중평균 ~0.x 스케일)이
+    #   answerability 임계값(0.80/0.60)과 스케일이 달라 별도 보정 전까지 연결하지 않는다(track-B).
+    #   게이트 신호(gate_flags)는 스케일 무관 불리언이라 안전하게 우선 적용한다.
+    gate = state.get("gate_flags")
+    status = decide_answerability(documents, gate=gate, llm_status=llm_status)
 
     # 인용 guard: ANSWERABLE인데 인용 출처 0건 → PARTIALLY로 강등
     if status == AnswerabilityStatus.ANSWERABLE and not sources:

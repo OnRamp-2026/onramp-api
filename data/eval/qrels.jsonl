@@ -1,20 +1,6 @@
 {"qid": "d001", "relevant_chunk_ids": ["70827_014"]}
 {"qid": "d002", "relevant_chunk_ids": ["70827_051"]}
 {"qid": "d003", "relevant_chunk_ids": ["108744_096"]}
-{"qid": "d004", "relevant_chunk_ids": ["108744_094"]}
-{"qid": "d005", "relevant_chunk_ids": ["108744_111"]}
-{"qid": "d006", "relevant_chunk_ids": ["108744_113"]}
-{"qid": "d007", "relevant_chunk_ids": ["70827_022"]}
-{"qid": "d008", "relevant_chunk_ids": ["70827_057"]}
-{"qid": "d009", "relevant_chunk_ids": ["335884_013"]}
-{"qid": "d011", "relevant_chunk_ids": ["108744_126"]}
-{"qid": "d012", "relevant_chunk_ids": ["74784_007"]}
-{"qid": "d013", "relevant_chunk_ids": ["107943_007"]}
-{"qid": "d014", "relevant_chunk_ids": ["seed1_000"]}
-{"qid": "d015", "relevant_chunk_ids": ["175349_001"]}
-{"qid": "d016", "relevant_chunk_ids": []}
-{"qid": "d017", "relevant_chunk_ids": []}
-{"qid": "d018", "relevant_chunk_ids": []}
 {"qid": "d019", "relevant_chunk_ids": ["103793_007"]}
 {"qid": "d020", "relevant_chunk_ids": ["108744_075"]}
 {"qid": "d021", "relevant_chunk_ids": ["70827_024"]}
@@ -22,11 +8,12 @@
 {"qid": "d023", "relevant_chunk_ids": ["335884_011"]}
 {"qid": "d024", "relevant_chunk_ids": ["70827_027"]}
 {"qid": "d025", "relevant_chunk_ids": ["335884_010"]}
-{"qid": "d026", "relevant_chunk_ids": ["108744_107"]}
-{"qid": "d027", "relevant_chunk_ids": ["seed2_000"]}
 {"qid": "d028", "relevant_chunk_ids": ["76848_002"]}
-{"qid": "d029", "relevant_chunk_ids": ["74501_003"]}
 {"qid": "d030", "relevant_chunk_ids": ["108767_003"]}
+{"qid": "d006", "relevant_chunk_ids": ["108744_113"]}
+{"qid": "d007", "relevant_chunk_ids": ["70827_022"]}
+{"qid": "d008", "relevant_chunk_ids": ["70827_057"]}
+{"qid": "d009", "relevant_chunk_ids": ["335884_013"]}
 {"qid": "d031", "relevant_chunk_ids": ["104106_003"]}
 {"qid": "d032", "relevant_chunk_ids": ["341672_002"]}
 {"qid": "d033", "relevant_chunk_ids": ["108744_035"]}
@@ -35,10 +22,11 @@
 {"qid": "d036", "relevant_chunk_ids": ["104476_000"]}
 {"qid": "d037", "relevant_chunk_ids": ["335884_105"]}
 {"qid": "d038", "relevant_chunk_ids": ["108744_000"]}
-{"qid": "d039", "relevant_chunk_ids": ["168465_001"]}
-{"qid": "d040", "relevant_chunk_ids": ["108744_123"]}
-{"qid": "d041", "relevant_chunk_ids": ["337679_012"]}
-{"qid": "d042", "relevant_chunk_ids": ["335884_073"]}
+{"qid": "d011", "relevant_chunk_ids": ["108744_126"]}
+{"qid": "d012", "relevant_chunk_ids": ["74784_007"]}
+{"qid": "d013", "relevant_chunk_ids": ["107943_007"]}
+{"qid": "d014", "relevant_chunk_ids": ["seed1_000"]}
+{"qid": "d015", "relevant_chunk_ids": ["175349_001"]}
 {"qid": "d043", "relevant_chunk_ids": ["74784_003"]}
 {"qid": "d044", "relevant_chunk_ids": ["108744_127"]}
 {"qid": "d045", "relevant_chunk_ids": ["74784_000"]}
@@ -46,6 +34,18 @@
 {"qid": "d047", "relevant_chunk_ids": ["74451_002"]}
 {"qid": "d048", "relevant_chunk_ids": ["74784_001"]}
 {"qid": "d049", "relevant_chunk_ids": ["108744_122"]}
+{"qid": "m001", "relevant_chunk_ids": ["74784_003", "74784_004", "74784_001"]}
+{"qid": "m002", "relevant_chunk_ids": ["74451_004", "74451_005", "74451_006", "74451_001"]}
+{"qid": "m003", "relevant_chunk_ids": ["seed1_000", "74451_002", "74451_009"]}
+{"qid": "m004", "relevant_chunk_ids": ["77131_000", "77131_002", "77131_005"]}
+{"qid": "m005", "relevant_chunk_ids": ["337679_000", "337679_002", "337679_013"]}
+{"qid": "m006", "relevant_chunk_ids": ["175349_001", "175349_000", "341672_000"]}
+{"qid": "m007", "relevant_chunk_ids": ["74501_002", "74501_000", "74933_000"]}
+{"qid": "m008", "relevant_chunk_ids": ["108744_126", "108744_127", "108744_000"]}
+{"qid": "m009", "relevant_chunk_ids": ["74784_007", "74784_004", "74784_005"]}
+{"qid": "d016", "relevant_chunk_ids": []}
+{"qid": "d017", "relevant_chunk_ids": []}
+{"qid": "d018", "relevant_chunk_ids": []}
 {"qid": "d050", "relevant_chunk_ids": []}
 {"qid": "d051", "relevant_chunk_ids": []}
 {"qid": "d052", "relevant_chunk_ids": []}
@@ -55,6 +55,4 @@
 {"qid": "d056", "relevant_chunk_ids": []}
 {"qid": "d057", "relevant_chunk_ids": []}
 {"qid": "d058", "relevant_chunk_ids": []}
-{"qid": "d059", "relevant_chunk_ids": []}
 {"qid": "d060", "relevant_chunk_ids": []}
-{"qid": "d061", "relevant_chunk_ids": []}

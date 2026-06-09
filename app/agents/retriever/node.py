@@ -76,4 +76,7 @@ def _to_source_doc(payload: dict, rerank_score: float, score: float, settings: S
         content_snippet=payload.get("content", "")[: settings.snippet_max_chars],
         score=score,
         rerank_score=rerank_score,
+        page_id=payload.get("page_id", ""),
+        last_modified=payload.get("last_modified", ""),
+        hash=payload.get("hash", ""),
     )

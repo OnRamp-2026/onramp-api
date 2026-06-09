@@ -21,6 +21,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
     initial_state = {
         "query": request.query,
         "model": request.model,
+        # Trust 재검색 루프 시드 — max_retries 한도로 무한루프 방지
+        "retry_count": 0,
+        "max_retries": get_settings().trust_max_retries,
     }
     try:
         state = await compiled_graph.ainvoke(initial_state)
