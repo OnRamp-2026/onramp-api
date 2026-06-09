@@ -5,11 +5,17 @@ on:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    - cron: "0 18 * * *" # 매일 03:00 KST — 생성 평가(eval-gen) nightly 전용
+  workflow_dispatch: {} # 수동 트리거(생성 평가 즉시 실행용)
 
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    # 결정론 CI(lint/test/typecheck)는 schedule(nightly)에서는 돌지 않는다.
+    # lint가 skip되면 needs:lint인 test/typecheck도 함께 skip된다.
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -124,3 +130,46 @@ jobs:
         run: |
           source .venv/bin/activate
           mypy app/
+
+  # ─── 생성 평가 (RAGAS LLM-judge) — nightly·수동 전용, 비차단 ───
+  # 비결정적(LLM-judge)이라 PR 게이트가 아니다. 추세 관찰용.
+  # 전제: (1) OPENAI_API_KEY 시크릿, (2) 색인된 코퍼스를 가진 Qdrant.
+  #   GH 서비스 컨테이너 Qdrant는 비어 있으므로, 실측하려면 vars로 원격 색인 인스턴스를 가리켜야 한다
+  #   (미설정 시 검색 0건 → 전부 skip되어 무의미하지만 실패하지는 않는다).
+  eval-gen:
+    name: Generation Eval (nightly, non-blocking)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies (with eval extra)
+        run: |
+          uv venv .venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev,eval]"
+
+      - name: Run generation eval
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # 색인된 원격 Qdrant를 가리키도록 repo variables로 설정(미설정 시 localhost → 빈 결과)
+          QDRANT_HOST: ${{ vars.EVAL_QDRANT_HOST }}
+          QDRANT_PORT: ${{ vars.EVAL_QDRANT_PORT }}
+        run: |
+          source .venv/bin/activate
+          python scripts/eval_generation.py --limit 10 --write-report
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gen-report
+          path: data/eval/gen_report.json
+          if-no-files-found: ignore
