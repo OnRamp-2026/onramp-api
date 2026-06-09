@@ -1,0 +1,61 @@
+{"_meta": true, "model": "", "ts": "2026-06-09T00:49:25.357505+00:00", "n": 60}
+{"qid": "d001", "query": "Apache의 <Directory> 지시문에서 디렉토리 경로가 어떻게 처리되는지 설명해 줄 수 있나요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "api_reference", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d002", "query": "SymLinksIfOwnerMatch 옵션은 어떤 경우에 사용되며, 보안상의 주의사항은 무엇인가요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d003", "query": "분산 추적을 위한 전파 형식 설정은 어떻게 되나요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d004", "query": "분산 추적에서 어떤 전파 형식을 추출할 수 있나요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "api_reference", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d005", "query": "트레이스 플러시 동작을 결정하는 설정은 무엇인가요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d006", "query": "Datadog에서 태그를 설정할 때, DD_ENV, DD_SERVICE, DD_VERSION이 설정되지 않으면 어떻게 되나요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "incident", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d007", "query": "syslog를 사용하여 로그를 기록할 때 어떤 기본 설정이 있나요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d008", "query": "서버의 프로세스 리미트를 설정할 때 어떤 조건이 필요한가요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d009", "query": "AllowOverride와 AllowOverrideList의 차이점은 무엇인가요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d011", "query": "Datadog에서 커스텀 전송 어댑터를 어떻게 설정하나요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d012", "query": "에이전트 v5 사용자에게 어떤 영향이 있나요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d013", "query": "로거에서 커스텀 속성을 추가하거나 제거하는 방법은 무엇인가요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d014", "query": "Pod가 CrashLoopBackOff 상태일 때 어떻게 문제를 해결할 수 있나요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "incident", "confidence": 0.95, "use_case": "검색", "parse_ok": true}
+{"qid": "d015", "query": "사용자에게 영향을 미치는 오류가 발생했을 때, 어떤 기준으로 알림을 보내야 하나요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "incident", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d016", "query": "이번 주 점심 메뉴 추천해줘", "gold_domain": null, "is_answerable": false, "pred_domain": null, "confidence": 0.0, "use_case": null, "parse_ok": false}
+{"qid": "d017", "query": "오늘 서울 날씨 어때?", "gold_domain": null, "is_answerable": false, "pred_domain": "manual", "confidence": 0.99, "use_case": "답변불가", "parse_ok": true}
+{"qid": "d018", "query": "다음 분기 연봉 인상률은 얼마야?", "gold_domain": null, "is_answerable": false, "pred_domain": null, "confidence": 0.0, "use_case": null, "parse_ok": false}
+{"qid": "d019", "query": "RewriteCond의 %{ENV:rewritten} 값이 1일 때 어떤 조건이 적용되나요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d020", "query": "Stripe 추적을 비활성화하려면 어떻게 해야 하나요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d021", "query": "파일 이름에 따라 적용되는 지시어를 설정하는 방법은 무엇인가요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d022", "query": "Postgres 추적을 설정할 때 어떤 키워드 인수를 사용할 수 있나요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "api_reference", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d023", "query": "AllowOverride 지시어를 사용할 때 주의해야 할 점은 무엇인가요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d024", "query": "GprofDir 지시어는 어떤 역할을 하나요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "api_reference", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d025", "query": "AllowOverride 옵션을 사용하면 .htaccess 파일의 구문 오류를 어떻게 처리할 수 있나요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d026", "query": "단일 스팬 샘플링 규칙을 설정하는 방법은 무엇인가요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d027", "query": "onramp 컬렉션에서 사용하는 차원 수와 관련된 정보는 무엇인가요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "api_reference", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d028", "query": ".NET 애플리케이션에서 커스텀 계측을 설정하려면 어떤 단계를 따라야 하나요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d029", "query": "Agent v6의 명령줄 인터페이스에서 사용할 수 있는 하위 명령어는 무엇인가요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "api_reference", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d030", "query": "각 PHP 프레임워크의 지원 버전과 계측 레벨은 어떻게 되나요?", "gold_domain": "manual", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d031", "query": "Apache 서버의 요청 처리 과정은 어떤 단계로 이루어져 있나요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d032", "query": "어떻게 ping 서버를 실행하고 알림 상태를 확인할 수 있나요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d033", "query": "httpclient gem을 사용하여 HTTP 호출을 추적하는 방법은 무엇인가요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d034", "query": "호스트가 새로운 GPG 키를 신뢰하는지 어떻게 확인하나요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d035", "query": "디렉토리 매칭을 위해 어떤 정규 표현식을 사용해야 하나요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d036", "query": ".htaccess 파일은 무엇이며 어떻게 사용하나요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d037", "query": "SetInputFilter 지시어는 클라이언트 요청을 처리하기 위해 어떤 역할을 하나요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "api_reference", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d038", "query": "Ruby 애플리케이션에서 Datadog Agent를 설정하는 방법은 무엇인가요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d039", "query": ".htaccess 파일은 어떻게 사용되며, 어떤 기능을 제공하나요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d040", "query": "Datadog에서 로깅 중 트레이스가 활성화되지 않았을 때 어떤 값이 반환되나요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "api_reference", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d041", "query": "NGINX 컨테이너를 자동탐지로 부팅하려면 어떤 Dockerfile을 사용해야 하나요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d042", "query": "ErrorLog의 메시지 기록에서 LogLevel의 역할은 무엇인가요?", "gold_domain": "api_reference", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d043", "query": "datadog-agent 패키지를 설치할 때 발생하는 GPG 키 오류는 어떻게 해결하나요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d044", "query": "애플리케이션에서 런타임 메트릭을 어떻게 구성하나요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d045", "query": "Datadog의 키 로테이션 일정은 어떻게 되나요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d046", "query": "Datadog 에이전트를 설치할 때 새 서명 키가 신뢰되지 않으면 어떤 오류가 발생하나요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d047", "query": "쿠버네티스에서 실시간 메트릭을 어떻게 활용할 수 있나요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "manual", "confidence": 0.85, "use_case": "검색", "parse_ok": true}
+{"qid": "d048", "query": "새 GPG 키를 자동으로 신뢰하도록 설정하는 방법은 무엇인가요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d049", "query": "Rails 애플리케이션에서 트레이스 상관 관계 주입을 비활성화하려면 어떻게 해야 하나요?", "gold_domain": "incident", "is_answerable": true, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d050", "query": "React useEffect 의존성 배열은 어떻게 동작하나요?", "gold_domain": null, "is_answerable": false, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d051", "query": "PostgreSQL에서 VACUUM FULL은 언제 실행해야 하나요?", "gold_domain": null, "is_answerable": false, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d052", "query": "GraphQL에서 N+1 쿼리 문제를 어떻게 해결하나요?", "gold_domain": null, "is_answerable": false, "pred_domain": "incident", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d053", "query": "Kafka 컨슈머 그룹 리밸런싱은 어떻게 동작하나요?", "gold_domain": null, "is_answerable": false, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d054", "query": "MongoDB 샤딩 키는 어떻게 선택해야 하나요?", "gold_domain": null, "is_answerable": false, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d055", "query": "Terraform state 잠금이 걸렸을 때 어떻게 푸나요?", "gold_domain": null, "is_answerable": false, "pred_domain": "incident", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d056", "query": "Redis Cluster 리샤딩 절차를 알려줘", "gold_domain": null, "is_answerable": false, "pred_domain": "manual", "confidence": 0.9, "use_case": "검색", "parse_ok": true}
+{"qid": "d057", "query": "우리 팀 이번 주 온콜 담당자는 누구야?", "gold_domain": null, "is_answerable": false, "pred_domain": null, "confidence": 0.0, "use_case": null, "parse_ok": false}
+{"qid": "d058", "query": "프로덕션 배포 승인자는 누구인가요?", "gold_domain": null, "is_answerable": false, "pred_domain": "manual", "confidence": 0.95, "use_case": "답변불가", "parse_ok": true}
+{"qid": "d059", "query": "다음 회식 장소는 어디로 정해졌어?", "gold_domain": null, "is_answerable": false, "pred_domain": null, "confidence": 0.0, "use_case": null, "parse_ok": false}
+{"qid": "d060", "query": "안녕, 너는 누구야?", "gold_domain": null, "is_answerable": false, "pred_domain": "manual", "confidence": 0.99, "use_case": "답변불가", "parse_ok": true}
+{"qid": "d061", "query": "재미있는 농담 하나 해줘", "gold_domain": null, "is_answerable": false, "pred_domain": "manual", "confidence": 0.99, "use_case": "답변불가", "parse_ok": true}

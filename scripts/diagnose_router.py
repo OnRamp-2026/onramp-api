@@ -76,7 +76,7 @@ async def collect(out_path: Path) -> list[dict]:
     return rows
 
 
-def _confusion(rows: list[dict]) -> dict[str, dict[str, int]]:
+def _confusion(rows: list[dict]) -> dict[str, dict[str | None, int]]:
     """answerable + gold 도메인 보유 행만. gold → pred(None 포함) 카운트."""
     labels = [*DOMAINS, None]
     matrix = {g: {p: 0 for p in labels} for g in DOMAINS}
@@ -86,7 +86,7 @@ def _confusion(rows: list[dict]) -> dict[str, dict[str, int]]:
     return matrix
 
 
-def _print_confusion(matrix: dict[str, dict[str, int]]) -> None:
+def _print_confusion(matrix: dict[str, dict[str | None, int]]) -> None:
     preds = [*DOMAINS, None]
     head = "gold\\pred".ljust(14) + "".join((p or "None")[:9].ljust(11) for p in preds)
     print(head)
@@ -95,7 +95,7 @@ def _print_confusion(matrix: dict[str, dict[str, int]]) -> None:
         print(row)
 
 
-def _prf(matrix: dict[str, dict[str, int]]) -> None:
+def _prf(matrix: dict[str, dict[str | None, int]]) -> None:
     print("\n도메인별 precision / recall / F1")
     f1s = []
     for d in DOMAINS:
