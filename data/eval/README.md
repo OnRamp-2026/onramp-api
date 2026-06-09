@@ -10,7 +10,7 @@
 | `queries.jsonl` | 질문 + 메타 (1줄=1질문) |
 | `qrels.jsonl` | 질문별 정답 chunk_id 라벨 (1줄=1질문) |
 | `baseline.json` | 검색 베이스라인 수치 (회귀 기준, CLI가 생성) |
-| `gen_report.json` | 생성 평가(RAGAS) 최근 리포트 (비결정 → 추세 기록용, 게이트 아님) |
+| `gen_report.json` | 생성 평가(RAGAS) 최근 리포트 — **gitignore**(LLM-judge 비결정 → 로컬/CI 아티팩트로만) |
 
 ### `queries.jsonl`
 ```json
