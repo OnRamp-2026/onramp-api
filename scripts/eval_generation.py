@@ -26,7 +26,7 @@ if str(ROOT_DIR) not in sys.path:
 from app.config import get_settings  # noqa: E402
 from app.eval.dataset import load_golden_set  # noqa: E402
 from app.eval.generation_adapter import generate_for_eval  # noqa: E402
-from app.eval.ragas_judge import ragas_available, score_generation  # noqa: E402
+from app.eval.ragas_judge import ragas_available, resolve_judge_model, score_generation  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +40,8 @@ async def run(args) -> int:
 
     golden = load_golden_set(args.queries, args.qrels)
     answerable = [g for g in golden if g.is_answerable]
-    if args.limit:
-        answerable = answerable[: args.limit]
+    if args.limit is not None:  # truthy 체크면 --limit 0이 '무제한'처럼 동작 → is not None
+        answerable = answerable[: max(0, args.limit)]  # 음수도 0건으로 안전 처리
     logger.info("생성 평가 대상 %d개 (answerable, limit=%s)", len(answerable), args.limit)
 
     results = []
@@ -63,7 +63,7 @@ async def run(args) -> int:
             "generated_at": datetime.now(UTC).isoformat(),
             "note": "LLM-judge(비결정) — 추세 기록용, 회귀 게이트 아님",
             "config": {
-                "judge_model": settings.default_model or "gpt-4o-mini",
+                "judge_model": resolve_judge_model(settings),  # 실제 채점에 쓰인 모델과 일치
                 "embedding_model": settings.embedding_model,
                 "n_golden_answerable": len([g for g in golden if g.is_answerable]),
                 "limit": args.limit,

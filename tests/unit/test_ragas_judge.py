@@ -3,7 +3,7 @@
 import app.eval.ragas_judge as judge_mod
 from app.config import Settings
 from app.eval.generation_adapter import GenerationResult
-from app.eval.ragas_judge import GenerationScores, _judge_model, _mean, ragas_available, score_generation
+from app.eval.ragas_judge import GenerationScores, _mean, ragas_available, resolve_judge_model, score_generation
 
 
 def _result(query="q", answer="상황: x", contexts=("문맥",)) -> GenerationResult:
@@ -19,12 +19,12 @@ def test_mean_ignores_none_and_nan() -> None:
     assert _mean([float("nan")]) is None
 
 
-def test_judge_model_prefers_gpt_else_default() -> None:
-    assert _judge_model(Settings(default_model="gpt-4o")) == "gpt-4o"
-    assert _judge_model(Settings(default_model="o3-mini")) == "o3-mini"
+def test_resolve_judge_model_prefers_gpt_else_default() -> None:
+    assert resolve_judge_model(Settings(default_model="gpt-4o")) == "gpt-4o"
+    assert resolve_judge_model(Settings(default_model="o3-mini")) == "o3-mini"
     # 비-OpenAI(또는 빈값) → 기본 judge 모델
-    assert _judge_model(Settings(default_model="claude-3")) == judge_mod.DEFAULT_JUDGE_MODEL
-    assert _judge_model(Settings(default_model="")) == judge_mod.DEFAULT_JUDGE_MODEL
+    assert resolve_judge_model(Settings(default_model="claude-3")) == judge_mod.DEFAULT_JUDGE_MODEL
+    assert resolve_judge_model(Settings(default_model="")) == judge_mod.DEFAULT_JUDGE_MODEL
 
 
 def test_ragas_available_returns_bool() -> None:
@@ -109,8 +109,9 @@ async def test_score_generation_skips_failed_samples(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "ragas.dataset_schema", schema_mod)
     monkeypatch.setitem(sys.modules, "ragas.metrics", metrics_mod)
 
-    # 전부 실패해도 예외 없이 None 집계 (n_evaluated는 시도한 샘플 수)
+    # 전부 실패해도 예외 없이 None 집계. 채점 실패 샘플은 n_evaluated에서 빠지고 n_skipped로 잡힌다.
     scores = await score_generation([_result()])
     assert scores.faithfulness is None
     assert scores.answer_relevancy is None
-    assert scores.n_evaluated == 1
+    assert scores.n_evaluated == 0
+    assert scores.n_skipped == 1

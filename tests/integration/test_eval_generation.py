@@ -12,7 +12,7 @@ from app.eval.ragas_judge import ragas_available, score_generation
 
 
 @pytest.fixture
-def _require_ragas_and_key():
+def _require_ragas_and_key() -> None:
     if not ragas_available():
         pytest.skip('ragas 미설치 (uv pip install -e ".[eval]")')
     if not get_settings().openai_api_key:
@@ -20,7 +20,8 @@ def _require_ragas_and_key():
 
 
 @pytest.mark.asyncio
-async def test_score_generation_smoke(_require_ragas_and_key) -> None:
+@pytest.mark.usefixtures("_require_ragas_and_key")
+async def test_score_generation_smoke() -> None:
     # 답변이 문맥에 충실한 케이스 — Faithfulness가 산출되는지(0~1)만 검증
     results = [
         GenerationResult(

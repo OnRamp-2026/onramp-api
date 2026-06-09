@@ -10,7 +10,7 @@ def _doc(snippet: str) -> SourceDocument:
 
 
 def _stub_graph(monkeypatch, state: dict) -> None:
-    async def _ainvoke(_initial):
+    async def _ainvoke(_initial: dict) -> dict:
         return state
 
     monkeypatch.setattr(adapter_mod.compiled_graph, "ainvoke", _ainvoke)

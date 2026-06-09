@@ -37,12 +37,12 @@ def ragas_available() -> bool:
 
 @dataclass(frozen=True)
 class GenerationScores:
-    """생성 평가 매크로 평균 (점수 못 낸 샘플은 평균에서 제외)."""
+    """생성 평가 매크로 평균. n_evaluated + n_skipped = 전체 입력 수."""
 
     faithfulness: float | None
     answer_relevancy: float | None
-    n_evaluated: int  # judge 대상(평가가능) 샘플 수
-    n_skipped: int  # 보류/무근거로 제외된 샘플 수
+    n_evaluated: int  # 두 지표 모두 채점 성공해 평균에 기여한 샘플 수
+    n_skipped: int  # 평균에 기여하지 못한 샘플 수 (보류·무근거 + 채점 실패)
 
     def as_dict(self) -> dict[str, float | int | None]:
         return {
@@ -53,7 +53,11 @@ class GenerationScores:
         }
 
 
-def _judge_model(settings: Settings) -> str:
+def resolve_judge_model(settings: Settings) -> str:
+    """실제 채점에 쓸 judge 모델. OpenAI 계열이면 default_model, 아니면 fallback.
+
+    리포트(eval_generation.py)가 '실제 사용 모델'을 정확히 기록하도록 재사용한다.
+    """
     model = (settings.default_model or "").strip()
     if model.startswith(("gpt", "o1", "o3", "o4")):
         return model
@@ -68,7 +72,7 @@ def _build_evaluator(settings: Settings):
     from ragas.llms import LangchainLLMWrapper
 
     api_key = SecretStr(settings.openai_api_key) if settings.openai_api_key else None
-    llm = LangchainLLMWrapper(ChatOpenAI(model=_judge_model(settings), temperature=0.0, api_key=api_key))
+    llm = LangchainLLMWrapper(ChatOpenAI(model=resolve_judge_model(settings), temperature=0.0, api_key=api_key))
     embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings(model=settings.embedding_model, api_key=api_key))
     return llm, embeddings
 
@@ -110,14 +114,19 @@ async def score_generation(
             retrieved_contexts=r.retrieved_contexts,
         )
         try:
-            faith_scores.append(await faithfulness.single_turn_ascore(sample))
-            rel_scores.append(await relevancy.single_turn_ascore(sample))
+            # 두 지표를 모두 채점한 뒤에 함께 기록 — 한쪽만 성공해 표본이 어긋나는 것을 방지
+            faith = await faithfulness.single_turn_ascore(sample)
+            rel = await relevancy.single_turn_ascore(sample)
         except Exception:  # 개별 샘플 채점 실패 → 평균에서 제외(전체 중단 방지)
-            logger.warning("RAGAS 채점 실패 (qid 없음, query=%.40s) — 해당 샘플 제외", r.query, exc_info=True)
+            logger.warning("RAGAS 채점 실패 (query=%.40s) — 해당 샘플 제외", r.query, exc_info=True)
+            continue
+        faith_scores.append(faith)
+        rel_scores.append(rel)
 
+    n_evaluated = len(faith_scores)  # 두 지표 모두 성공한 샘플 수(평균 기여)
     return GenerationScores(
         faithfulness=_mean(faith_scores),
         answer_relevancy=_mean(rel_scores),
-        n_evaluated=len(evaluable),
-        n_skipped=n_skipped,
+        n_evaluated=n_evaluated,
+        n_skipped=len(results) - n_evaluated,  # 보류·무근거 + 채점 실패 = 평균 미기여 전체
     )
