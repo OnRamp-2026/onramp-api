@@ -54,12 +54,27 @@ def collect_contexts(chunk_ids, content_map: dict[str, str]) -> list[str]:
 
 
 def _scroll_all(limit: int) -> list:
+    """Qdrant 전 페이지를 scroll로 누적한다 (next_page_offset 따라감)."""
     client = get_qdrant()
     settings = get_settings()
-    points, _ = client.scroll(
-        collection_name=settings.qdrant_collection, with_payload=True, with_vectors=False, limit=limit
-    )
-    return points
+    all_points: list = []
+    offset = None
+    remaining = max(0, limit)
+    while remaining > 0:
+        batch, offset = client.scroll(
+            collection_name=settings.qdrant_collection,
+            with_payload=True,
+            with_vectors=False,
+            limit=remaining,
+            offset=offset,
+        )
+        if not batch:
+            break
+        all_points.extend(batch)
+        remaining -= len(batch)
+        if offset is None:  # 마지막 페이지
+            break
+    return all_points
 
 
 async def _gen_answer(query: str, contexts: list[str], model: str) -> str | None:
@@ -112,6 +127,8 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=ROOT_DIR / "data" / "eval" / "gt_answers.draft.jsonl")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
+    if args.scroll_limit <= 0:
+        parser.error("--scroll-limit 은 양의 정수여야 합니다")
 
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s - %(message)s")
     asyncio.run(run(args))

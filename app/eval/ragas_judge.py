@@ -98,8 +98,17 @@ def _mean(values: list[float]) -> float | None:
     return sum(valid) / len(valid) if valid else None
 
 
-async def _score_pair(metric_a, metric_b, samples):
-    """샘플별로 두 지표를 함께 채점해 (a_scores, b_scores) 반환. 한쪽 실패 시 그 샘플 제외."""
+def _is_invalid(v) -> bool:
+    """None 또는 NaN이면 True (집계에서 제외 대상)."""
+    return v is None or (isinstance(v, float) and math.isnan(v))
+
+
+async def _score_pair(metric_a, metric_b, samples) -> tuple[list[float], list[float]]:
+    """샘플별로 두 지표를 함께 채점해 (a_scores, b_scores) 반환. 실패/NaN 샘플은 제외.
+
+    한쪽이라도 실패·NaN이면 그 샘플을 통째로 빼므로, 반환 리스트 길이 = 실제 평균 기여 수.
+    → 호출측의 n_evaluated/n_reference_evaluated 분모가 평균과 정확히 일치한다.
+    """
     a_scores: list[float] = []
     b_scores: list[float] = []
     for r, sample in samples:
@@ -108,6 +117,9 @@ async def _score_pair(metric_a, metric_b, samples):
             b = await metric_b.single_turn_ascore(sample)
         except Exception:  # 개별 샘플 채점 실패 → 평균에서 제외(전체 중단 방지)
             logger.warning("RAGAS 채점 실패 (query=%.40s) — 해당 샘플 제외", r.query, exc_info=True)
+            continue
+        if _is_invalid(a) or _is_invalid(b):  # NaN/None → 평균·건수 모두에서 제외
+            logger.warning("RAGAS 채점 결과 NaN/None (query=%.40s) — 해당 샘플 제외", r.query)
             continue
         a_scores.append(a)
         b_scores.append(b)

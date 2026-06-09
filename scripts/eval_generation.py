@@ -44,14 +44,18 @@ async def run(args) -> int:
         answerable = answerable[: max(0, args.limit)]  # 음수도 0건으로 안전 처리
     logger.info("생성 평가 대상 %d개 (answerable, limit=%s)", len(answerable), args.limit)
 
-    n_with_gt = sum(1 for g in answerable if g.ground_truth_answer)
+    def _gt(g) -> str | None:
+        """공백뿐인 GT는 무효 — 채점(has_reference) 기준과 동일하게 처리."""
+        return v if (v := (g.ground_truth_answer or "").strip()) else None
+
+    n_with_gt = sum(1 for g in answerable if _gt(g))
     if args.with_reference and n_with_gt == 0:
         logger.warning("--with-reference 지정됐으나 GT 답변(ground_truth_answer)이 0건 — reference 지표는 건너뜀")
 
     results = []
     for i, g in enumerate(answerable, start=1):
         logger.info("[%d/%d] 생성: %.50s", i, len(answerable), g.query)
-        reference = g.ground_truth_answer if args.with_reference else None
+        reference = _gt(g) if args.with_reference else None
         results.append(await generate_for_eval(g.query, domain=g.domain, model=args.model, reference=reference))
 
     scores = await score_generation(results, with_reference=args.with_reference)

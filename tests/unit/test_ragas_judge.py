@@ -45,7 +45,7 @@ async def test_score_generation_all_skipped() -> None:
 
 async def test_score_generation_aggregates_with_stubbed_scorers(monkeypatch) -> None:
     # ragas 채점기를 monkeypatch해 집계 로직만 검증 (실 ragas/LLM 없이)
-    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda settings: (object(), object()))
+    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda _settings: (object(), object()))
 
     class _Faith:
         def __init__(self, **_):
@@ -121,7 +121,7 @@ def _const_metric(value):
 
 async def test_score_generation_with_reference(monkeypatch) -> None:
     # with_reference=True → GT 존재 샘플에만 reference 지표 채점
-    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda settings: (object(), object()))
+    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda _settings: (object(), object()))
     _inject_fake_ragas(
         monkeypatch,
         Faithfulness=_const_metric(0.8),
@@ -143,9 +143,33 @@ async def test_score_generation_with_reference(monkeypatch) -> None:
     assert scores.semantic_similarity == 0.9
 
 
+async def test_score_generation_excludes_nan(monkeypatch) -> None:
+    # 지표가 NaN을 반환하면 평균·건수 모두에서 제외돼야 한다 (분모 왜곡 방지)
+    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda _settings: (object(), object()))
+
+    nan = float("nan")
+    calls = {"n": 0}
+
+    class _FaithMaybeNaN:
+        def __init__(self, **_):
+            pass
+
+        async def single_turn_ascore(self, _sample):
+            calls["n"] += 1
+            return nan if calls["n"] == 1 else 0.8  # 첫 샘플만 NaN
+
+    _inject_fake_ragas(monkeypatch, Faithfulness=_FaithMaybeNaN, ResponseRelevancy=_const_metric(0.6))
+
+    scores = await score_generation([_result(query="q1"), _result(query="q2")])
+    # 첫 샘플은 NaN으로 제외 → 1건만 집계
+    assert scores.n_evaluated == 1
+    assert scores.faithfulness == 0.8  # NaN 제외 평균
+    assert scores.n_skipped == 1
+
+
 async def test_score_generation_with_reference_but_no_gt(monkeypatch) -> None:
     # with_reference=True여도 GT 없는 샘플뿐이면 reference 지표는 None (FactualCorrectness import도 안 함)
-    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda settings: (object(), object()))
+    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda _settings: (object(), object()))
     _inject_fake_ragas(monkeypatch, Faithfulness=_const_metric(0.8), ResponseRelevancy=_const_metric(0.6))
 
     scores = await score_generation([_result()], with_reference=True)
@@ -154,7 +178,7 @@ async def test_score_generation_with_reference_but_no_gt(monkeypatch) -> None:
 
 
 async def test_score_generation_skips_failed_samples(monkeypatch) -> None:
-    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda settings: (object(), object()))
+    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda _settings: (object(), object()))
 
     class _Boom:
         def __init__(self, **_):
