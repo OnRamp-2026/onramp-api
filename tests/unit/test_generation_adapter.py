@@ -44,6 +44,25 @@ async def test_generate_extracts_answer_and_contexts(monkeypatch) -> None:
     assert result.n_docs == 3
     assert result.answerability_status == "answerable"
     assert result.is_evaluable is True
+    assert result.has_reference is False  # GT 미전달
+
+
+async def test_generate_carries_reference(monkeypatch) -> None:
+    state = {
+        "answer": FiveElements(situation="x"),
+        "documents": [_doc("문맥")],
+        "answerability_status": AnswerabilityStatus.ANSWERABLE,
+    }
+    _stub_graph(monkeypatch, state)
+
+    result = await generate_for_eval("질문", reference="정답 문장")
+    assert result.reference == "정답 문장"
+    assert result.has_reference is True
+
+
+def test_has_reference_blank_is_false() -> None:
+    assert GenerationResult(query="q", answer_text="a", reference="  ").has_reference is False
+    assert GenerationResult(query="q", answer_text="a", reference=None).has_reference is False
 
 
 async def test_generate_hold_is_not_evaluable(monkeypatch) -> None:

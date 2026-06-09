@@ -38,11 +38,17 @@ class GenerationResult:
     retrieved_contexts: list[str] = field(default_factory=list)  # 검색된 문맥(content_snippet)
     answerability_status: str = ""
     n_docs: int = 0
+    reference: str | None = None  # 골든 GT 답변(#67) — reference 기반 지표용. 없으면 reference-free만.
 
     @property
     def is_evaluable(self) -> bool:
         """judge 대상 여부 — 답변 본문과 문맥이 모두 있어야 한다(보류/무근거 제외)."""
         return bool(self.answer_text.strip()) and bool(self.retrieved_contexts)
+
+    @property
+    def has_reference(self) -> bool:
+        """reference 기반 지표(FactualCorrectness 등) 채점 가능 여부."""
+        return bool(self.reference and self.reference.strip())
 
 
 def flatten_answer(answer: FiveElements | None) -> str:
@@ -66,6 +72,7 @@ async def generate_for_eval(
     *,
     domain: str | None = None,  # noqa: ARG001 - 라우터가 도메인을 직접 분류하므로 미사용(시그니처 호환용)
     model: str = "",
+    reference: str | None = None,  # 골든 GT 답변(#67) — reference 기반 지표용
     settings: Settings | None = None,
 ) -> GenerationResult:
     """query를 실 그래프로 실행해 생성 평가용 결과를 만든다."""
@@ -88,4 +95,5 @@ async def generate_for_eval(
         retrieved_contexts=_contexts(documents),
         answerability_status=str(status) if status else "",
         n_docs=len(documents),
+        reference=reference,
     )
