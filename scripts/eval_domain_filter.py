@@ -230,8 +230,8 @@ def print_empirical(rows: list[dict], *, mode: str, top_n: int) -> None:
         on = _mean([r["recall_on"] for r in grp])
         off = _mean([r["recall_off"] for r in grp])
         print(f"{label:<22}{len(grp):>5}{on:>10.4f}{off:>10.4f}{off - on:>+12.4f}")
-    print(f"\n해석: Δ가 양(+)이면 도메인 필터가 recall을 깎고 있다는 신호. "
-          f"멀티 도메인군에서 Δ가 클수록 이슈 #65의 가설이 강해진다.")
+    print("\n해석: Δ가 양(+)이면 도메인 필터가 recall을 깎고 있다는 신호. "
+          "멀티 도메인군에서 Δ가 클수록 이슈 #65의 가설이 강해진다.")
     _ = (overall_on, overall_off)
 
 

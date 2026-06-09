@@ -86,9 +86,7 @@ def _load_qrels(qrels_path: Path) -> dict[str, tuple[str, ...]]:
     return qrels
 
 
-def _parse_gold_domains(
-    row: dict, qid: str, *, domain: str | None, is_answerable: bool
-) -> tuple[str, ...]:
+def _parse_gold_domains(row: dict, qid: str, *, domain: str | None, is_answerable: bool) -> tuple[str, ...]:
     """`gold_domains`(정답이 걸친 도메인 집합)를 파싱·검증한다.
 
     명시값이 있으면 그대로, 없으면 answerable이면 `(domain,)`(domain None이면 `()`),
@@ -106,16 +104,13 @@ def _parse_gold_domains(
     for value in raw:
         if not isinstance(value, str) or value not in VALID_DOMAINS:
             raise ValueError(
-                f"queries: '{qid}' gold_domains 에 알 수 없는 도메인 '{value}' "
-                f"(허용: {sorted(VALID_DOMAINS)})"
+                f"queries: '{qid}' gold_domains 에 알 수 없는 도메인 '{value}' (허용: {sorted(VALID_DOMAINS)})"
             )
         if value not in seen:
             seen.add(value)
             domains.append(value)
     if domain is not None and domain not in seen:
-        raise ValueError(
-            f"queries: '{qid}' domain '{domain}' 이 gold_domains {domains} 에 없습니다 (라벨 불일치)"
-        )
+        raise ValueError(f"queries: '{qid}' domain '{domain}' 이 gold_domains {domains} 에 없습니다 (라벨 불일치)")
     return tuple(domains)
 
 
