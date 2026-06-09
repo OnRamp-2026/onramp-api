@@ -37,6 +37,62 @@ class CrossEncoderReranker:
         return ranked
 
 
+class OnnxCrossEncoderReranker:
+    """#60: ONNX(int8) bge-reranker. CrossEncoderReranker와 동일 인터페이스, CPU 파드 경량화용.
+
+    검증 범위(standalone): 변환(fp32→int8) + CPU 속도 + 골든셋 품질만 확인.
+    동일 모델 그대로 양자화하므로 다국어 보존. in-app 경로는 운영 파드에서 재검증 필요(그래서 기본 backend는 torch).
+    모델 디렉토리는 scripts/build_reranker_onnx.py로 사전 생성한다(산출물 model_quantized.onnx).
+    """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+        self._model = None
+        self._tokenizer = None
+        self._lock = threading.Lock()
+
+    def _ensure_loaded(self) -> None:
+        if self._model is None:
+            with self._lock:  # double-checked locking — 동시 cold-start 시 중복 로드 방지
+                if self._model is None:
+                    if not self.settings.reranker_onnx_dir:
+                        raise RuntimeError(
+                            "reranker_backend='onnx'인데 reranker_onnx_dir 미설정 "
+                            "(scripts/build_reranker_onnx.py 산출물 경로 지정 필요)"
+                        )
+                    from optimum.onnxruntime import ORTModelForSequenceClassification  # 무거운 로드 → 지연
+                    from transformers import AutoTokenizer
+
+                    self._tokenizer = AutoTokenizer.from_pretrained(self.settings.reranker_model)
+                    self._model = ORTModelForSequenceClassification.from_pretrained(
+                        self.settings.reranker_onnx_dir,
+                        file_name=self.settings.reranker_onnx_file,
+                        provider="CPUExecutionProvider",
+                    )
+
+    def rerank(self, query: str, candidates: list[tuple[str, dict]]) -> list[tuple[float, dict]]:
+        if not candidates:
+            return []
+        self._ensure_loaded()
+        import torch  # 지연
+
+        passages = [text for text, _ in candidates]
+        features = self._tokenizer(  # type: ignore[misc]
+            [query] * len(passages),
+            passages,
+            padding=True,
+            truncation=True,
+            max_length=512,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            logits = self._model(**features).logits  # type: ignore[misc]
+        scores = logits.squeeze(-1).cpu().tolist()
+        ranked = [(float(score), payload) for score, (_, payload) in zip(scores, candidates, strict=True)]
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        return ranked
+
+
 def apply_metadata_weight(rerank_score: float, payload: dict, settings: Settings) -> float:
     """최신성 가산 — 최근 문서일수록 점수를 더한다. 가산식이라 음수 점수에서도 단조 증가한다."""
     factor = _recency_factor(payload.get("last_modified", ""), settings.rerank_recency_half_life_days)
@@ -68,13 +124,17 @@ def _recency_factor(last_modified: str, half_life_days: int) -> float:
 recency_factor = _recency_factor
 
 
-_reranker: CrossEncoderReranker | None = None
+_reranker: CrossEncoderReranker | OnnxCrossEncoderReranker | None = None
 
 
-def get_reranker(settings: Settings | None = None) -> CrossEncoderReranker:
+def get_reranker(settings: Settings | None = None) -> CrossEncoderReranker | OnnxCrossEncoderReranker:
     global _reranker
     if _reranker is None:
-        _reranker = CrossEncoderReranker(settings)
+        cfg = settings or get_settings()
+        if cfg.reranker_backend == "onnx":  # #60: int8 경량화 백엔드(opt-in)
+            _reranker = OnnxCrossEncoderReranker(settings)
+        else:
+            _reranker = CrossEncoderReranker(settings)
     return _reranker
 
 

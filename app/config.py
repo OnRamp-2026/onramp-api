@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     self_hosted_embedding_url: str = ""  # P1: BGE-M3 (VesslAI GPU)
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     reranker_device: str = "cpu"  # P1: "cuda"
+    # #60: 리랭커 백엔드. "torch"(기본·현행) | "onnx"(int8 경량화, CPU 파드용).
+    # onnx 사용 시 scripts/build_reranker_onnx.py 산출물 디렉토리를 reranker_onnx_dir로 지정.
+    reranker_backend: str = "torch"
+    reranker_onnx_dir: str = ""
+    reranker_onnx_file: str = "model_quantized.onnx"
     retriever_top_k: int = 20  # Qdrant 후보 풀
     retriever_top_n: int = 5  # 리랭킹 후 최종
     classifier_model: str = "gpt-4o-mini"
