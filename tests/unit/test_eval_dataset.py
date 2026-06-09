@@ -198,6 +198,27 @@ def test_gold_domains_must_contain_domain(tmp_path: Path) -> None:
         load_golden_set(q, r)
 
 
+def test_domain_unknown_value_raises(tmp_path: Path) -> None:
+    """gold_domains 생략 시에도 domain(라우터 단일 픽) 오타를 잡아야 한다."""
+    q, r = _paths(
+        tmp_path,
+        [{"qid": "q1", "query": "a", "domain": "nonsense", "is_answerable": True}],
+        [{"qid": "q1", "relevant_chunk_ids": ["p_000"]}],
+    )
+    with pytest.raises(ValueError, match="알 수 없는 도메인"):
+        load_golden_set(q, r)
+
+
+def test_domain_non_string_raises(tmp_path: Path) -> None:
+    q, r = _paths(
+        tmp_path,
+        [{"qid": "q1", "query": "a", "domain": 123, "is_answerable": True}],
+        [{"qid": "q1", "relevant_chunk_ids": ["p_000"]}],
+    )
+    with pytest.raises(ValueError, match="알 수 없는 도메인"):
+        load_golden_set(q, r)
+
+
 def test_gold_domains_not_list_raises(tmp_path: Path) -> None:
     q, r = _paths(
         tmp_path,

@@ -94,6 +94,9 @@ def _parse_gold_domains(row: dict, qid: str, *, domain: str | None, is_answerabl
       · 각 값이 `Domain` enum 값이어야 함(오타·미정의 도메인 차단).
       · domain(라우터 단일 픽)이 있으면 gold_domains에 포함돼야 함(라벨 정합).
     """
+    if domain is not None and (not isinstance(domain, str) or domain not in VALID_DOMAINS):
+        raise ValueError(f"queries: '{qid}' domain 에 알 수 없는 도메인 '{domain}' (허용: {sorted(VALID_DOMAINS)})")
+
     raw = row.get("gold_domains")
     if raw is None:
         return (domain,) if (is_answerable and domain is not None) else ()

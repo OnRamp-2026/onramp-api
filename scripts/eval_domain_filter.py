@@ -148,22 +148,22 @@ def drift_check(golden: list[GoldenQuery], *, collection: str) -> list[dict]:
 async def empirical_recall(golden: list[GoldenQuery], *, mode: Mode, top_k, top_n, structural_rows) -> list[dict]:
     """질문별 recall@top_n 을 filter ON(g.domain) / OFF(None) 두 조건으로 측정."""
     multi_map = {r["qid"]: r["is_multi_domain"] for r in structural_rows}
-    out = []
-    for g in golden:
+    answerable = [g for g in golden if g.relevant_chunk_ids]
+
+    async def measure_one(g: GoldenQuery) -> dict:
         rel = set(g.relevant_chunk_ids)
-        if not rel:
-            continue
-        on = await retrieve_for_eval(g.query, mode=mode, domain=g.domain, top_k=top_k, top_n=top_n)
-        off = await retrieve_for_eval(g.query, mode=mode, domain=None, top_k=top_k, top_n=top_n)
-        out.append(
-            {
-                "qid": g.qid,
-                "is_multi_domain": multi_map.get(g.qid, False),
-                "recall_on": recall_at_k(on.chunk_ids, rel, top_n),
-                "recall_off": recall_at_k(off.chunk_ids, rel, top_n),
-            }
+        on, off = await asyncio.gather(
+            retrieve_for_eval(g.query, mode=mode, domain=g.domain, top_k=top_k, top_n=top_n),
+            retrieve_for_eval(g.query, mode=mode, domain=None, top_k=top_k, top_n=top_n),
         )
-    return out
+        return {
+            "qid": g.qid,
+            "is_multi_domain": multi_map.get(g.qid, False),
+            "recall_on": recall_at_k(on.chunk_ids, rel, top_n),
+            "recall_off": recall_at_k(off.chunk_ids, rel, top_n),
+        }
+
+    return list(await asyncio.gather(*[measure_one(g) for g in answerable]))
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +194,7 @@ def print_structural(rows: list[dict]) -> None:
         print(f"  {'qid':<8}{'query_domain':<14}{'answer_domains':<34}{'excl_ratio':>10}")
         for r in sorted(multi, key=lambda x: -x["excluded_ratio"]):
             print(
-                f"  {r['qid']:<8}{str(r['query_domain']):<14}"
+                f"  {r['qid']:<8}{r['query_domain']!s:<14}"
                 f"{','.join(r['answer_domains']):<34}{r['excluded_ratio']:>10.3f}"
             )
 
@@ -210,14 +210,12 @@ def print_drift(drifts: list[dict]) -> None:
     for d in drifts:
         print(
             f"  {d['qid']:<8}{','.join(d['gold_domains']):<28}"
-            f"{','.join(d['actual_domains']):<28}{str(d['has_unknown']):>8}"
+            f"{','.join(d['actual_domains']):<28}{d['has_unknown']!s:>8}"
         )
     print("  → 골든 gold_domains 라벨 또는 색인 도메인을 재검토하세요(stale 가능).")
 
 
 def print_empirical(rows: list[dict], *, mode: str, top_n: int) -> None:
-    overall_on = _mean([r["recall_on"] for r in rows])
-    overall_off = _mean([r["recall_off"] for r in rows])
     multi = [r for r in rows if r["is_multi_domain"]]
     single = [r for r in rows if not r["is_multi_domain"]]
 
@@ -230,9 +228,10 @@ def print_empirical(rows: list[dict], *, mode: str, top_n: int) -> None:
         on = _mean([r["recall_on"] for r in grp])
         off = _mean([r["recall_off"] for r in grp])
         print(f"{label:<22}{len(grp):>5}{on:>10.4f}{off:>10.4f}{off - on:>+12.4f}")
-    print("\n해석: Δ가 양(+)이면 도메인 필터가 recall을 깎고 있다는 신호. "
-          "멀티 도메인군에서 Δ가 클수록 이슈 #65의 가설이 강해진다.")
-    _ = (overall_on, overall_off)
+    print(
+        "\n해석: Δ가 양(+)이면 도메인 필터가 recall을 깎고 있다는 신호. "
+        "멀티 도메인군에서 Δ가 클수록 이슈 #65의 가설이 강해진다."
+    )
 
 
 async def run(args) -> int:
@@ -266,9 +265,7 @@ def main() -> None:
     parser.add_argument("--mode", choices=["dense", "rerank"], default="rerank", help="실측 검색 모드")
     parser.add_argument("--top-k", type=int, default=None, help="Qdrant 후보 풀 (기본: config)")
     parser.add_argument("--top-n", type=int, default=None, help="최종 top-N (기본: config)")
-    parser.add_argument(
-        "--structural-only", action="store_true", help="[A] 구조적 분석만 (임베딩/리랭커 불필요)"
-    )
+    parser.add_argument("--structural-only", action="store_true", help="[A] 구조적 분석만 (임베딩/리랭커 불필요)")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
 
