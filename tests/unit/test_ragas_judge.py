@@ -21,7 +21,9 @@ def test_mean_ignores_none_and_nan() -> None:
 
 def test_resolve_judge_model_prefers_gpt_else_default() -> None:
     assert resolve_judge_model(Settings(default_model="gpt-4o")) == "gpt-4o"
+    assert resolve_judge_model(Settings(default_model="o1-preview")) == "o1-preview"
     assert resolve_judge_model(Settings(default_model="o3-mini")) == "o3-mini"
+    assert resolve_judge_model(Settings(default_model="o4-mini")) == "o4-mini"
     # 비-OpenAI(또는 빈값) → 기본 judge 모델
     assert resolve_judge_model(Settings(default_model="claude-3")) == judge_mod.DEFAULT_JUDGE_MODEL
     assert resolve_judge_model(Settings(default_model="")) == judge_mod.DEFAULT_JUDGE_MODEL
