@@ -6,9 +6,15 @@
 포맷:
     queries.jsonl  1줄=1질문:
         {"qid":"q001","query":"...","domain":"incident","is_answerable":true,
+         "gold_domains":["incident","api_reference"],   # 선택 — 정답이 걸친 도메인(멀티도메인)
          "ground_truth_answer":"...(선택, #C 전용)","_draft":false}
     qrels.jsonl    1줄=1질문 라벨(chunk_id 단위):
         {"qid":"q001","relevant_chunk_ids":["<page_id>_003", ...]}   # unanswerable이면 []
+
+`domain` 과 `gold_domains` 의 역할 분리(IR 골든셋 모범사례):
+    · domain       = 라우터가 고를 **단일** 도메인(프로덕션 하드 필터 입력). None이면 무필터.
+    · gold_domains = 정답 청크들이 실제로 **걸친 도메인 집합**. 장애 대응·온보딩처럼 근거가
+                     여러 도메인에 흩어진 질문은 len>=2 (멀티도메인). 단일 도메인 질문은 [domain].
 """
 
 from __future__ import annotations
@@ -18,10 +24,14 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.agents.state import Domain
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_QUERIES_PATH = Path("data/eval/queries.jsonl")
 DEFAULT_QRELS_PATH = Path("data/eval/qrels.jsonl")
+
+VALID_DOMAINS: frozenset[str] = frozenset(d.value for d in Domain)
 
 
 @dataclass(frozen=True)
@@ -33,8 +43,14 @@ class GoldenQuery:
     domain: str | None
     is_answerable: bool
     relevant_chunk_ids: tuple[str, ...]
+    gold_domains: tuple[str, ...] = ()  # 정답이 걸친 도메인 집합 (멀티도메인이면 len>=2)
     ground_truth_answer: str | None = None
     is_draft: bool = False  # 부트스트랩 초안(_draft) — 팀 검수 전
+
+    @property
+    def is_multi_domain(self) -> bool:
+        """정답 근거가 2개 이상 도메인에 걸친 질문인지 (파일만으로 판정, Qdrant 불필요)."""
+        return len(self.gold_domains) >= 2
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -70,6 +86,37 @@ def _load_qrels(qrels_path: Path) -> dict[str, tuple[str, ...]]:
     return qrels
 
 
+def _parse_gold_domains(row: dict, qid: str, *, domain: str | None, is_answerable: bool) -> tuple[str, ...]:
+    """`gold_domains`(정답이 걸친 도메인 집합)를 파싱·검증한다.
+
+    명시값이 있으면 그대로, 없으면 answerable이면 `(domain,)`(domain None이면 `()`),
+    unanswerable이면 `()`로 기본값을 둔다. 검증:
+      · 각 값이 `Domain` enum 값이어야 함(오타·미정의 도메인 차단).
+      · domain(라우터 단일 픽)이 있으면 gold_domains에 포함돼야 함(라벨 정합).
+    """
+    if domain is not None and (not isinstance(domain, str) or domain not in VALID_DOMAINS):
+        raise ValueError(f"queries: '{qid}' domain 에 알 수 없는 도메인 '{domain}' (허용: {sorted(VALID_DOMAINS)})")
+
+    raw = row.get("gold_domains")
+    if raw is None:
+        return (domain,) if (is_answerable and domain is not None) else ()
+    if not isinstance(raw, list):
+        raise ValueError(f"queries: '{qid}' gold_domains 는 리스트여야 합니다")
+    seen: set[str] = set()
+    domains: list[str] = []
+    for value in raw:
+        if not isinstance(value, str) or value not in VALID_DOMAINS:
+            raise ValueError(
+                f"queries: '{qid}' gold_domains 에 알 수 없는 도메인 '{value}' (허용: {sorted(VALID_DOMAINS)})"
+            )
+        if value not in seen:
+            seen.add(value)
+            domains.append(value)
+    if domain is not None and domain not in seen:
+        raise ValueError(f"queries: '{qid}' domain '{domain}' 이 gold_domains {domains} 에 없습니다 (라벨 불일치)")
+    return tuple(domains)
+
+
 def load_golden_set(
     queries_path: Path | str = DEFAULT_QUERIES_PATH,
     qrels_path: Path | str = DEFAULT_QRELS_PATH,
@@ -103,13 +150,16 @@ def load_golden_set(
             raise ValueError(f"{queries_path}: '{qid}' is_answerable 는 bool 이어야 합니다")
         is_draft = bool(row.get("_draft", False))
         draft_n += int(is_draft)
+        domain = row.get("domain")
+        gold_domains = _parse_gold_domains(row, qid, domain=domain, is_answerable=is_answerable)
         golden.append(
             GoldenQuery(
                 qid=qid,
                 query=str(row["query"]),
-                domain=row.get("domain"),
+                domain=domain,
                 is_answerable=is_answerable,
                 relevant_chunk_ids=qrels[qid],
+                gold_domains=gold_domains,
                 ground_truth_answer=row.get("ground_truth_answer"),
                 is_draft=is_draft,
             )
