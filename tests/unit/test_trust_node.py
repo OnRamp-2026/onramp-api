@@ -1,0 +1,101 @@
+"""Trust Agent 단위 테스트 (규칙기반·결정론, LLM/Qdrant 불필요)."""
+
+from datetime import UTC, datetime, timedelta
+
+from app.agents.state import SourceDocument, TrustScore
+from app.agents.trust.node import score_trust, should_re_retrieve, trust_decision, trust_node
+from app.config import Settings
+
+# 현재 시각 기준 상대 타임스탬프 — _recency_factor가 datetime.now(UTC)로 age를 계산하므로
+# 하드코딩 날짜는 시간이 지나면 staleness로 테스트가 깨진다. 항상 "오늘"을 기준으로 생성.
+_RECENT = datetime.now(UTC).isoformat()
+_OLD = (datetime.now(UTC) - timedelta(days=3000)).isoformat()
+
+
+def _doc(rerank=0.5, page_id="p1", last_modified=_RECENT, h="h1", content="내용") -> SourceDocument:
+    return SourceDocument(
+        title="t", content_snippet=content, rerank_score=rerank, page_id=page_id, last_modified=last_modified, hash=h
+    )
+
+
+S = Settings()
+
+
+def test_score_empty_docs() -> None:
+    out = score_trust([], S)
+    assert out.overall == 0.0
+    assert out.owner_trust == S.trust_owner_neutral
+    assert out.verification_label == S.trust_verification_neutral
+
+
+def test_recency_recent_vs_old() -> None:
+    recent = score_trust([_doc(last_modified=_RECENT)], S).recency
+    old = score_trust([_doc(last_modified=_OLD)], S).recency
+    assert recent > 0.9
+    assert old < 0.1
+
+
+def test_recency_bad_date_zero() -> None:
+    assert score_trust([_doc(last_modified="")], S).recency == 0.0
+
+
+def test_duplication_same_hash() -> None:
+    out = score_trust([_doc(h="x"), _doc(h="x"), _doc(h="y")], S)
+    assert out.duplication_conflict == 1 - 2 / 3  # 3개 중 고유 2개
+
+
+def test_sensitivity_masked_markers() -> None:
+    docs = [_doc(content="[MASKED_TOKEN] 값 [MASKED_EMAIL]"), _doc(content="평범")]
+    out = score_trust(docs, S)
+    assert out.sensitivity_risk == 2 / S.trust_sensitivity_masked_cap
+
+
+def test_overall_in_range_and_owner_neutral() -> None:
+    out = score_trust([_doc()], S)
+    assert 0.0 <= out.overall <= 1.0
+    assert out.owner_trust == 1.0
+    assert out.verification_label == 1.0
+
+
+def test_gate_conflicting() -> None:
+    # 서로 다른 page, 둘 다 floor(τ) 이상 + 점수 차 < gap(0.05) → 충돌
+    docs = [_doc(page_id="p1", rerank=0.9), _doc(page_id="p2", rerank=0.88)]
+    assert score_trust(docs, S).gate_conflicting is True
+    # 점수 차 큼 → 충돌 아님
+    docs2 = [_doc(page_id="p1", rerank=0.9), _doc(page_id="p2", rerank=0.3)]
+    assert score_trust(docs2, S).gate_conflicting is False
+    # 저관련 결과가 0 근처로 뭉친 경우 — 차이는 작지만 floor 미만이라 충돌 오탐 금지
+    docs3 = [_doc(page_id="p1", rerank=0.106), _doc(page_id="p2", rerank=0.103)]
+    assert score_trust(docs3, S).gate_conflicting is False
+
+
+def test_should_re_retrieve() -> None:
+    assert should_re_retrieve([], S, retry_count=0, max_retries=1) is True  # 문서 0
+    assert should_re_retrieve([_doc(rerank=0.1)], S, 0, 1) is True  # top < τ(0.288)
+    assert should_re_retrieve([_doc(rerank=0.9)] * 10, S, 0, 1) is False  # 충분 (trust_min_docs 설정 무관)
+    assert should_re_retrieve([_doc(rerank=0.1)], S, retry_count=1, max_retries=1) is False  # 한도 초과
+
+
+async def test_trust_node_triggers_retry() -> None:
+    state = {"documents": [_doc(rerank=0.1)], "retry_count": 0, "max_retries": 1}
+    out = await trust_node(state)
+    assert isinstance(out["trust_score"], TrustScore)
+    assert out["should_re_retrieve"] is True
+    assert out["retry_count"] == 1
+    assert out["domain"] is None  # 재시도 시 도메인 해제
+    assert out["agent_trace"] == ["trust"]
+
+
+async def test_trust_node_no_retry_passes_to_answer() -> None:
+    # 충분한 rerank + 충분한 문서 개수 (trust_min_docs 설정과 무관하게)
+    state = {"documents": [_doc(rerank=0.9)] * 10, "retry_count": 0, "max_retries": 1}
+    out = await trust_node(state)
+    assert out["should_re_retrieve"] is False
+    assert "domain" not in out  # 도메인 유지
+    assert out["gate_flags"] is not None
+
+
+def test_trust_decision() -> None:
+    assert trust_decision({"should_re_retrieve": True}) == "retriever"
+    assert trust_decision({"should_re_retrieve": False}) == "answer"
+    assert trust_decision({}) == "answer"
