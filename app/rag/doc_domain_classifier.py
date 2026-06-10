@@ -163,12 +163,16 @@ def _split_sections(markdown: str) -> list[tuple[str, str]]:
 def _sample_headings(headings: list[str], max_chars: int) -> str:
     """heading만으로도 상한 초과 시: 앞·중간·뒤를 균등 샘플해 들어가는 최대 개수만 남긴다(tail 절단 아님)."""
     n = len(headings)
-    for k in range(n, 0, -1):
-        idxs = sorted({round(i * (n - 1) / (k - 1)) for i in range(k)}) if k > 1 else [0]
+    for k in range(n, 1, -1):
+        idxs = sorted({round(i * (n - 1) / (k - 1)) for i in range(k)})
         text = "\n".join(headings[i] for i in idxs)
         if len(text) <= max_chars:
             return text
-    return headings[0][:max_chars]
+    # 1개도 못 넣는 극단: 앞/중간/뒤 중 들어가는 것, 없으면 가장 짧은 heading만 절단(앞부분 편향 방지)
+    for idx in dict.fromkeys([0, n // 2, n - 1]):
+        if len(headings[idx]) <= max_chars:
+            return headings[idx]
+    return min(headings, key=len)[:max_chars]
 
 
 def heading_aware_sample(markdown: str, *, max_chars: int = _MAX_CONTENT_CHARS) -> str:

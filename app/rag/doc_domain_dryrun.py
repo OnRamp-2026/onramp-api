@@ -102,8 +102,9 @@ def load_existing(path: str | Path) -> dict[ReuseKey, dict]:
                 raise ValueError(f"{path}:{lineno} JSONL 파싱 실패 (검수 중 손상 의심): {exc}") from exc
             try:
                 key = record_reuse_key(record)
-            except KeyError as exc:
-                raise ValueError(f"{path}:{lineno} 필수 필드 누락: {exc} (검수 중 손상 의심)") from exc
+            except (KeyError, TypeError) as exc:
+                # 필수 필드 누락 또는 dict가 아닌 JSON(리스트/숫자 등) — 위치와 함께 알린다
+                raise ValueError(f"{path}:{lineno} 필수 필드 누락/구조 손상: {exc}") from exc
             existing[key] = record
     return existing
 
@@ -145,9 +146,12 @@ def merge_records(existing: dict[ReuseKey, dict], new_records: list[dict]) -> li
     """기존 전체 결과에 이번 실행 결과를 병합. 이번 대상 밖 페이지(검수본)는 보존하되,
     이번에 분류한 page_id의 **기존 레코드(버전/프롬프트/모델 무관)는 모두 제거**한다 → page_id당 1줄 보장.
     """
-    new_page_ids = {_page_identity(record) for record in new_records}
-    kept = [record for record in existing.values() if _page_identity(record) not in new_page_ids]
-    return kept + new_records
+    # 이번 실행 내 같은 page_id 중복도 마지막 것만 남긴다(page_id당 1줄 보장)
+    new_by_page: dict[str, dict] = {}
+    for record in new_records:
+        new_by_page[_page_identity(record)] = record
+    kept = [record for record in existing.values() if _page_identity(record) not in new_by_page]
+    return kept + list(new_by_page.values())
 
 
 def write_jsonl(path: str | Path, records: list[dict]) -> None:

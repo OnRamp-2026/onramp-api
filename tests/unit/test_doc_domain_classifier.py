@@ -252,3 +252,13 @@ def test_heading_aware_sampling_samples_when_headings_exceed_cap():
     assert len(out) <= 120
     assert "# 헤딩 0" in out  # 앞 heading 보존
     assert "# 헤딩 99" in out  # 뒤 heading 보존(tail 절단 아님)
+
+
+def test_heading_sampling_not_front_biased_when_first_heading_huge():
+    from app.rag.doc_domain_classifier import heading_aware_sample
+
+    # 첫 heading이 매우 길어 단독으로 cap 초과 → 앞부분 편향 대신 들어가는 짧은 뒤 heading 선택
+    md = "# " + "L" * 300 + "\n본문1\n## 짧은뒤\n본문2\n" + "z" * 500
+    out = heading_aware_sample(md, max_chars=50)
+    assert len(out) <= 50
+    assert "## 짧은뒤" in out  # 긴 첫 heading 대신 들어가는 뒤 heading 보존

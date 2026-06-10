@@ -178,6 +178,23 @@ def test_load_existing_reports_missing_required_field(tmp_path):
         load_existing(path)
 
 
+def test_load_existing_reports_non_dict_line(tmp_path):
+    path = tmp_path / "out.jsonl"
+    path.write_text("[1, 2, 3]\n", encoding="utf-8")  # dict 아닌 JSON → TypeError를 위치 에러로
+    with pytest.raises(ValueError, match="손상"):
+        load_existing(path)
+
+
+def test_merge_records_dedupes_same_page_id_within_run():
+    # 같은 실행에 같은 page_id가 2개 들어와도 마지막 1줄만 (1줄 보장)
+    a = build_record(_page(version=1), _result(), classifier_model="m")
+    b = build_record(_page(version=2), _result(), classifier_model="m")  # 같은 page_id p1
+    merged = merge_records({}, [a, b])
+    p1 = [r for r in merged if r["page_id"] == "p1"]
+    assert len(p1) == 1
+    assert p1[0]["page_version"] == 2  # 마지막 것
+
+
 def test_load_existing_reports_corrupted_line(tmp_path):
     good = build_record(_page(), _result(), classifier_model="m")
     path = tmp_path / "out.jsonl"
