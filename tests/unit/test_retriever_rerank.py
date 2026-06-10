@@ -2,8 +2,11 @@ import sys
 import threading
 import types
 
+import pytest
+
 from app.agents.retriever.rerank import (
     CrossEncoderReranker,
+    OnnxCrossEncoderReranker,
     _recency_factor,
     apply_domain_weight,
     apply_metadata_weight,
@@ -14,8 +17,16 @@ from app.config import Settings
 
 def test_payload_domains_multi_and_backward_compat():
     assert payload_domains({"domains": ["incident", "manual"]}) == ["incident", "manual"]
+    assert payload_domains({"domains": "manual"}) == ["manual"]  # 문자열 단일값 → 글자 분해 금지(회귀)
     assert payload_domains({"domain": "manual"}) == ["manual"]  # 단일 domain 하위호환
     assert payload_domains({}) == []
+
+
+def test_apply_domain_weight_string_domains_regression():
+    """domains가 문자열로 들어와도 도메인 매칭이 정상 동작한다(list('manual') 분해 버그 방지)."""
+    s = Settings()
+    w = s.retriever_domain_match_weight
+    assert apply_domain_weight(0.5, {"domains": "manual"}, "manual", s) == 0.5 + w
 
 
 def test_apply_domain_weight_multidomain():
@@ -44,6 +55,36 @@ def test_rerank_sorts_desc():
 
 def test_rerank_empty():
     assert CrossEncoderReranker(settings=Settings()).rerank("q", []) == []
+
+
+def test_onnx_rerank_applies_sigmoid_to_match_torch_score_contract():
+    """ONNX 경로는 순수 numpy sigmoid로 점수를 내며, torch 백엔드와 동일한 [0,1] 점수 계약을 따른다."""
+    import numpy as np
+
+    logits = np.array([[-1.1073], [1.0]], dtype=np.float32)
+
+    class _Tokenizer:
+        def __call__(self, *args, **kwargs):
+            return {"input_ids": np.zeros((2, 1), dtype=np.int64)}
+
+    class _Session:
+        def get_inputs(self):
+            return [types.SimpleNamespace(name="input_ids")]
+
+        def run(self, _outputs, _inputs):
+            return [logits]
+
+    reranker = OnnxCrossEncoderReranker(settings=Settings())
+    reranker._tokenizer = _Tokenizer()
+    reranker._session = _Session()  # lazy 로드 우회
+    reranker._input_names = {"input_ids"}
+
+    out = reranker.rerank("q", [("a", {"id": 1}), ("b", {"id": 2})])
+
+    expected = (1.0 / (1.0 + np.exp(-logits))).reshape(-1).tolist()
+    assert [payload["id"] for _, payload in out] == [2, 1]
+    assert [score for score, _ in out] == pytest.approx([expected[1], expected[0]])
+    assert all(0.0 <= score <= 1.0 for score, _ in out)
 
 
 def test_recency_factor_fresh_gt_old_and_safe():

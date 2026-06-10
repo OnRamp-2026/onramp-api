@@ -42,6 +42,21 @@ rerank = [
     "transformers>=4.41,<5",
 ]
 
+# #60: ONNX(int8) 리랭커 백엔드 — CPU 파드 경량화(opt-in). reranker_backend="onnx"일 때만 필요.
+onnx = [
+    "optimum[onnxruntime]>=1.20",
+    "onnx>=1.17",
+]
+
+# 생성 평가(LLM-judge) 전용 — #C. prod/CI 게이트에 불포함, nightly·수동 실행에서만 설치.
+# ragas API churn이 커서 마이너 버전 고정. langchain-openai는 base 의존성에 이미 존재.
+eval = [
+    "ragas>=0.2,<0.3",
+    # ragas 0.2.x는 langchain_community.chat_models.vertexai를 import → 0.4에서 제거됨.
+    # 최신 langchain-community(0.4+)가 끌려오면 ragas import가 깨지므로 0.3.x로 고정.
+    "langchain-community>=0.3,<0.4",
+]
+
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",

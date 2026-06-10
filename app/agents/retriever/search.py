@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
 import anyio
 from qdrant_client import QdrantClient
@@ -82,7 +83,7 @@ def _is_low_quality(hits: list[ScoredPoint], settings: Settings) -> bool:
 
 def _merge_hits(primary: list[ScoredPoint], extra: list[ScoredPoint]) -> list[ScoredPoint]:
     """두 검색 결과를 point.id로 합치고 중복은 높은 score를 남긴다."""
-    by_id: dict = {point.id: point for point in primary}
+    by_id: dict[int | str | UUID, ScoredPoint] = {point.id: point for point in primary}
     for point in extra:
         existing = by_id.get(point.id)
         if existing is None or point.score > existing.score:
