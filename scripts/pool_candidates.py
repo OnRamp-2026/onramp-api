@@ -66,11 +66,15 @@ async def run(args) -> None:
     rows = [json.loads(line) for line in args.queries.read_text(encoding="utf-8").splitlines() if line.strip()]
     out_rows = []
     for i, row in enumerate(rows, start=1):
+        qid, query = row.get("qid"), row.get("query")
+        if not qid or not query:  # 깨진 레코드 하나가 전체 배치를 중단시키지 않도록
+            logger.warning("[%d/%d] 스킵: qid/query 누락", i, len(rows))
+            continue
         if not row.get("is_answerable", True):  # unanswerable은 pooling 불필요
             continue
-        logger.info("[%d/%d] pooling: %.50s", i, len(rows), row["query"])
-        cands = await _top_candidates(row["query"], row.get("domain"), top_k=args.top_k, top_n=args.top_n)
-        out_rows.append({"qid": row["qid"], "query": row["query"], "candidates": cands})
+        logger.info("[%d/%d] pooling: %.50s", i, len(rows), query)
+        cands = await _top_candidates(query, row.get("domain"), top_k=args.top_k, top_n=args.top_n)
+        out_rows.append({"qid": qid, "query": query, "candidates": cands})
 
     args.out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in out_rows) + "\n", encoding="utf-8")
     logger.info(

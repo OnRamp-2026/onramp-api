@@ -174,7 +174,7 @@ def _neighbor_payloads(target: dict, *, limit: int = 4, min_score: float = 0.5) 
     return neighbors
 
 
-def _record(qid: str, query: str, domain: str | None, answerable: bool, chunk_ids: list[str]) -> tuple[dict, dict]:
+def _record(qid: str, query: str, domain: str | None, *, answerable: bool, chunk_ids: list[str]) -> tuple[dict, dict]:
     q = {"qid": qid, "query": query, "domain": domain, "is_answerable": answerable, "_draft": True}
     return q, {"qid": qid, "relevant_chunk_ids": chunk_ids}
 
@@ -187,10 +187,12 @@ async def _build_single(sampled: list[dict], model: str, start: int) -> list[tup
         if not query:
             continue
         idx += 1
-        out.append(_record(f"d{idx:03d}", query, payload.get("domain"), True, [payload["chunk_id"]]))
+        out.append(
+            _record(f"d{idx:03d}", query, payload.get("domain"), answerable=True, chunk_ids=[payload["chunk_id"]])
+        )
     for seed in _UNANSWERABLE_SEEDS:
         idx += 1
-        out.append(_record(f"d{idx:03d}", seed, None, False, []))
+        out.append(_record(f"d{idx:03d}", seed, None, answerable=False, chunk_ids=[]))
     return out
 
 
@@ -203,7 +205,11 @@ async def _build_multi_hop(groups: list[list[dict]], model: str, start: int) -> 
         if not query:
             continue
         idx += 1
-        out.append(_record(f"h{idx:03d}", query, group[0].get("domain"), True, [c["chunk_id"] for c in group]))
+        out.append(
+            _record(
+                f"h{idx:03d}", query, group[0].get("domain"), answerable=True, chunk_ids=[c["chunk_id"] for c in group]
+            )
+        )
     return out
 
 
@@ -216,7 +222,7 @@ async def _build_near_miss(sampled: list[dict], model: str, start: int) -> list[
             continue
         idx += 1
         # near-miss는 unanswerable: 정답 청크 없음. domain은 질문이 속한 영역(라우터 입력 시뮬레이션).
-        out.append(_record(f"n{idx:03d}", query, payload.get("domain"), False, []))
+        out.append(_record(f"n{idx:03d}", query, payload.get("domain"), answerable=False, chunk_ids=[]))
     return out
 
 
@@ -239,7 +245,9 @@ async def _build_confusable(sampled: list[dict], model: str, start: int, min_nei
         if not query:
             continue
         idx += 1
-        out.append(_record(f"c{idx:03d}", query, payload.get("domain"), True, [payload["chunk_id"]]))
+        out.append(
+            _record(f"c{idx:03d}", query, payload.get("domain"), answerable=True, chunk_ids=[payload["chunk_id"]])
+        )
     return out
 
 
