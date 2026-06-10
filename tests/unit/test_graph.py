@@ -17,6 +17,7 @@ import pytest
 
 from app.agents.graph import build_graph, compiled_graph, route_decision
 from app.agents.state import AnswerabilityStatus, Domain, UseCase
+from app.config import get_settings
 
 
 class _FakeEmbedder:
@@ -40,7 +41,7 @@ def _no_network(monkeypatch):
 
     monkeypatch.setattr("app.agents.router.node.call_llm", _fake_router_llm)
     monkeypatch.setattr("app.agents.retriever.node.get_embedder", lambda *a, **k: _FakeEmbedder())
-    monkeypatch.setattr("app.agents.retriever.node.dense_search", _empty_search)
+    monkeypatch.setattr("app.agents.retriever.search.dense_search", _empty_search)
 
 
 class TestGraphSearchFlow:
@@ -49,20 +50,15 @@ class TestGraphSearchFlow:
     async def test_runs_router_retriever_trust_answer(self) -> None:
         """검색 질문이 Router→Retriever→Trust→Answer 경로를 통과하는지 확인한다.
 
-        dense_search stub이 0건을 반환 → Trust가 1회 재검색(retriever→trust)을 유발하고,
-        max_retries(=1) 한도에서 종료 후 answer로 수렴한다.
+        dense_search stub이 0건을 반환 → Trust가 매번 재검색(retriever→trust)을 유발하고,
+        max_retries 한도에서 종료 후 answer로 수렴한다. (기대 trace는 config max_retries로 유도)
         """
+        max_retries = get_settings().trust_max_retries
         result = await compiled_graph.ainvoke({"query": "EKS Pod 장애 해결법"})
 
-        # 재검색 루프 1회: router → (retriever → trust) → (retriever → trust) → answer
-        assert result["agent_trace"] == [
-            "router",
-            "retriever",
-            "trust",
-            "retriever",
-            "trust",
-            "answer",
-        ]
+        # router → (retriever → trust) × (max_retries+1) → answer
+        expected = ["router", *(["retriever", "trust"] * (max_retries + 1)), "answer"]
+        assert result["agent_trace"] == expected
 
     async def test_returns_expected_state_keys(self) -> None:
         """결과에 필수 State 키가 모두 존재하는지 확인한다."""
@@ -152,9 +148,10 @@ class TestGraphStructure:
 
         dense_search stub이 항상 0건 → 무한 재검색을 막고 answer로 수렴해야 한다.
         """
+        max_retries = get_settings().trust_max_retries
         result = await compiled_graph.ainvoke({"query": "근거 없는 질문"})
 
-        # trust가 정확히 max_retries(=1)+1회 = 2회만 실행되고 종료
-        assert result["agent_trace"].count("trust") == 2
+        # trust가 정확히 max_retries+1회만 실행되고 종료 (config로 유도)
+        assert result["agent_trace"].count("trust") == max_retries + 1
         assert result["agent_trace"][-1] == "answer"
-        assert result["retry_count"] == 1
+        assert result["retry_count"] == max_retries

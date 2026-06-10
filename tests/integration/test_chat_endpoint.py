@@ -78,7 +78,7 @@ def stub_pipeline(monkeypatch):
     monkeypatch.setattr("app.agents.router.node.call_llm", _mk(_router_resp()))
     monkeypatch.setattr("app.agents.answer.node.call_llm", _mk(_answer_resp()))
     monkeypatch.setattr("app.agents.retriever.node.get_embedder", lambda *a, **k: _Embedder())
-    monkeypatch.setattr("app.agents.retriever.node.dense_search", _search)
+    monkeypatch.setattr("app.agents.retriever.search.dense_search", _search)
     monkeypatch.setattr("app.agents.retriever.node.get_reranker", lambda *a, **k: _Reranker())
     return monkeypatch
 

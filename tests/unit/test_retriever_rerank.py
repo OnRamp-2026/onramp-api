@@ -10,8 +10,32 @@ from app.agents.retriever.rerank import (
     _recency_factor,
     apply_domain_weight,
     apply_metadata_weight,
+    payload_domains,
 )
 from app.config import Settings
+
+
+def test_payload_domains_multi_and_backward_compat():
+    assert payload_domains({"domains": ["incident", "manual"]}) == ["incident", "manual"]
+    assert payload_domains({"domains": "manual"}) == ["manual"]  # 문자열 단일값 → 글자 분해 금지(회귀)
+    assert payload_domains({"domain": "manual"}) == ["manual"]  # 단일 domain 하위호환
+    assert payload_domains({}) == []
+
+
+def test_apply_domain_weight_string_domains_regression():
+    """domains가 문자열로 들어와도 도메인 매칭이 정상 동작한다(list('manual') 분해 버그 방지)."""
+    s = Settings()
+    w = s.retriever_domain_match_weight
+    assert apply_domain_weight(0.5, {"domains": "manual"}, "manual", s) == 0.5 + w
+
+
+def test_apply_domain_weight_multidomain():
+    s = Settings()
+    w = s.retriever_domain_match_weight
+    # router domain이 문서 domains 집합에 들면 가산
+    assert apply_domain_weight(0.5, {"domains": ["incident", "manual"]}, "manual", s) == 0.5 + w
+    assert apply_domain_weight(0.5, {"domains": ["incident", "manual"]}, "planning", s) == 0.5  # 불일치
+    assert apply_domain_weight(0.5, {"domain": "manual"}, "manual", s) == 0.5 + w  # 단일 하위호환
 
 
 class _FakeModel:
