@@ -93,6 +93,8 @@ async def _gen_answer(query: str, contexts: list[str], model: str) -> str | None
 async def run(args) -> None:
     golden = load_golden_set(args.queries, args.qrels)
     answerable = [g for g in golden if g.is_answerable and g.relevant_chunk_ids]
+    if args.only_missing:  # 이미 검수된 GT 재생성 방지 (비용·노이즈 절감)
+        answerable = [g for g in answerable if not (g.ground_truth_answer or "").strip()]
     if args.limit is not None:
         answerable = answerable[: max(0, args.limit)]
 
@@ -124,7 +126,10 @@ def main() -> None:
     parser.add_argument("--queries", type=Path, default=ROOT_DIR / "data" / "eval" / "queries.jsonl")
     parser.add_argument("--qrels", type=Path, default=ROOT_DIR / "data" / "eval" / "qrels.jsonl")
     parser.add_argument("--limit", type=int, default=None, help="처리할 골든 문항 수(비용 절감)")
-    parser.add_argument("--scroll-limit", type=int, default=2000, help="Qdrant scroll 상한")
+    parser.add_argument(
+        "--only-missing", action="store_true", help="ground_truth_answer 없는 문항만 생성 (기존 GT 보존)"
+    )
+    parser.add_argument("--scroll-limit", type=int, default=6000, help="Qdrant scroll 상한 (현 코퍼스 5,734청크)")
     parser.add_argument("--model", default="", help="GT 생성 LLM (빈값=config 기본)")
     parser.add_argument("--out", type=Path, default=ROOT_DIR / "data" / "eval" / "gt_answers.draft.jsonl")
     parser.add_argument("--log-level", default="INFO")
