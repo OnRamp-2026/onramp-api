@@ -1,16 +1,35 @@
 """문서 도메인 분류 — 페이지 단위 멀티라벨 계약 (P1, #49).
 
-Step 1 범위: 공유 ontology 기반 프롬프트 + 출력 스키마 검증 + secondary 채택 규칙.
-LLM 호출·캐시·rule fallback 배선은 Step 2(dry-run)에서. 여기서는 결정론 로직만 둔다.
+스키마/채택 규칙(결정론) + 페이지 단위 LLM 분류(고정 temp, 재시도→rule fallback).
+분류기는 페이지 텍스트를 받아 도메인만 판정한다 — 마스킹/캐시/재색인은 색인 파이프라인의 책임이라 여기서 다루지 않는다
+(입력 텍스트의 민감정보 마스킹은 호출측 upstream에서 끝낸 상태를 전제).
 
 계약: https://github.com/OnRamp-2026/docs/blob/main/Jihong/fixes/49_doc_domain_classifier.md
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+import logging
+import re
+from dataclasses import dataclass
+from typing import Literal
 
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+
+from app.config import Settings, get_settings
+from app.middleware.error_handler import LLMError
+from app.rag.classifier import DOMAIN_RULES
 from app.rag.domains import DOMAIN_KEYS, domain_definition_block
+from app.services.llm_selector import call_llm
+
+logger = logging.getLogger(__name__)
+
+# 프롬프트가 바뀌면 올린다 → dry-run 결과 재사용 키의 일부(같은 페이지라도 재분류).
+DOC_CLASSIFIER_PROMPT_VERSION = "1"
+
+# LLM에 보낼 페이지 텍스트 길이 상한.
+_MAX_CONTENT_CHARS = 6000
+_HEADING_RE = re.compile(r"^#{1,6}\s")
 
 # secondary 채택 임계값 — confidence가 이 값 이상이고 evidence_headings가 있을 때만 채택.
 # (Step 2에서 config로 노출·튜닝)
@@ -90,3 +109,115 @@ def build_doc_classifier_system_prompt() -> str:
 [출력 형식] — JSON만 반환한다. 설명 없이.
 {{"primary_domain": "<key>", "domains": [{{"domain": "<key>", "confidence": <0~1>, "evidence_headings": ["..."]}}]}}
 """
+
+
+@dataclass(frozen=True)
+class ClassificationResult:
+    """페이지 분류 결과. source로 LLM 성공/규칙 폴백을 구분한다(폴백은 검수 시 신뢰도 낮음 표시)."""
+
+    classification: PageDomainClassification
+    adopted_domains: list[str]  # adopt_domains 적용 후 색인할 domains[]
+    source: Literal["llm", "rule_fallback"]
+
+
+def _rule_primary(text: str) -> str:
+    """키워드 규칙으로 primary 1개 추론 — LLM 실패 시 폴백용(기존 DOMAIN_RULES 재사용)."""
+    low = text.lower()
+    for domain, keywords in DOMAIN_RULES.items():
+        if any(keyword.lower() in low for keyword in keywords):
+            return domain
+    return "manual"
+
+
+def rule_fallback_classification(page_title: str, content: str) -> PageDomainClassification:
+    """LLM 실패 시 규칙 기반 단일 도메인(secondary 없음). confidence 0.0 — 근거 없음 신호."""
+    primary = _rule_primary(f"{page_title}\n{content}")
+    return PageDomainClassification(
+        primary_domain=primary,
+        domains=[DomainEvidence(domain=primary, confidence=0.0, evidence_headings=[])],
+    )
+
+
+def heading_aware_sample(markdown: str, *, max_chars: int = _MAX_CONTENT_CHARS) -> str:
+    """heading 구조 전체를 보존하며 본문을 균등 샘플링한다.
+
+    단순 앞부분 절단 금지 — 모든 heading 라인은 남기고(앞·중간·뒤), 본문은 섹션별로 예산을 나눠 담는다.
+    evidence_headings 판정을 위해 LLM이 문서 전체의 heading 골격을 보게 하는 것이 목적.
+    """
+    if len(markdown) <= max_chars:
+        return markdown
+
+    sections: list[tuple[str, str]] = []  # (heading_line, body)
+    heading = ""
+    body_lines: list[str] = []
+    for line in markdown.splitlines():
+        if _HEADING_RE.match(line):
+            if heading or body_lines:
+                sections.append((heading, "\n".join(body_lines).strip()))
+            heading, body_lines = line, []
+        else:
+            body_lines.append(line)
+    if heading or body_lines:
+        sections.append((heading, "\n".join(body_lines).strip()))
+
+    headings = [h for h, _ in sections if h]
+    if not headings:  # heading 없는 문서 → 앞부분 절단 폴백
+        return markdown[:max_chars]
+
+    heading_chars = sum(len(h) + 1 for h in headings)
+    bodied = [s for s in sections if s[1]]
+    per_body = max((max_chars - heading_chars) // max(len(bodied), 1), 0)
+
+    parts: list[str] = []
+    for h, body in sections:
+        if h:
+            parts.append(h)
+        if body and per_body:
+            parts.append(body[:per_body])
+    return "\n".join(parts)[:max_chars]
+
+
+def _build_user_prompt(page_title: str, content: str) -> str:
+    return f"제목: {page_title}\n\n본문:\n{heading_aware_sample(content)}"
+
+
+class DocumentDomainClassifier:
+    """페이지 텍스트를 LLM으로 분류해 멀티라벨 도메인을 낸다. 실패 시 규칙 폴백.
+
+    입력 텍스트의 마스킹은 upstream(색인 파이프라인) 책임이며 여기서 수행하지 않는다.
+    temperature는 0.0 고정(결정론).
+    """
+
+    def __init__(self, settings: Settings | None = None, *, max_retries: int = 1) -> None:
+        self.settings = settings or get_settings()
+        self.max_retries = max_retries
+
+    async def classify_page(
+        self,
+        *,
+        page_title: str,
+        content: str,
+        secondary_threshold: float = DEFAULT_SECONDARY_THRESHOLD,
+    ) -> ClassificationResult:
+        system = build_doc_classifier_system_prompt()
+        user = _build_user_prompt(page_title, content)
+        for attempt in range(self.max_retries + 1):
+            try:
+                raw = await call_llm(
+                    system,
+                    user,
+                    model=self.settings.classifier_model,
+                    temperature=0.0,
+                    json_mode=True,
+                    settings=self.settings,
+                )
+                classification = PageDomainClassification.model_validate_json(raw)
+                adopted = adopt_domains(classification, secondary_threshold=secondary_threshold)
+                return ClassificationResult(classification, adopted, "llm")
+            except (LLMError, ValidationError) as exc:
+                logger.warning("문서 도메인 분류 실패(%d/%d): %s", attempt + 1, self.max_retries + 1, exc)
+        # 재시도 소진 → 규칙 폴백
+        fallback = rule_fallback_classification(page_title, content)
+        return ClassificationResult(
+            fallback, adopt_domains(fallback, secondary_threshold=secondary_threshold), "rule_fallback"
+        )

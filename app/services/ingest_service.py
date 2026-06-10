@@ -89,6 +89,13 @@ class IngestService:
 
         return self._prepare(await self.clean_all_pages(limit=limit))
 
+    async def masked_all_pages(self, limit: int = 50) -> list[CleanedConfluencePage]:
+        """전체 페이지를 cleaned+masked 상태로 반환 (문서 도메인 분류 dry-run 입력용).
+
+        마스킹 로직은 기존 _mask_page를 그대로 재사용 — 분류 단계에 마스킹되지 않은 원문이 흘러가지 않게 한다.
+        """
+        return [self._mask_page(page) for page in await self.clean_all_pages(limit=limit)]
+
     # ── recent/all 공통 변환부 (fetch만 다르고 이하 동일) ─────────────────
     def _clean(self, pages: list[ConfluencePage]) -> list[CleanedConfluencePage]:
         return [
