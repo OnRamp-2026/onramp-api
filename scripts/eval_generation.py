@@ -44,18 +44,33 @@ async def run(args) -> int:
         answerable = answerable[: max(0, args.limit)]  # 음수도 0건으로 안전 처리
     logger.info("생성 평가 대상 %d개 (answerable, limit=%s)", len(answerable), args.limit)
 
+    def _gt(g) -> str | None:
+        """공백뿐인 GT는 무효 — 채점(has_reference) 기준과 동일하게 처리."""
+        return v if (v := (g.ground_truth_answer or "").strip()) else None
+
+    n_with_gt = sum(1 for g in answerable if _gt(g))
+    if args.with_reference and n_with_gt == 0:
+        logger.warning("--with-reference 지정됐으나 GT 답변(ground_truth_answer)이 0건 — reference 지표는 건너뜀")
+
     results = []
     for i, g in enumerate(answerable, start=1):
         logger.info("[%d/%d] 생성: %.50s", i, len(answerable), g.query)
-        results.append(await generate_for_eval(g.query, domain=g.domain, model=args.model))
+        reference = _gt(g) if args.with_reference else None
+        results.append(await generate_for_eval(g.query, domain=g.domain, model=args.model, reference=reference))
 
-    scores = await score_generation(results)
+    scores = await score_generation(results, with_reference=args.with_reference)
     summary = scores.as_dict()
 
-    print("\n=== 생성 평가 (RAGAS, reference-free) ===")
+    print("\n=== 생성 평가 (RAGAS) ===")
+    print("[reference-free]")
     print(f"  Faithfulness     : {summary['faithfulness']}")
     print(f"  Answer Relevancy : {summary['answer_relevancy']}")
     print(f"  평가 샘플 n       : {summary['n_evaluated']}  (보류/무근거 제외: {summary['n_skipped']})")
+    if args.with_reference:
+        print("[reference 기반 (GT 답변 필요)]")
+        print(f"  Factual Correctness : {summary['factual_correctness']}")
+        print(f"  Semantic Similarity : {summary['semantic_similarity']}")
+        print(f"  GT 보유 채점 n       : {summary['n_reference_evaluated']} / GT 보유 골든 {n_with_gt}")
 
     if args.write_report:
         settings = get_settings()
@@ -67,6 +82,7 @@ async def run(args) -> int:
                 "embedding_model": settings.embedding_model,
                 "n_golden_answerable": len([g for g in golden if g.is_answerable]),
                 "limit": args.limit,
+                "with_reference": args.with_reference,
             },
             "generation": summary,
         }
@@ -82,6 +98,11 @@ def main() -> None:
     parser.add_argument("--qrels", type=Path, default=ROOT_DIR / "data" / "eval" / "qrels.jsonl")
     parser.add_argument("--limit", type=int, default=None, help="평가 문항 수 제한(비용 절감)")
     parser.add_argument("--model", default="", help="답변 생성 모델(빈값=config 기본)")
+    parser.add_argument(
+        "--with-reference",
+        action="store_true",
+        help="GT 답변 기반 지표(FactualCorrectness/SemanticSimilarity) 추가 채점 (#67, GT 있는 문항만)",
+    )
     parser.add_argument("--write-report", action="store_true")
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT)
     parser.add_argument("--log-level", default="INFO")

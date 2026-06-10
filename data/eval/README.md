@@ -80,5 +80,16 @@ python scripts/eval_generation.py --limit 10 --write-report   # 소규모 + gen_
 - 골든셋의 `is_answerable:true`만 대상. 답변 보류·무근거 샘플은 자동 제외.
 - LLM-judge는 실행마다 변동 → **회귀 게이트로 쓰지 않음**(nightly·수동, 추세 기록).
 
+### 생성 평가 — reference 기반 지표 (#67, GT 답변 필요)
+```bash
+# 1) GT 답변 초안 부트스트랩 (정답 chunk 근거로 LLM이 모범답안 생성 → *.draft.jsonl, gitignore)
+python scripts/bootstrap_gt_answers.py --limit 10
+#    → 팀 검수·paraphrase 후 queries.jsonl의 ground_truth_answer로 병합
+# 2) reference 지표 포함 채점 (GT 있는 문항만)
+python scripts/eval_generation.py --with-reference --limit 10
+```
+- `--with-reference`: **FactualCorrectness(정답성)·SemanticSimilarity(의미유사도)** 추가 채점.
+- GT(`ground_truth_answer`) 없는 문항은 reference 지표에서 자동 제외(reference-free는 그대로).
+
 > `qid`는 검수 중 일부 문항을 제외하면 **비연속**일 수 있다(예: d010 제외). 로더는 queries↔qrels가 qid로
 > 일치하기만 하면 연속성을 요구하지 않는다.
