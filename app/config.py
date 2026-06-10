@@ -1,6 +1,8 @@
 from functools import lru_cache
+from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -51,6 +53,30 @@ class Settings(BaseSettings):
     self_hosted_embedding_url: str = ""  # P1: BGE-M3 (VesslAI GPU)
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     reranker_device: str = "cpu"  # P1: "cuda"
+    # #60: 리랭커 백엔드. "torch"(기본·현행) | "onnx"(int8 경량화, CPU 파드용).
+    # onnx 사용 시 scripts/build_reranker_onnx.py 산출물 디렉토리를 reranker_onnx_dir로 지정.
+    reranker_backend: Literal["torch", "onnx"] = "torch"
+    reranker_onnx_dir: str = ""
+    reranker_onnx_file: str = "model_quantized.onnx"
+
+    @model_validator(mode="after")
+    def _check_reranker_onnx(self) -> "Settings":
+        # fail-fast: onnx 백엔드면 모델 파일이 실제로 존재해야 기동을 통과시킨다.
+        # (빈 경로/오타 경로면 첫 요청에서 vector로 조용히 폴백되므로 기동 단계에서 막는다.)
+        if self.reranker_backend == "onnx":
+            if not self.reranker_onnx_dir.strip():
+                raise ValueError(
+                    "reranker_backend='onnx'면 reranker_onnx_dir 필요 (build_reranker_onnx.py 산출물 경로)"
+                )
+            if not self.reranker_onnx_file.strip():
+                raise ValueError("reranker_backend='onnx'면 reranker_onnx_file 필요")
+            model_path = Path(self.reranker_onnx_dir, self.reranker_onnx_file)
+            if not model_path.is_file():
+                raise ValueError(
+                    f"reranker_backend='onnx' 모델 파일 없음: {model_path} (scripts/build_reranker_onnx.py 먼저 실행)"
+                )
+        return self
+
     retriever_top_k: int = 20  # Qdrant 후보 풀
     retriever_top_n: int = 5  # 리랭킹 후 최종
     classifier_model: str = "gpt-4o-mini"
