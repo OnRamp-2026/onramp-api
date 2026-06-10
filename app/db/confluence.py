@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
+from urllib.parse import parse_qsl, urlsplit
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -106,33 +107,47 @@ class ConfluenceClient:
         await self._request_json("PUT", f"/content/{page.page_id}", json=payload)
 
     async def _search_pages(self, cql: str, limit: int) -> list[ConfluencePage]:
+        """CQL 검색 결과를 `_links.next` 커서로 페이지네이션한다.
+
+        Confluence Cloud는 `/content/search`에서 `start` 오프셋을 **무시**하고 항상
+        첫 페이지를 반환한다(실측: start=0~850 모두 동일 결과). 오프셋 방식으로는
+        limit이 page_size를 넘는 순간 같은 페이지를 중복 수집하므로, 응답의
+        `_links.next`(cursor 포함)를 따라가는 방식만 유효하다.
+        """
         pages: list[ConfluencePage] = []
-        start = 0
-        page_size = min(limit, 50)
+        seen_page_ids: set[str] = set()
+        params: dict[str, Any] = {
+            "cql": cql,
+            "expand": "body.storage,version,space",
+            "limit": min(limit, 50),
+        }
 
         while len(pages) < limit:
-            payload = await self._request_json(
-                "GET",
-                "/content/search",
-                params={
-                    "cql": cql,
-                    "expand": "body.storage,version,space",
-                    "limit": page_size,
-                    "start": start,
-                },
-            )
+            payload = await self._request_json("GET", "/content/search", params=params)
             results = payload.get("results", [])
             if not results:
                 break
 
+            added_this_round = 0
             for result in results:
-                pages.append(self._to_page(result))
+                page = self._to_page(result)
+                if page.page_id in seen_page_ids:  # 서버측 중복 반환 방어
+                    continue
+                seen_page_ids.add(page.page_id)
+                pages.append(page)
+                added_this_round += 1
                 if len(pages) >= limit:
-                    break
+                    return pages
 
-            if len(results) < page_size:
+            if added_this_round == 0:  # 전부 중복 = 커서가 전진하지 않음 → 무한 루프 방지
+                logger.warning("커서 페이지네이션이 신규 페이지 없이 반복됨 — 중단 (수집 %d페이지)", len(pages))
                 break
-            start += len(results)
+
+            next_link = (payload.get("_links") or {}).get("next")
+            if not next_link:
+                break
+            # next 링크의 쿼리(cursor·cql·limit 등)를 그대로 다음 요청 파라미터로 사용
+            params = dict(parse_qsl(urlsplit(next_link).query))
 
         return pages
 
@@ -172,7 +187,7 @@ class ConfluenceClient:
         without it, return the whole space ordered by title (full ingestion)."""
         space_key = self._quote_cql_value(self.settings.confluence_space_key)
         if since is None:
-            # id ASC 타이브레이커 — 동일 title 다수일 때 페이지네이션(start/limit)이 안정적이도록
+            # id ASC 타이브레이커 — 동일 title 다수일 때 커서 페이지네이션 순서가 안정적이도록
             return f'type = page AND space = "{space_key}" ORDER BY title ASC, id ASC'
         since_text = since.strftime("%Y-%m-%d %H:%M")
         return f'type = page AND space = "{space_key}" AND lastmodified >= "{since_text}" ORDER BY lastmodified DESC'
