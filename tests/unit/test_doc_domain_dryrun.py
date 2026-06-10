@@ -56,8 +56,10 @@ async def test_run_dry_run_builds_pending_record():
     assert stats.classified == 1
     assert stats.reused == 0
     rec = records[0]
-    assert rec["page_id"] == "p1" and rec["page_version"] == 1
-    assert rec["primary_domain"] == "incident" and rec["adopted_domains"] == ["incident"]
+    assert rec["page_id"] == "p1"
+    assert rec["page_version"] == 1
+    assert rec["primary_domain"] == "incident"
+    assert rec["adopted_domains"] == ["incident"]
     assert rec["classification_source"] == "llm"
     assert rec["review_status"] == "pending"  # 자동 승격 금지
     assert rec["prompt_version"] == DOC_CLASSIFIER_PROMPT_VERSION
