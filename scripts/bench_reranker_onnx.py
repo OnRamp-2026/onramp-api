@@ -106,8 +106,8 @@ def main() -> None:
     evalset = asyncio.run(_evalset(args.n, settings.retriever_top_k))
     print(f"평가셋 {len(evalset)}문항 / 후보 {settings.retriever_top_k}", flush=True)
 
-    import torch
-    from optimum.onnxruntime import ORTModelForSequenceClassification
+    import numpy as np
+    import onnxruntime as ort
     from sentence_transformers import CrossEncoder
     from transformers import AutoTokenizer
 
@@ -115,18 +115,17 @@ def main() -> None:
     ce = CrossEncoder(settings.reranker_model, device="cpu")
     out["torch"] = _bench("torch", lambda q, ps: ce.predict([(q, p) for p in ps]), evalset)
 
+    # 실제 OnnxCrossEncoderReranker와 동일 경로(순수 onnxruntime + numpy, torch 미사용)로 벤치
     tok = AutoTokenizer.from_pretrained(settings.reranker_model)
-    m8 = ORTModelForSequenceClassification.from_pretrained(
-        args.onnx_dir, file_name=args.onnx_file, provider="CPUExecutionProvider"
-    )
+    sess = ort.InferenceSession(f"{args.onnx_dir}/{args.onnx_file}", providers=["CPUExecutionProvider"])
+    input_names = {i.name for i in sess.get_inputs()}
 
     def pred8(query: str, passages: list[str]):
         feats = tok(
-            [query] * len(passages), passages, padding=True, truncation=True, max_length=512, return_tensors="pt"
+            [query] * len(passages), passages, padding=True, truncation=True, max_length=512, return_tensors="np"
         )
-        with torch.no_grad():
-            logits = m8(**feats).logits
-            return torch.sigmoid(logits).squeeze(-1).cpu().numpy()
+        logits = sess.run(None, {k: v for k, v in feats.items() if k in input_names})[0]
+        return (1.0 / (1.0 + np.exp(-logits))).reshape(-1)
 
     out["onnx_int8"] = _bench("onnx_int8", pred8, evalset)
 

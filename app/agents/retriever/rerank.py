@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import threading
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 from app.config import Settings, get_settings
 
@@ -47,47 +49,49 @@ class OnnxCrossEncoderReranker:
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self._model = None
-        self._tokenizer = None
+        self._session: Any = None  # onnxruntime.InferenceSession (지연 로드)
+        self._tokenizer: Any = None  # transformers tokenizer (지연 로드)
+        self._input_names: set[str] = set()
         self._lock = threading.Lock()
 
     def _ensure_loaded(self) -> None:
-        if self._model is None:
+        # 순수 onnxruntime + numpy로 추론 — torch 의존 없음([onnx] extra만으로 동작).
+        if self._session is None:
             with self._lock:  # double-checked locking — 동시 cold-start 시 중복 로드 방지
-                if self._model is None:
-                    if not self.settings.reranker_onnx_dir:
+                if self._session is None:
+                    model_path = Path(self.settings.reranker_onnx_dir, self.settings.reranker_onnx_file)
+                    if not model_path.is_file():
+                        # config 검증을 우회한 경우의 2차 방어선(테스트/직접 생성). 정상 기동은 config가 먼저 막는다.
                         raise RuntimeError(
-                            "reranker_backend='onnx'인데 reranker_onnx_dir 미설정 "
-                            "(scripts/build_reranker_onnx.py 산출물 경로 지정 필요)"
+                            f"reranker_backend='onnx' 모델 파일 없음: {model_path} "
+                            "(scripts/build_reranker_onnx.py 먼저 실행)"
                         )
-                    from optimum.onnxruntime import ORTModelForSequenceClassification  # 무거운 로드 → 지연
+                    import onnxruntime as ort  # 무거운 로드 → 지연
                     from transformers import AutoTokenizer
 
                     self._tokenizer = AutoTokenizer.from_pretrained(self.settings.reranker_model)
-                    self._model = ORTModelForSequenceClassification.from_pretrained(
-                        self.settings.reranker_onnx_dir,
-                        file_name=self.settings.reranker_onnx_file,
-                        provider="CPUExecutionProvider",
-                    )
+                    self._session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+                    self._input_names = {i.name for i in self._session.get_inputs()}
 
     def rerank(self, query: str, candidates: list[tuple[str, dict]]) -> list[tuple[float, dict]]:
         if not candidates:
             return []
         self._ensure_loaded()
-        import torch  # 지연
+        import numpy as np  # 지연
 
         passages = [text for text, _ in candidates]
-        features = self._tokenizer(  # type: ignore[misc]
+        features = self._tokenizer(
             [query] * len(passages),
             passages,
             padding=True,
             truncation=True,
             max_length=512,
-            return_tensors="pt",
+            return_tensors="np",
         )
-        with torch.no_grad():
-            logits = self._model(**features).logits  # type: ignore[misc]
-        scores = torch.sigmoid(logits).squeeze(-1).cpu().tolist()
+        # 양자화 그래프가 받는 입력만 전달 (모델별 token_type_ids 유무 차이 흡수)
+        inputs = {k: v for k, v in features.items() if k in self._input_names}
+        logits = self._session.run(None, inputs)[0]
+        scores = (1.0 / (1.0 + np.exp(-logits))).reshape(-1).tolist()  # sigmoid: torch 백엔드와 동일 점수 계약
         ranked = [(float(score), payload) for score, (_, payload) in zip(scores, candidates, strict=True)]
         ranked.sort(key=lambda item: item[0], reverse=True)
         return ranked
@@ -126,6 +130,7 @@ recency_factor = _recency_factor
 
 _reranker: CrossEncoderReranker | OnnxCrossEncoderReranker | None = None
 _reranker_key: tuple[str, str, str, str, str] | None = None
+_reranker_lock = threading.Lock()  # _reranker/_reranker_key 동시 갱신 보호 (key↔instance 불일치 방지)
 
 
 def get_reranker(settings: Settings | None = None) -> CrossEncoderReranker | OnnxCrossEncoderReranker:
@@ -133,16 +138,18 @@ def get_reranker(settings: Settings | None = None) -> CrossEncoderReranker | Onn
     global _reranker, _reranker_key
     cfg = settings or get_settings()
     key = (cfg.reranker_backend, cfg.reranker_model, cfg.reranker_device, cfg.reranker_onnx_dir, cfg.reranker_onnx_file)
-    if _reranker is None or _reranker_key != key:
-        _reranker_key = key
-        if cfg.reranker_backend == "onnx":  # #60: int8 경량화 백엔드(opt-in)
-            _reranker = OnnxCrossEncoderReranker(cfg)
-        else:
-            _reranker = CrossEncoderReranker(cfg)
-    return _reranker
+    with _reranker_lock:  # 동시 초기화·설정 전환에서 key와 instance가 어긋난 채 반환되는 것을 막는다
+        if _reranker is None or _reranker_key != key:
+            _reranker_key = key
+            if cfg.reranker_backend == "onnx":  # #60: int8 경량화 백엔드(opt-in)
+                _reranker = OnnxCrossEncoderReranker(cfg)
+            else:
+                _reranker = CrossEncoderReranker(cfg)
+        return _reranker
 
 
 def reset_reranker() -> None:
     global _reranker, _reranker_key
-    _reranker = None
-    _reranker_key = None
+    with _reranker_lock:
+        _reranker = None
+        _reranker_key = None
