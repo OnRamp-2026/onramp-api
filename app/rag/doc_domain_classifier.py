@@ -138,16 +138,9 @@ def rule_fallback_classification(page_title: str, content: str) -> PageDomainCla
     )
 
 
-def heading_aware_sample(markdown: str, *, max_chars: int = _MAX_CONTENT_CHARS) -> str:
-    """heading 구조 전체를 보존하며 본문을 균등 샘플링한다.
-
-    단순 앞부분 절단 금지 — 모든 heading 라인은 남기고(앞·중간·뒤), 본문은 섹션별로 예산을 나눠 담는다.
-    evidence_headings 판정을 위해 LLM이 문서 전체의 heading 골격을 보게 하는 것이 목적.
-    """
-    if len(markdown) <= max_chars:
-        return markdown
-
-    sections: list[tuple[str, str]] = []  # (heading_line, body)
+def _split_sections(markdown: str) -> list[tuple[str, str]]:
+    """(heading_line, body) 목록으로 분할. heading 없는 선두 본문은 ("", body)로 둔다."""
+    sections: list[tuple[str, str]] = []
     heading = ""
     body_lines: list[str] = []
     for line in markdown.splitlines():
@@ -159,22 +152,50 @@ def heading_aware_sample(markdown: str, *, max_chars: int = _MAX_CONTENT_CHARS) 
             body_lines.append(line)
     if heading or body_lines:
         sections.append((heading, "\n".join(body_lines).strip()))
+    return sections
 
+
+def _sample_headings(headings: list[str], max_chars: int) -> str:
+    """heading만으로도 상한 초과 시: 앞·중간·뒤를 균등 샘플해 들어가는 최대 개수만 남긴다(tail 절단 아님)."""
+    n = len(headings)
+    for k in range(n, 0, -1):
+        idxs = sorted({round(i * (n - 1) / (k - 1)) for i in range(k)}) if k > 1 else [0]
+        text = "\n".join(headings[i] for i in idxs)
+        if len(text) <= max_chars:
+            return text
+    return headings[0][:max_chars]
+
+
+def heading_aware_sample(markdown: str, *, max_chars: int = _MAX_CONTENT_CHARS) -> str:
+    """heading 골격을 우선 보존하며 본문을 균등 샘플링한다(단순 앞부분 절단 금지).
+
+    - heading 합이 상한 이내면 **모든 heading 보존** + 남은 예산을 섹션 본문에 균등 배분.
+    - heading 합이 상한 초과면 **앞·중간·뒤 heading을 균등 샘플**(tail 절단으로 뒤 heading이 사라지지 않게).
+    evidence_headings 판정을 위해 LLM이 문서 전체의 heading 골격을 보게 하는 것이 목적.
+    """
+    if len(markdown) <= max_chars:
+        return markdown
+
+    sections = _split_sections(markdown)
     headings = [h for h, _ in sections if h]
     if not headings:  # heading 없는 문서 → 앞부분 절단 폴백
         return markdown[:max_chars]
 
-    heading_chars = sum(len(h) + 1 for h in headings)
-    bodied = [s for s in sections if s[1]]
-    per_body = max((max_chars - heading_chars) // max(len(bodied), 1), 0)
+    heading_cost = sum(len(h) + 1 for h in headings)  # +1: 줄 구분
+    if heading_cost > max_chars:
+        return _sample_headings(headings, max_chars)
 
+    # 모든 heading 보존 + 남은 예산을 본문에 균등 배분.
+    # 본문 예산에서 섹션당 줄바꿈 1칸을 빼 두면 join 후에도 상한을 넘지 않아 tail 절단이 불필요(heading 안전).
+    bodied = sum(1 for _, b in sections if b)
+    per_body = max((max_chars - heading_cost - bodied) // max(bodied, 1), 0)
     parts: list[str] = []
     for h, body in sections:
         if h:
             parts.append(h)
         if body and per_body:
             parts.append(body[:per_body])
-    return "\n".join(parts)[:max_chars]
+    return "\n".join(parts)
 
 
 def _build_user_prompt(page_title: str, content: str) -> str:

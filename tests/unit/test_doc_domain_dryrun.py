@@ -1,6 +1,9 @@
 """문서 도메인 분류 dry-run 오케스트레이션 (Step 2, #49) — LLM mock, 파일 I/O는 tmp_path."""
 
+import json
 from types import SimpleNamespace
+
+import pytest
 
 from app.rag.doc_domain_classifier import (
     DOC_CLASSIFIER_PROMPT_VERSION,
@@ -145,6 +148,24 @@ async def test_run_dry_run_fallback_stays_pending():
     assert stats.fallback == 1
     assert records[0]["classification_source"] == "rule_fallback"
     assert records[0]["review_status"] == "pending"
+
+
+def test_merge_records_drops_previous_version_of_same_page():
+    # 같은 페이지의 과거 버전 레코드는 제거 → 페이지당 1줄(Step 6 stale 승인본 오용 방지)
+    old = build_record(_page(version=1), _result(), classifier_model="gpt-4o-mini")
+    old["review_status"] = "approved"
+    new = build_record(_page(version=2), _result(), classifier_model="gpt-4o-mini")
+    merged = merge_records({record_reuse_key(old): old}, [new])
+    p1_versions = [r["page_version"] for r in merged if r["page_id"] == "p1"]
+    assert p1_versions == [2]  # v1 제거, v2만 남음
+
+
+def test_load_existing_reports_corrupted_line(tmp_path):
+    good = build_record(_page(), _result(), classifier_model="m")
+    path = tmp_path / "out.jsonl"
+    path.write_text(json.dumps(good, ensure_ascii=False) + "\nnot-json\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="파싱 실패"):
+        load_existing(path)
 
 
 def test_write_and_load_roundtrip(tmp_path):

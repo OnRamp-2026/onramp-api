@@ -188,3 +188,14 @@ def test_heading_aware_sampling_noop_when_short():
 
     md = "# 제목\n짧은 본문"
     assert heading_aware_sample(md, max_chars=1000) == md
+
+
+def test_heading_aware_sampling_samples_when_headings_exceed_cap():
+    from app.rag.doc_domain_classifier import heading_aware_sample
+
+    # heading 합이 상한을 넘는 문서 → 앞·중간·뒤 균등 샘플(tail 절단이면 뒤 heading이 사라짐)
+    md = "\n".join(f"# 헤딩 {i}" for i in range(100)) + "\n" + "x" * 500
+    out = heading_aware_sample(md, max_chars=120)
+    assert len(out) <= 120
+    assert "# 헤딩 0" in out  # 앞 heading 보존
+    assert "# 헤딩 99" in out  # 뒤 heading 보존(tail 절단 아님)
