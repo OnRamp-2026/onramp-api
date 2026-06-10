@@ -16,7 +16,10 @@
 ```json
 {"qid":"q001","query":"...","domain":"incident","gold_domains":["incident","api_reference"],"is_answerable":true,"ground_truth_answer":"...(선택)","_draft":false}
 ```
-- `qid`: 고유 키 (qrels와 조인). 단일 도메인은 `d0xx`, 멀티 도메인은 `m0xx` 관례.
+- `qid`: 고유 키 (qrels와 조인). 티어별 접두사 관례 — `d0xx` 단일 도메인 single-hop,
+  `m0xx` 멀티 도메인, `h0xx` multi-hop(인접 청크 2~3개 종합, 멀티청크 qrels),
+  `n0xx` near-miss unanswerable(도메인 안 주제지만 코퍼스에 답 없음),
+  `c0xx` confusable(유사 문서 군집 속 타깃 청크 저격).
 - `domain`: **라우터가 고를 단일 도메인** = 프로덕션 하드 필터 입력. `incident|manual|api_reference|meeting_note|planning` 또는 `null`(무필터).
 - `gold_domains`: **정답 청크들이 실제로 걸친 도메인 집합**(선택). 장애 대응·온보딩처럼 근거가
   여러 도메인에 흩어진 질문은 `len>=2`(멀티 도메인). 생략 시 answerable이면 `[domain]`로 기본.
@@ -39,10 +42,18 @@
 
 ## 구축 워크플로우
 
-1. **초안 부트스트랩** — `python scripts/bootstrap_golden.py`
-   (Qdrant 색인분에서 chunk를 샘플링해 "그 chunk가 답이 되는 질문"을 LLM으로 생성, `_draft:true`로 출력)
-2. **팀 검수** — 질문 자연스러움·관련 chunk_id 정확성 확인, paraphrase로 다양화(문구 베끼기 누수 방지), `_draft` 제거.
-3. **확정** — 도메인 균형, 30~50문항 권장. unanswerable 케이스 일부 포함.
+1. **초안 부트스트랩** — `python scripts/bootstrap_golden.py --mode <single|multi-hop|near-miss|confusable>`
+   (Qdrant 색인분에서 샘플링해 LLM으로 질문 생성, `_draft:true`로 모드별 `*.{mode}.draft.jsonl` 출력)
+   - `multi-hop`: 같은 페이지 인접 청크 2~3개 종합 질문 → 멀티청크 qrels (Recall이 Hit Rate와 분리)
+   - `near-miss`: 도메인 안 주제지만 코퍼스가 답하지 않는 unanswerable — '점심 메뉴'류보다 answerability 변별력 높음
+   - `confusable`: 벡터 이웃(타 페이지 유사 청크) 많은 타깃 저격 질문 — 유사 문서 변별 측정
+2. **pooling 검수 보조** — `python scripts/pool_candidates.py --queries <draft>` 로 질문별 rerank top-10
+   후보를 뽑아, **정답인데 qrels에 없는 chunk_id를 보완**한다(라벨 누락 = 체계적 과소평가 원인).
+   특히 중복 문서·튜토리얼/레퍼런스 중복이 많은 전체 코퍼스(864p)에서 필수.
+3. **팀 검수** — 질문 자연스러움·관련 chunk_id 정확성 확인, paraphrase로 다양화(문구 베끼기 누수 방지),
+   near-miss는 "정말 코퍼스에 답이 없는지" 교차 확인 후 `_draft` 제거.
+4. **확정** — 도메인·티어 균형(목표 ~110문항), qid 충돌 확인, τ 재보정(`calibrate_answerability.py`) 후
+   `--write-baseline` 재고정.
 
 ### 현재 구성 (58문항)
 
