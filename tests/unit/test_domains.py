@@ -8,16 +8,16 @@ def test_domain_keys_match_five():
     assert DOMAIN_KEYS == ("incident", "manual", "api_reference", "meeting_note", "planning")
 
 
-def test_definition_block_contains_all_domains_per_perspective():
-    router = domain_definition_block("router")
-    document = domain_definition_block("document")
+def test_definition_block_differs_only_in_header_line():
+    router = domain_definition_block("router").splitlines()
+    document = domain_definition_block("document").splitlines()
+    # 첫 줄(관점 헤더)만 다르고, 도메인 정의 라인은 완전히 동일해야 한다(드리프트 차단)
+    assert router[0] != document[0]
+    assert "질문이" in router[0]
+    assert "문서가" in document[0]
+    assert router[1:] == document[1:]
     for key in DOMAIN_KEYS:
-        assert key in router
-        assert key in document
-    # 관점 헤더만 달라야 한다
-    assert "질문이" in router
-    assert "문서가" in document
-    assert router != document
+        assert any(key in line for line in router[1:])
 
 
 def test_router_prompt_built_from_shared_ontology():

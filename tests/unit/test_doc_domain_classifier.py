@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from app.rag.doc_domain_classifier import (
     DEFAULT_SECONDARY_THRESHOLD,
     MAX_SECONDARY,
+    DomainEvidence,
     PageDomainClassification,
     adopt_domains,
     build_doc_classifier_system_prompt,
@@ -27,8 +28,22 @@ def test_primary_must_match_domains_first():
 
 
 def test_unknown_domain_rejected():
+    # DomainEvidence 단위로 고립 — primary 불일치 같은 다른 규칙이 끼지 않게
     with pytest.raises(ValidationError):
-        _cls("incident", [{"domain": "incidentt", "confidence": 0.9, "evidence_headings": ["x"]}])
+        DomainEvidence(domain="incidentt", confidence=0.9, evidence_headings=["x"])
+
+
+def test_blank_evidence_headings_normalized():
+    # 공백뿐인 heading은 정규화로 제거 → 근거 없음으로 secondary 탈락
+    c = _cls(
+        "incident",
+        [
+            {"domain": "incident", "confidence": 0.9, "evidence_headings": ["원인"]},
+            {"domain": "manual", "confidence": 0.9, "evidence_headings": [" ", ""]},
+        ],
+    )
+    assert c.domains[1].evidence_headings == []
+    assert adopt_domains(c) == ["incident"]
 
 
 def test_duplicate_domain_rejected():

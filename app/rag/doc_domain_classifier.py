@@ -8,7 +8,7 @@ LLM 호출·캐시·rule fallback 배선은 Step 2(dry-run)에서. 여기서는 
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.rag.domains import DOMAIN_KEYS, domain_definition_block
 
@@ -24,6 +24,12 @@ class DomainEvidence(BaseModel):
     domain: str
     confidence: float = Field(ge=0.0, le=1.0)
     evidence_headings: list[str] = Field(default_factory=list)
+
+    @field_validator("evidence_headings")
+    @classmethod
+    def _strip_blank_headings(cls, value: list[str]) -> list[str]:
+        # 공백뿐인 heading([" "])이 근거로 인정돼 secondary 채택을 우회하지 못하게 정규화
+        return [h.strip() for h in value if h and h.strip()]
 
     @model_validator(mode="after")
     def _check_domain(self) -> DomainEvidence:
@@ -78,7 +84,7 @@ def build_doc_classifier_system_prompt() -> str:
 
 [판정 규칙]
 - primary_domain은 정확히 1개. 문서의 대표 도메인.
-- secondary는 그 도메인의 '검색 질문에 실제 근거를 제공'할 때만 추가한다(단순 키워드 등장만으론 불가). 최대 2개.
+- secondary는 그 도메인의 '검색 질문에 실제 근거를 제공'할 때만 추가한다(단순 키워드 등장만으론 불가). 최대 {MAX_SECONDARY}개.
 - 각 도메인의 evidence_headings는 근거가 된 실제 heading을 적는다(자유 문장 아님).
 - domains[0]은 반드시 primary_domain.
 
