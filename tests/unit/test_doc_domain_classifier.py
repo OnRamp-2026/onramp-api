@@ -26,9 +26,23 @@ def test_valid_classification():
     assert c.primary_domain == "incident"
 
 
-def test_primary_must_match_domains_first():
+def test_primary_absent_from_domains_rejected():
+    # primary가 domains에 아예 없을 때만 실패 (LLM이 엉뚱한 primary를 낸 경우)
     with pytest.raises(ValidationError):
         _cls("manual", [{"domain": "incident", "confidence": 0.9, "evidence_headings": ["x"]}])
+
+
+def test_primary_reordered_to_front_when_not_first():
+    # LLM이 순서를 안 지켜도(primary가 뒤에 있어도) fallback 없이 맨 앞으로 재정렬
+    c = _cls(
+        "manual",
+        [
+            {"domain": "incident", "confidence": 0.9, "evidence_headings": ["a"]},
+            {"domain": "manual", "confidence": 0.8, "evidence_headings": ["b"]},
+        ],
+    )
+    assert c.domains[0].domain == "manual"  # 재정렬됨, 거부 아님
+    assert {d.domain for d in c.domains} == {"manual", "incident"}
 
 
 def test_unknown_domain_rejected():
@@ -147,6 +161,20 @@ async def test_classify_page_llm_success(monkeypatch):
     assert r.source == "llm"
     assert r.classification.primary_domain == "incident"
     assert r.adopted_domains == ["incident", "manual"]
+
+
+async def test_classify_page_llm_out_of_order_is_not_fallback(monkeypatch):
+    # 재현된 버그: LLM이 primary를 domains 뒤에 둬도 폴백하지 말고 재정렬해 llm으로 처리
+    _patch_llm(
+        monkeypatch,
+        returns='{"primary_domain": "manual", "domains": ['
+        '{"domain": "incident", "confidence": 0.7, "evidence_headings": ["원인"]},'
+        '{"domain": "manual", "confidence": 0.9, "evidence_headings": ["절차"]}]}',
+    )
+    r = await DocumentDomainClassifier().classify_page(page_title="설치 절차", content="...")
+    assert r.source == "llm"  # rule_fallback 아님
+    assert r.classification.domains[0].domain == "manual"  # 재정렬됨
+    assert r.adopted_domains[0] == "manual"
 
 
 async def test_classify_page_falls_back_on_invalid_json(monkeypatch):

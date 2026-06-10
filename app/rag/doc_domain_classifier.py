@@ -64,16 +64,21 @@ class PageDomainClassification(BaseModel):
     domains: list[DomainEvidence]
 
     @model_validator(mode="after")
-    def _check_structure(self) -> PageDomainClassification:
+    def _normalize_structure(self) -> PageDomainClassification:
         if self.primary_domain not in DOMAIN_KEYS:
             raise ValueError(f"알 수 없는 primary_domain: {self.primary_domain!r}")
         if not self.domains:
             raise ValueError("domains는 최소 1개(primary)를 포함해야 합니다")
-        if self.domains[0].domain != self.primary_domain:
-            raise ValueError("domains[0].domain은 primary_domain과 일치해야 합니다")
         keys = [d.domain for d in self.domains]
         if len(keys) != len(set(keys)):
             raise ValueError(f"domains에 중복 도메인이 있습니다: {keys}")
+        # LLM이 순서를 안 지켜도 fallback하지 않는다 — primary가 있으면 맨 앞으로 재정렬,
+        # primary 자체가 domains에 없을 때만 실패시킨다(과도한 폴백 방지).
+        if self.primary_domain not in keys:
+            raise ValueError(f"primary_domain {self.primary_domain!r}이 domains에 없습니다: {keys}")
+        if self.domains[0].domain != self.primary_domain:
+            primary_entry = next(d for d in self.domains if d.domain == self.primary_domain)
+            self.domains = [primary_entry, *(d for d in self.domains if d.domain != self.primary_domain)]
         return self
 
 
