@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from functools import partial
 from uuid import NAMESPACE_URL, uuid5
 
 import anyio
@@ -52,7 +53,5 @@ async def index_children(
     # Qdrant JSON payload 한도(32MB) 초과 방지 — 전체 적재(수천 청크)는 단일 upsert가 불가
     for start in range(0, len(points), UPSERT_BATCH_SIZE):
         batch = points[start : start + UPSERT_BATCH_SIZE]
-        await anyio.to_thread.run_sync(
-            lambda b=batch: client.upsert(collection_name=settings.qdrant_collection, points=b)
-        )
+        await anyio.to_thread.run_sync(partial(client.upsert, collection_name=settings.qdrant_collection, points=batch))
     return len(points)

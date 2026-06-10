@@ -93,3 +93,15 @@ async def test_index_children_batches_upserts(monkeypatch):
     assert n == 5
     assert client.upsert_calls == 3  # 2+2+1
     assert len(client.upserted) == 5
+
+
+@pytest.mark.asyncio
+async def test_index_children_batches_exact_multiple(monkeypatch):
+    """청크 수가 배치 크기의 정확한 배수일 때 빈 배치 호출이 없어야 한다."""
+    monkeypatch.setattr("app.rag.indexer.UPSERT_BATCH_SIZE", 2)
+    client = _FakeClient()
+    children = [_child(f"pg_{i:03d}") for i in range(4)]
+    n = await index_children(children, embedder=_FakeEmbedder(), client=client, settings=Settings(embedding_dim=3))
+    assert n == 4
+    assert client.upsert_calls == 2  # 2+2 — 빈 3회차 없음
+    assert len(client.upserted) == 4

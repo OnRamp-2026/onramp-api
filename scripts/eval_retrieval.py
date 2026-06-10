@@ -73,11 +73,18 @@ def _print_table(summaries: dict[str, MetricSummary]) -> None:
 
 
 def _corpus_fingerprint(settings) -> dict:
-    """색인 상태 지문 — 게이트 실패가 코드 회귀인지 코퍼스 변동인지 구분하는 근거."""
+    """색인 상태 지문 — 게이트 실패가 코드 회귀인지 코퍼스 변동인지 구분하는 근거.
+
+    지문 수집 실패가 (이미 끝난) 평가 결과 기록을 막지 않도록 실패 시 None 처리.
+    """
     from app.db.qdrant import get_qdrant
 
-    info = get_qdrant().get_collection(settings.qdrant_collection)
-    return {"collection": settings.qdrant_collection, "points_count": info.points_count}
+    try:
+        info = get_qdrant().get_collection(settings.qdrant_collection)
+        return {"collection": settings.qdrant_collection, "points_count": info.points_count}
+    except Exception as exc:
+        logger.warning("코퍼스 지문 수집 실패(리포트는 계속 기록): %s", exc)
+        return {"collection": settings.qdrant_collection, "points_count": None}
 
 
 def _build_report(summaries, ans, *, top_k, top_n) -> dict:
