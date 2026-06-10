@@ -1,13 +1,20 @@
 """Router Agent 프롬프트.
 
-도메인 정의는 문서 분류와 공유하는 단일 ontology(app/rag/domains.py)에서 생성한다 — 정의 드리프트 방지(#49).
-few-shot JSON에 중괄호가 있어 f-string으로 전체를 감싸지 않고, 동적 도메인 블록만 분리해 결합한다.
+도메인 정의는 문서 분류와 공유하는 단일 ontology(app/rag/domains.py)와 정렬 대상이지만,
+라우터 프롬프트 자체의 ontology 전환은 운영 회귀 위험이 있어(라우터=신규 기준 / 문서 색인=기존 기준
+일시 불일치) 문서 재색인·라우터 baseline 비교와 함께 별도로 적용한다(#49 Step 후반 / #61).
 """
 
-from app.rag.domains import DOMAIN_KEYS, domain_definition_block
+ROUTER_SYSTEM_PROMPT = """너는 사내 지식 검색 시스템의 질문 분류기다.
+사용자 질문을 분석해서 use_case, domain, refined_query, confidence를 JSON으로 반환한다.
 
-# use_case·refined_query·few-shot·출력형식 — 도메인 정의와 무관한 정적 본문 (JSON 중괄호 포함).
-_ROUTER_BODY = """
+[5도메인 정의] — domain은 아래 영문 키로만 반환한다 (괄호는 의미 설명)
+- incident (장애대응): 장애 대응, 원인 분석, 재발 방지
+- manual (운영매뉴얼): 설치, 설정, 운영 절차, How-to 가이드
+- api_reference (API명세): API 명세, 파라미터 설명, 명령어 레퍼런스(kubectl 등)
+- meeting_note (회의록): 회의록, 의사결정 기록, 장애 대응 회의 내용
+- planning (기획서): 설계 문서, 아키텍처, 기획서, RFC/PRD
+
 [use_case 분류]
 - 검색: 사내 시스템·서비스·코드·운영·문서·업무와 조금이라도 관련된 질문.
   · "왜 이렇게 설계했어?", "왜 자꾸 죽어?", "원인이 뭐야?" 같은 원인·의도·설계 질문도 검색이다.
@@ -50,18 +57,5 @@ _ROUTER_BODY = """
 - 반드시 JSON만 반환한다. 설명 텍스트 없이.
 - 키: use_case, domain, refined_query, confidence
 - use_case 값은 "검색" 또는 "답변불가" 중 하나.
-- domain 값은 {domain_keys} 중 하나.
+- domain 값은 incident / manual / api_reference / meeting_note / planning 중 하나.
 """
-
-
-def build_router_system_prompt() -> str:
-    """공유 ontology에서 라우터 프롬프트를 생성한다(질문 관점 도메인 정의 + 정적 본문)."""
-    header = (
-        "너는 사내 지식 검색 시스템의 질문 분류기다.\n"
-        "사용자 질문을 분석해서 use_case, domain, refined_query, confidence를 JSON으로 반환한다.\n\n"
-        f"[5도메인 정의] — domain은 아래 영문 키로만 반환한다. {domain_definition_block('router')}\n"
-    )
-    return header + _ROUTER_BODY.replace("{domain_keys}", " / ".join(DOMAIN_KEYS))
-
-
-ROUTER_SYSTEM_PROMPT = build_router_system_prompt()

@@ -1,11 +1,18 @@
-"""5도메인 단일 ontology — 라우터/문서 분류가 같은 정의를 공유하는지 검증."""
+"""5도메인 단일 ontology — 문서 분류 프롬프트 생성 + 다른 정의 소스와의 정합 검증."""
 
-from app.agents.router.prompts import ROUTER_SYSTEM_PROMPT
+from app.agents.state import Domain
+from app.rag.classifier import DOMAIN_RULES
 from app.rag.domains import DOMAIN_DEFINITIONS, DOMAIN_KEYS, domain_definition_block
 
 
 def test_domain_keys_match_five():
     assert DOMAIN_KEYS == ("incident", "manual", "api_reference", "meeting_note", "planning")
+
+
+def test_ontology_matches_other_definition_sources():
+    # 단일 출처를 강제할 수는 없으므로(여러 곳에 정의 잔존), 최소한 키 집합 드리프트를 회귀로 막는다
+    assert set(DOMAIN_KEYS) == {domain.value for domain in Domain}
+    assert set(DOMAIN_KEYS) == set(DOMAIN_RULES)
 
 
 def test_definition_block_differs_only_in_header_line():
@@ -18,15 +25,6 @@ def test_definition_block_differs_only_in_header_line():
     assert router[1:] == document[1:]
     for key in DOMAIN_KEYS:
         assert any(key in line for line in router[1:])
-
-
-def test_router_prompt_built_from_shared_ontology():
-    # 라우터 프롬프트가 ontology 정의(경계 보정 포함)를 그대로 싣는다 — 드리프트 방지
-    assert "정확한 문법" in ROUTER_SYSTEM_PROMPT  # api_reference 보정 정의
-    for key in DOMAIN_KEYS:
-        assert key in ROUTER_SYSTEM_PROMPT
-    # few-shot JSON 중괄호가 깨지지 않고 보존됐는지
-    assert '{"use_case": "검색", "domain": "incident"' in ROUTER_SYSTEM_PROMPT
 
 
 def test_definitions_have_boundary_where_corrected():

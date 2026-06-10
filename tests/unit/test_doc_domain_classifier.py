@@ -88,6 +88,21 @@ def test_adopt_threshold_boundary_and_primary_first():
     assert "incident" in adopted  # 임계값 경계(>=)는 채택
 
 
+def test_adopt_secondary_by_confidence_not_output_order():
+    # LLM 출력 순서(앞 2개)가 아니라 confidence 내림차순 상위 MAX_SECONDARY개를 채택해야 한다
+    c = _cls(
+        "incident",
+        [
+            {"domain": "incident", "confidence": 0.99, "evidence_headings": ["장애"]},
+            {"domain": "manual", "confidence": 0.61, "evidence_headings": ["절차"]},
+            {"domain": "meeting_note", "confidence": 0.65, "evidence_headings": ["회의"]},
+            {"domain": "api_reference", "confidence": 0.95, "evidence_headings": ["옵션"]},
+        ],
+    )
+    # 앞에서 2개(manual, meeting_note)가 아니라 고신뢰(api_reference, meeting_note) 채택
+    assert adopt_domains(c) == ["incident", "api_reference", "meeting_note"]
+
+
 def test_adopt_caps_secondary():
     c = _cls(
         "incident",

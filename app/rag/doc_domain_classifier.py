@@ -3,7 +3,7 @@
 Step 1 범위: 공유 ontology 기반 프롬프트 + 출력 스키마 검증 + secondary 채택 규칙.
 LLM 호출·캐시·rule fallback 배선은 Step 2(dry-run)에서. 여기서는 결정론 로직만 둔다.
 
-계약: docs/Jihong/fixes/49_doc_domain_classifier.md
+계약: https://github.com/OnRamp-2026/docs/blob/main/Jihong/fixes/49_doc_domain_classifier.md
 """
 
 from __future__ import annotations
@@ -66,14 +66,13 @@ def adopt_domains(
     """색인할 domains[] 결정 — primary + (임계값 이상 & 근거 heading 있는) secondary.
 
     단순 키워드 등장(근거 없음)·저신뢰 secondary는 버린다. 반환 첫 값은 항상 primary.
+    secondary는 **confidence 내림차순 상위 MAX_SECONDARY개** — LLM 출력 순서에 의존하지 않는다.
     """
-    adopted = [classification.primary_domain]
-    for ev in classification.domains[1:]:
-        if len(adopted) - 1 >= MAX_SECONDARY:
-            break
-        if ev.confidence >= secondary_threshold and ev.evidence_headings:
-            adopted.append(ev.domain)
-    return adopted
+    qualified = [
+        ev for ev in classification.domains[1:] if ev.confidence >= secondary_threshold and ev.evidence_headings
+    ]
+    qualified.sort(key=lambda ev: ev.confidence, reverse=True)
+    return [classification.primary_domain, *(ev.domain for ev in qualified[:MAX_SECONDARY])]
 
 
 def build_doc_classifier_system_prompt() -> str:
