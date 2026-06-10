@@ -13,7 +13,7 @@ import argparse
 import asyncio
 
 from app.rag.doc_domain_classifier import DocumentDomainClassifier
-from app.rag.doc_domain_dryrun import DryRunPage, load_existing, run_dry_run, write_jsonl
+from app.rag.doc_domain_dryrun import DryRunPage, load_existing, merge_records, run_dry_run, write_jsonl
 from app.services.ingest_service import IngestService
 
 DEFAULT_OUTPUT = "data/eval/doc_domain_dryrun.jsonl"
@@ -25,11 +25,13 @@ async def main_async(limit: int, output: str, force: bool) -> None:
         DryRunPage(page_id=p.page_id, version=p.version, title=p.title, masked_markdown=p.markdown)
         for p in masked_pages
     ]
-    existing = {} if force else load_existing(output)
-    records, stats = await run_dry_run(pages, DocumentDomainClassifier(), existing=existing, force=force)
-    write_jsonl(output, records)
+    all_existing = load_existing(output)  # 파일 전체 — 병합으로 이번 대상 밖 검수본 보존
+    reuse_pool = {} if force else all_existing
+    records, stats = await run_dry_run(pages, DocumentDomainClassifier(), existing=reuse_pool, force=force)
+    merged = merge_records(all_existing, records)  # 기존 전체 + 이번 결과(key 덮어쓰기)
+    write_jsonl(output, merged)
     print(stats.as_line(), flush=True)
-    print(f"→ {output} ({len(records)} records). 다음: 사람 검수(review_status pending→approved/edited)", flush=True)
+    print(f"→ {output} ({len(merged)} records, 이번 갱신 {len(records)}). 다음: 사람 검수(pending→approved/edited)", flush=True)
 
 
 def main() -> None:

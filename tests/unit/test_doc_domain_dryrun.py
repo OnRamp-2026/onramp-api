@@ -12,6 +12,7 @@ from app.rag.doc_domain_dryrun import (
     DryRunPage,
     build_record,
     load_existing,
+    merge_records,
     record_reuse_key,
     run_dry_run,
     write_jsonl,
@@ -66,13 +67,44 @@ async def test_run_dry_run_passes_only_masked_content():
     assert clf.seen_content == ["[MASKED] 본문"]
 
 
-async def test_run_dry_run_reuses_existing_same_key():
+async def test_run_dry_run_reuses_existing_llm_result():
     clf = _FakeClassifier()
     page = _page()
-    existing = {record_reuse_key(build_record(page, _result(), classifier_model="gpt-4o-mini")): {"reused": True}}
-    records, stats = await run_dry_run([page], clf, existing=existing)
-    assert stats.reused == 1 and clf.calls == 0  # 재호출 없음
-    assert records[0] == {"reused": True}
+    rec = build_record(page, _result("llm"), classifier_model="gpt-4o-mini")
+    records, stats = await run_dry_run([page], clf, existing={record_reuse_key(rec): rec})
+    assert stats.reused == 1 and clf.calls == 0  # llm 결과는 재호출 없음
+    assert records[0] == rec
+
+
+async def test_run_dry_run_does_not_reuse_rule_fallback():
+    # 일시 LLM 장애로 폴백된 결과는 다음 실행에서 LLM 재시도해야 한다
+    clf = _FakeClassifier()
+    page = _page()
+    rec = build_record(page, _result("rule_fallback"), classifier_model="gpt-4o-mini")
+    assert rec["review_status"] == "pending"
+    _, stats = await run_dry_run([page], clf, existing={record_reuse_key(rec): rec})
+    assert stats.classified == 1 and stats.reused == 0 and clf.calls == 1
+
+
+async def test_run_dry_run_reuses_approved_even_if_fallback():
+    # 사람이 승인(approved)한 결과는 source 무관하게 재사용
+    clf = _FakeClassifier()
+    page = _page()
+    rec = build_record(page, _result("rule_fallback"), classifier_model="gpt-4o-mini")
+    rec["review_status"] = "approved"
+    _, stats = await run_dry_run([page], clf, existing={record_reuse_key(rec): rec})
+    assert stats.reused == 1 and clf.calls == 0
+
+
+def test_merge_records_preserves_pages_outside_this_run():
+    # 기존 100개 중 30개만 재실행해도 나머지가 사라지면 안 된다(검수본 유실 방지)
+    p1 = build_record(_page(version=1), _result(), classifier_model="m")
+    p1["page_id"] = "keep-me"
+    existing = {record_reuse_key(p1): p1}
+    new = build_record(DryRunPage("p2", 1, "t", "x"), _result(), classifier_model="m")
+    merged = merge_records(existing, [new])
+    ids = {r["page_id"] for r in merged}
+    assert ids == {"keep-me", "p2"}  # 기존 보존 + 신규 추가
 
 
 async def test_run_dry_run_recalls_on_version_change():

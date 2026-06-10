@@ -43,6 +43,14 @@ class DryRunStats:
         )
 
 
+def is_reusable(record: dict) -> bool:
+    """재사용 가능한 결과인지 — LLM 성공이거나 사람이 승인한 것만. rule_fallback(pending)은 재호출 대상.
+
+    일시적 LLM 장애로 폴백된 문서가 다음 정상 실행에서도 LLM을 못 타는 것을 막는다.
+    """
+    return record.get("classification_source") == "llm" or record.get("review_status") == "approved"
+
+
 def record_reuse_key(record: dict) -> ReuseKey:
     return (
         record["page_id"],
@@ -103,7 +111,7 @@ async def run_dry_run(
             DOC_CLASSIFIER_PROMPT_VERSION,
             ONTOLOGY_VERSION,
         )
-        if not force and key in existing:
+        if not force and key in existing and is_reusable(existing[key]):
             records.append(existing[key])
             stats.reused += 1
             continue
@@ -114,6 +122,14 @@ async def run_dry_run(
         else:
             stats.classified += 1
     return records, stats
+
+
+def merge_records(existing: dict[ReuseKey, dict], new_records: list[dict]) -> list[dict]:
+    """기존 전체 결과에 이번 실행 결과를 key로 덮어쓴 병합본. 이번 대상 밖 페이지(검수본)는 보존된다."""
+    merged = dict(existing)
+    for record in new_records:
+        merged[record_reuse_key(record)] = record
+    return list(merged.values())
 
 
 def write_jsonl(path: str | Path, records: list[dict]) -> None:
