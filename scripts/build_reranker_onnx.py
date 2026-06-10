@@ -37,11 +37,12 @@ def main() -> None:
     print(f"[1/3] {model_name} → ONNX fp32 export ({args.fp32_dir})", flush=True)
     ort = ORTModelForSequenceClassification.from_pretrained(model_name, export=True, provider="CPUExecutionProvider")
     ort.save_pretrained(args.fp32_dir)
-    AutoTokenizer.from_pretrained(model_name).save_pretrained(args.out)  # 토크나이저 동봉(편의)
 
     print(f"[2/3] int8 동적 양자화 (arch={args.arch}) → {args.out}", flush=True)
     qcfg = getattr(AutoQuantizationConfig, args.arch)(is_static=False, per_channel=False)
     ORTQuantizer.from_pretrained(args.fp32_dir).quantize(save_dir=args.out, quantization_config=qcfg)
+    # 토크나이저는 양자화 성공 후 동봉 — 실패 시 불완전 산출물(토크나이저만 있는 out) 방지
+    AutoTokenizer.from_pretrained(model_name).save_pretrained(args.out)
 
     print("[3/3] 완료. config(.env) 설정 예시:", flush=True)
     print(f'  RERANKER_BACKEND=onnx  RERANKER_ONNX_DIR={args.out}  RERANKER_ONNX_FILE=model_quantized.onnx', flush=True)

@@ -1,6 +1,7 @@
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -53,9 +54,19 @@ class Settings(BaseSettings):
     reranker_device: str = "cpu"  # P1: "cuda"
     # #60: 리랭커 백엔드. "torch"(기본·현행) | "onnx"(int8 경량화, CPU 파드용).
     # onnx 사용 시 scripts/build_reranker_onnx.py 산출물 디렉토리를 reranker_onnx_dir로 지정.
-    reranker_backend: str = "torch"
+    reranker_backend: Literal["torch", "onnx"] = "torch"
     reranker_onnx_dir: str = ""
     reranker_onnx_file: str = "model_quantized.onnx"
+
+    @model_validator(mode="after")
+    def _check_reranker_onnx(self) -> "Settings":
+        # fail-fast: onnx 백엔드인데 산출물 경로가 없으면 기동 단계에서 막는다(런타임 조용한 vector 폴백 방지).
+        if self.reranker_backend == "onnx" and not self.reranker_onnx_dir:
+            raise ValueError(
+                "reranker_backend='onnx'면 reranker_onnx_dir 필요 (scripts/build_reranker_onnx.py 산출물 경로)"
+            )
+        return self
+
     retriever_top_k: int = 20  # Qdrant 후보 풀
     retriever_top_n: int = 5  # 리랭킹 후 최종
     classifier_model: str = "gpt-4o-mini"

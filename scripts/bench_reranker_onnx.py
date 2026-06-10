@@ -51,8 +51,10 @@ def _present() -> set[str]:
 
 
 async def _evalset(n: int, top_k: int) -> list[dict]:
-    queries = {json.loads(line)["qid"]: json.loads(line) for line in open("data/eval/queries.jsonl")}
-    qrels = {json.loads(line)["qid"]: json.loads(line)["relevant_chunk_ids"] for line in open("data/eval/qrels.jsonl")}
+    with open("data/eval/queries.jsonl") as f:
+        queries = {json.loads(line)["qid"]: json.loads(line) for line in f}
+    with open("data/eval/qrels.jsonl") as f:
+        qrels = {json.loads(line)["qid"]: json.loads(line)["relevant_chunk_ids"] for line in f}
     present = _present()
     items = [
         (q["query"], qrels[qid])
