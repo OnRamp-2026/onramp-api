@@ -37,6 +37,8 @@ data/*
 !data/eval/
 # 부트스트랩 초안(검수 전) 은 추적 제외 — 검수 후 queries/qrels.jsonl로 병합
 data/eval/*.draft.jsonl
+# 생성 평가(RAGAS) 리포트는 LLM-judge라 실행마다 변동(비결정) → 추적 제외(로컬/CI 아티팩트로만)
+data/eval/gen_report.json
 
 # Ruff
 .ruff_cache/
