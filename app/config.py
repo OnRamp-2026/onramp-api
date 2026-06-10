@@ -94,7 +94,8 @@ class Settings(BaseSettings):
     # ── Trust Agent (Evidence Confidence, P1) ──
     trust_max_retries: int = Field(default=1, ge=0)  # 재검색 최대 횟수 (무한루프 방지)
     # 재검색 트리거 τ (#A calibrate_answerability 보정값; top rerank<floor → 재검색)
-    trust_rerank_floor: float = Field(default=0.288, ge=0.0)
+    # 전체 코퍼스(#75, 5,731청크) 재보정값 — eval_retrieval.ANSWERABILITY_FLOOR 와 동일 유지 (#78)
+    trust_rerank_floor: float = Field(default=0.4641, ge=0.0)
     trust_min_docs: int = Field(default=1, ge=0)
     # Evidence Confidence 5축 가중치 (기본 합 1.0).
     #   env로 덮어써 합이 1.0이 아니어도 score_trust()가 wsum으로 나눠 자동 정규화하므로 동작은 정상이다.

@@ -71,7 +71,7 @@ def test_gate_conflicting() -> None:
 
 def test_should_re_retrieve() -> None:
     assert should_re_retrieve([], S, retry_count=0, max_retries=1) is True  # 문서 0
-    assert should_re_retrieve([_doc(rerank=0.1)], S, 0, 1) is True  # top < τ(0.288)
+    assert should_re_retrieve([_doc(rerank=0.1)], S, 0, 1) is True  # top < τ(0.4641)
     assert should_re_retrieve([_doc(rerank=0.9)] * 10, S, 0, 1) is False  # 충분 (trust_min_docs 설정 무관)
     assert should_re_retrieve([_doc(rerank=0.1)], S, retry_count=1, max_retries=1) is False  # 한도 초과
 
