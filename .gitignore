@@ -49,3 +49,6 @@ docker-compose.override.yml
 
 # OS
 Thumbs.db
+
+# #60 리랭커 ONNX 빌드 산출물 (build_reranker_onnx.py로 생성)
+models/
