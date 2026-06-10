@@ -41,7 +41,7 @@ async def _top_candidates(query: str, domain: str | None, *, top_k: int, top_n: 
     hits = await dense_search(qvec, top_k, domain=domain, settings=settings)
     if not hits and domain:
         hits = await dense_search(qvec, top_k, domain=None, settings=settings)
-    candidates = [(p.payload.get("content", ""), p.payload or {}) for p in hits]
+    candidates = [((p.payload or {}).get("content", ""), p.payload or {}) for p in hits]
     try:
         reranked = await anyio.to_thread.run_sync(get_reranker().rerank, query, candidates)
         ranked = [(apply_metadata_weight(score, payload, settings), payload) for score, payload in reranked]
