@@ -35,7 +35,7 @@ async def main_async(modes: list[FilterMode]) -> None:
     oracle: dict[FilterMode, list[tuple[list[str], set[str]]]] = {m: [] for m in modes}
     router: dict[FilterMode, list[tuple[list[str], set[str]]]] = {m: [] for m in modes}
 
-    domain_total = domain_correct = 0
+    domain_total = domain_correct = acceptable_correct = 0
     unanswerable_total = unanswerable_blocked = 0
 
     for g in golden:
@@ -49,7 +49,8 @@ async def main_async(modes: list[FilterMode]) -> None:
         # 라우터 도메인 정확도 (answerable + 골든 도메인 보유)
         if g.is_answerable and g.domain is not None:
             domain_total += 1
-            domain_correct += pred_domain == g.domain
+            domain_correct += pred_domain == g.domain  # strict: 단일 정답
+            acceptable_correct += pred_domain in g.gold_domains  # acceptable: 정답이 걸친 도메인 집합
         # 범위밖 차단 정확도
         if not g.is_answerable:
             unanswerable_total += 1
@@ -67,7 +68,13 @@ async def main_async(modes: list[FilterMode]) -> None:
     _print_block("오라클 도메인 (골든 정답)", oracle, modes)
     _print_block("router-in-the-loop (라우터 예측)", router, modes)
     if domain_total:
-        print(f"\n라우터 도메인 정확도: {domain_correct}/{domain_total} ({domain_correct / domain_total:.3f})")
+        print(
+            f"\n라우터 도메인 정확도 strict(pred==domain): {domain_correct}/{domain_total} ({domain_correct / domain_total:.3f})"
+        )
+        print(
+            f"라우터 도메인 정확도 acceptable(pred∈gold_domains): "
+            f"{acceptable_correct}/{domain_total} ({acceptable_correct / domain_total:.3f})"
+        )
     if unanswerable_total:
         print(f"범위밖 차단: {unanswerable_blocked}/{unanswerable_total}")
 
