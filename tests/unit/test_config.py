@@ -30,4 +30,6 @@ def test_reranker_backend_literal_and_onnx_requires_dir():
     with pytest.raises(ValidationError):
         Settings(reranker_backend="onnx")  # onnx_dir 없음 → fail-fast
     with pytest.raises(ValidationError):
+        Settings(reranker_backend="onnx", reranker_onnx_dir="models/x", reranker_onnx_file="  ")  # 파일 공백 → 거부
+    with pytest.raises(ValidationError):
         Settings(reranker_backend="onnnx")  # 오타 → Literal 거부

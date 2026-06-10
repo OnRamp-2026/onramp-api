@@ -61,10 +61,13 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _check_reranker_onnx(self) -> "Settings":
         # fail-fast: onnx 백엔드인데 산출물 경로가 없으면 기동 단계에서 막는다(런타임 조용한 vector 폴백 방지).
-        if self.reranker_backend == "onnx" and not self.reranker_onnx_dir:
-            raise ValueError(
-                "reranker_backend='onnx'면 reranker_onnx_dir 필요 (scripts/build_reranker_onnx.py 산출물 경로)"
-            )
+        if self.reranker_backend == "onnx":
+            if not self.reranker_onnx_dir.strip():
+                raise ValueError(
+                    "reranker_backend='onnx'면 reranker_onnx_dir 필요 (build_reranker_onnx.py 산출물 경로)"
+                )
+            if not self.reranker_onnx_file.strip():
+                raise ValueError("reranker_backend='onnx'면 reranker_onnx_file 필요")
         return self
 
     retriever_top_k: int = 20  # Qdrant 후보 풀
