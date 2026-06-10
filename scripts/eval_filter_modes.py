@@ -47,6 +47,8 @@ def main() -> None:
     args = parser.parse_args()
 
     modes = [m.strip() for m in args.modes.split(",") if m.strip()]
+    if not modes:
+        parser.error("--modes에 최소 1개 필터 모드가 필요합니다 (가능: " + ", ".join(FILTER_MODES) + ")")
     invalid = [m for m in modes if m not in FILTER_MODES]
     if invalid:
         parser.error(f"지원하지 않는 필터 모드: {invalid} (가능: {list(FILTER_MODES)})")

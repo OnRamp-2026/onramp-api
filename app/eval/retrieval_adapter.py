@@ -5,7 +5,7 @@ SourceDocument 대신 평가용 chunk_id 리스트/점수를 돌려준다.
 LLM-free(임베딩 검색만) → Router를 거치지 않고 raw query를 그대로 검색에 투입한다.
 
 mode (랭킹 방식):
-    "dense"  — dense_search 결과를 vector score 순으로 top_n
+    "dense"  — vector score + 도메인 가산 순으로 top_n (운영 _vector_fallback과 동일한 soft 정책)
     "rerank" — Cross-Encoder 재정렬 + 최신성 가중 + 도메인 일치 가산 (운영 경로와 동일)
 filter_mode (도메인 필터 전략, None이면 config 기본=운영과 동일):
     "hard" / "hybrid" / "soft" — search_with_mode 참고
@@ -27,6 +27,17 @@ from app.rag.embedder import get_embedder
 logger = logging.getLogger(__name__)
 
 Mode = Literal["dense", "rerank"]
+
+
+def _soft_ranked(results: list[tuple[float, dict]], domain: str | None, settings: Settings) -> list[tuple[float, dict]]:
+    """vector score에 도메인 가산을 적용해 정렬 — 운영 retrieve_node._vector_fallback과 동일한 soft 정책.
+
+    domain=None이거나 문서 도메인과 불일치면 가산 0 → 순수 vector score 정렬과 동치.
+    (이게 빠지면 soft A/B가 '무필터 dense'만 측정해 도메인 가산 효과를 누락한다.)
+    """
+    scored = [(apply_domain_weight(score, payload, domain, settings), payload) for score, payload in results]
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored
 
 
 @dataclass(frozen=True)
@@ -62,7 +73,7 @@ async def retrieve_for_eval(
     results = [(point.score, point.payload or {}) for point in hits]
 
     if mode == "dense":
-        ranked = sorted(results, key=lambda item: item[0], reverse=True)
+        ranked = _soft_ranked(results, domain, settings)
     else:  # rerank — 운영 retrieve_node와 동일하게 최신성 + 도메인 일치 가산
         candidates = [(payload.get("content", ""), payload) for _, payload in results]
         try:
@@ -75,9 +86,9 @@ async def retrieve_for_eval(
                 for score, payload in reranked
             ]
             ranked.sort(key=lambda item: item[0], reverse=True)
-        except Exception as exc:  # 리랭커 실패 → vector score 순 폴백 (retrieve_node 동일)
+        except Exception as exc:  # 리랭커 실패 → vector score + 도메인 가산 폴백 (retrieve_node._vector_fallback 동일)
             logger.warning("리랭커 실패로 dense 폴백: %s", exc, exc_info=True)
-            ranked = sorted(results, key=lambda item: item[0], reverse=True)
+            ranked = _soft_ranked(results, domain, settings)
 
     top = ranked[:top_n]
     chunk_ids = [payload.get("chunk_id", "") for _, payload in top if payload.get("chunk_id")]

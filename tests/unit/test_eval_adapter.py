@@ -37,6 +37,27 @@ async def test_dense_mode_orders_by_vector_score(monkeypatch, patch_embedder):
     assert ids == ["c1", "c2"]  # score 내림차순, top_n=2
 
 
+async def test_dense_mode_applies_domain_bonus(monkeypatch, patch_embedder):
+    """soft 재현 — dense 모드도 도메인 가산을 정렬 키에 반영(운영 _vector_fallback과 동일)."""
+
+    def _dp(chunk_id, score, domain):
+        return SimpleNamespace(
+            id=chunk_id, score=score, payload={"chunk_id": chunk_id, "content": "c", "domain": domain}
+        )
+
+    async def _search(qvec, top_k, *, domain=None, **kw):
+        # vector score는 c1 > c2지만, c2만 router domain(manual)과 일치 → 가산 후 c2가 앞서야 함
+        return [_dp("c1", 0.50, "incident"), _dp("c2", 0.45, "manual")]
+
+    monkeypatch.setattr(search_mod, "dense_search", _search)
+    s = Settings()  # domain_match_weight=0.1 → 0.45+0.1=0.55 > 0.50
+    ids = await adapter.ranked_chunk_ids("q", mode="dense", domain="manual", filter_mode="soft", settings=s)
+    assert ids == ["c2", "c1"]  # 도메인 가산이 순서를 뒤집음
+    # 가산이 없으면(domain=None) 순수 vector score 순
+    ids_no_domain = await adapter.ranked_chunk_ids("q", mode="dense", domain=None, filter_mode="soft", settings=s)
+    assert ids_no_domain == ["c1", "c2"]
+
+
 async def test_rerank_mode_reorders(monkeypatch, patch_embedder):
     async def _search(qvec, top_k, *, domain=None, **kw):
         return [_point("c1", 0.9), _point("c2", 0.8), _point("c3", 0.7)]
