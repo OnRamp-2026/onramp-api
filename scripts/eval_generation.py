@@ -31,6 +31,7 @@ from app.eval.ragas_judge import ragas_available, resolve_judge_model, score_gen
 logger = logging.getLogger(__name__)
 
 DEFAULT_REPORT = ROOT_DIR / "data" / "eval" / "gen_report.json"
+RETRY_DELAY_SECONDS = 5  # 일시 오류(네트워크 등) 재시도 전 대기
 
 
 async def run(args) -> int:
@@ -53,10 +54,24 @@ async def run(args) -> int:
         logger.warning("--with-reference 지정됐으나 GT 답변(ground_truth_answer)이 0건 — reference 지표는 건너뜀")
 
     results = []
+    n_generation_failed = 0
     for i, g in enumerate(answerable, start=1):
         logger.info("[%d/%d] 생성: %.50s", i, len(answerable), g.query)
         reference = _gt(g) if args.with_reference else None
-        results.append(await generate_for_eval(g.query, domain=g.domain, model=args.model, reference=reference))
+        # 장시간 실행(~1.5h) 중 일시 네트워크 오류 1건이 전체를 전멸시키지 않도록 문항 단위 방어 (#84)
+        for attempt in (1, 2):
+            try:
+                results.append(await generate_for_eval(g.query, domain=g.domain, model=args.model, reference=reference))
+                break
+            except Exception:
+                if attempt == 1:
+                    logger.warning("생성 실패 (qid=%s) — %ds 후 1회 재시도", g.qid, RETRY_DELAY_SECONDS, exc_info=True)
+                    await asyncio.sleep(RETRY_DELAY_SECONDS)
+                else:
+                    n_generation_failed += 1
+                    logger.warning("생성 재시도 실패 (qid=%s) — 건너뜀", g.qid)
+    if n_generation_failed:
+        logger.warning("생성 실패로 제외된 문항: %d건 (평가 분모에서 빠짐)", n_generation_failed)
 
     scores = await score_generation(results, with_reference=args.with_reference)
     summary = scores.as_dict()
@@ -83,6 +98,7 @@ async def run(args) -> int:
                 "n_golden_answerable": len([g for g in golden if g.is_answerable]),
                 "limit": args.limit,
                 "with_reference": args.with_reference,
+                "n_generation_failed": n_generation_failed,
             },
             "generation": summary,
         }
