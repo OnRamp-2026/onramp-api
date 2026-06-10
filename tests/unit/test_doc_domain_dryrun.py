@@ -50,7 +50,8 @@ def _page(version=1):
 async def test_run_dry_run_builds_pending_record():
     clf = _FakeClassifier()
     records, stats = await run_dry_run([_page()], clf)
-    assert stats.classified == 1 and stats.reused == 0
+    assert stats.classified == 1
+    assert stats.reused == 0
     rec = records[0]
     assert rec["page_id"] == "p1" and rec["page_version"] == 1
     assert rec["primary_domain"] == "incident" and rec["adopted_domains"] == ["incident"]
@@ -72,7 +73,8 @@ async def test_run_dry_run_reuses_existing_llm_result():
     page = _page()
     rec = build_record(page, _result("llm"), classifier_model="gpt-4o-mini")
     records, stats = await run_dry_run([page], clf, existing={record_reuse_key(rec): rec})
-    assert stats.reused == 1 and clf.calls == 0  # llm 결과는 재호출 없음
+    assert stats.reused == 1
+    assert clf.calls == 0  # llm 결과는 재호출 없음
     assert records[0] == rec
 
 
@@ -83,7 +85,9 @@ async def test_run_dry_run_does_not_reuse_rule_fallback():
     rec = build_record(page, _result("rule_fallback"), classifier_model="gpt-4o-mini")
     assert rec["review_status"] == "pending"
     _, stats = await run_dry_run([page], clf, existing={record_reuse_key(rec): rec})
-    assert stats.classified == 1 and stats.reused == 0 and clf.calls == 1
+    assert stats.classified == 1
+    assert stats.reused == 0
+    assert clf.calls == 1
 
 
 async def test_run_dry_run_reuses_approved_even_if_fallback():
@@ -93,7 +97,8 @@ async def test_run_dry_run_reuses_approved_even_if_fallback():
     rec = build_record(page, _result("rule_fallback"), classifier_model="gpt-4o-mini")
     rec["review_status"] = "approved"
     _, stats = await run_dry_run([page], clf, existing={record_reuse_key(rec): rec})
-    assert stats.reused == 1 and clf.calls == 0
+    assert stats.reused == 1
+    assert clf.calls == 0
 
 
 def test_merge_records_preserves_pages_outside_this_run():
@@ -112,7 +117,8 @@ async def test_run_dry_run_recalls_on_version_change():
     existing = {record_reuse_key(build_record(_page(version=1), _result(), classifier_model="gpt-4o-mini")): {}}
     # 같은 페이지지만 version 2 → 키 불일치 → 재호출
     _, stats = await run_dry_run([_page(version=2)], clf, existing=existing)
-    assert stats.classified == 1 and stats.reused == 0
+    assert stats.classified == 1
+    assert stats.reused == 0
 
 
 async def test_run_dry_run_recalls_on_prompt_version_change():
@@ -120,7 +126,8 @@ async def test_run_dry_run_recalls_on_prompt_version_change():
     stale = build_record(_page(), _result(), classifier_model="gpt-4o-mini")
     stale["prompt_version"] = "0"  # 옛 프롬프트 버전 → 키 불일치
     _, stats = await run_dry_run([_page()], clf, existing={record_reuse_key(stale): stale})
-    assert stats.classified == 1 and stats.reused == 0
+    assert stats.classified == 1
+    assert stats.reused == 0
 
 
 async def test_run_dry_run_force_ignores_existing():
@@ -128,7 +135,8 @@ async def test_run_dry_run_force_ignores_existing():
     page = _page()
     existing = {record_reuse_key(build_record(page, _result(), classifier_model="gpt-4o-mini")): {}}
     _, stats = await run_dry_run([page], clf, existing=existing, force=True)
-    assert stats.classified == 1 and clf.calls == 1
+    assert stats.classified == 1
+    assert clf.calls == 1
 
 
 async def test_run_dry_run_fallback_stays_pending():

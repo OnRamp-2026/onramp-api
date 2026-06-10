@@ -19,7 +19,7 @@ from app.services.ingest_service import IngestService
 DEFAULT_OUTPUT = "data/eval/doc_domain_dryrun.jsonl"
 
 
-async def main_async(limit: int, output: str, force: bool) -> None:
+async def main_async(limit: int, output: str, *, force: bool) -> None:
     masked_pages = await IngestService().masked_all_pages(limit=limit)
     pages = [
         DryRunPage(page_id=p.page_id, version=p.version, title=p.title, masked_markdown=p.markdown)
@@ -40,7 +40,7 @@ def main() -> None:
     parser.add_argument("--output", default=DEFAULT_OUTPUT, help="검수용 JSONL 출력 경로")
     parser.add_argument("--force", action="store_true", help="기존 결과 재사용 없이 전부 재분류")
     args = parser.parse_args()
-    asyncio.run(main_async(args.limit, args.output, args.force))
+    asyncio.run(main_async(args.limit, args.output, force=args.force))
 
 
 if __name__ == "__main__":
