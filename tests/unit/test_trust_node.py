@@ -57,12 +57,16 @@ def test_overall_in_range_and_owner_neutral() -> None:
     assert out.verification_label == 1.0
 
 
+# τ(trust_rerank_floor) 위 점수 — 보정으로 τ가 바뀌어도 테스트 의도가 유지되도록 상대값 사용
+_ABOVE = S.trust_rerank_floor + 0.1
+
+
 def test_gate_conflicting() -> None:
     # 서로 다른 page, 둘 다 floor(τ) 이상 + 점수 차 < gap(0.05) → 충돌
-    docs = [_doc(page_id="p1", rerank=0.9), _doc(page_id="p2", rerank=0.88)]
+    docs = [_doc(page_id="p1", rerank=_ABOVE), _doc(page_id="p2", rerank=_ABOVE - 0.02)]
     assert score_trust(docs, S).gate_conflicting is True
     # 점수 차 큼 → 충돌 아님
-    docs2 = [_doc(page_id="p1", rerank=0.9), _doc(page_id="p2", rerank=0.3)]
+    docs2 = [_doc(page_id="p1", rerank=_ABOVE + 0.5), _doc(page_id="p2", rerank=_ABOVE)]
     assert score_trust(docs2, S).gate_conflicting is False
     # 저관련 결과가 0 근처로 뭉친 경우 — 차이는 작지만 floor 미만이라 충돌 오탐 금지
     docs3 = [_doc(page_id="p1", rerank=0.106), _doc(page_id="p2", rerank=0.103)]
@@ -71,8 +75,8 @@ def test_gate_conflicting() -> None:
 
 def test_should_re_retrieve() -> None:
     assert should_re_retrieve([], S, retry_count=0, max_retries=1) is True  # 문서 0
-    assert should_re_retrieve([_doc(rerank=0.1)], S, 0, 1) is True  # top < τ(0.4641)
-    assert should_re_retrieve([_doc(rerank=0.9)] * 10, S, 0, 1) is False  # 충분 (trust_min_docs 설정 무관)
+    assert should_re_retrieve([_doc(rerank=0.1)], S, 0, 1) is True  # top < τ
+    assert should_re_retrieve([_doc(rerank=_ABOVE)] * 10, S, 0, 1) is False  # 충분 (trust_min_docs 설정 무관)
     assert should_re_retrieve([_doc(rerank=0.1)], S, retry_count=1, max_retries=1) is False  # 한도 초과
 
 
@@ -88,7 +92,7 @@ async def test_trust_node_triggers_retry() -> None:
 
 async def test_trust_node_no_retry_passes_to_answer() -> None:
     # 충분한 rerank + 충분한 문서 개수 (trust_min_docs 설정과 무관하게)
-    state = {"documents": [_doc(rerank=0.9)] * 10, "retry_count": 0, "max_retries": 1}
+    state = {"documents": [_doc(rerank=_ABOVE)] * 10, "retry_count": 0, "max_retries": 1}
     out = await trust_node(state)
     assert out["should_re_retrieve"] is False
     assert "domain" not in out  # 도메인 유지
