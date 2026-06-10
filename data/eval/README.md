@@ -10,6 +10,7 @@
 | `queries.jsonl` | 질문 + 메타 (1줄=1질문) |
 | `qrels.jsonl` | 질문별 정답 chunk_id 라벨 (1줄=1질문) |
 | `baseline.json` | 검색 베이스라인 수치 (회귀 기준, CLI가 생성) |
+| `baseline.single_label.json` | **멀티라벨 재색인 전 single-label 스냅샷**(A/B 비교 고정본, 재현 메타 포함). `--gate`는 `baseline.json`을 쓰며 이 파일은 수동 비교용 (#49 / #86) |
 | `gen_report.json` | 생성 평가(RAGAS) 최근 리포트 — **gitignore**(LLM-judge 비결정 → 로컬/CI 아티팩트로만) |
 
 ### `queries.jsonl`
