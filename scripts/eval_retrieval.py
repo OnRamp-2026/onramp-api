@@ -33,9 +33,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_BASELINE = ROOT_DIR / "data" / "eval" / "baseline.json"
 GATED_MODE = "rerank"  # 회귀 게이트 기준 모드 (운영 경로)
 # answerable 예측 임계값 τ — scripts/calibrate_answerability.py 로 보정한 운영값
-# (골든셋 58문항 × 전체 코퍼스 5,731청크 기준 Youden's J 최대, precision 1.0 / recall 0.889).
-# 골든셋·코퍼스 갱신 시 재보정. config.trust_rerank_floor 와 동일 값 유지.
-ANSWERABILITY_FLOOR = 0.4641
+# (골든셋 118문항에 대해 전체 코퍼스 기준 Youden's J 최대, precision 0.984 / recall 0.744).
+# near-miss(n0xx) 도입으로 음성 분포가 어려워져 τ가 0.4641→1.0018로 상승 — 검색이 놓친
+# answerable과 near-miss가 점수상 겹치는 것이 원인(검색 개선 시 재보정 여지).
+# 골든셋·코퍼스·리랭크 가중치 갱신 시 재보정. config.trust_rerank_floor 와 동일 값 유지.
+ANSWERABILITY_FLOOR = 1.0018
 
 
 async def _eval_mode(golden, mode: Mode, *, top_k, top_n, ans_floor, ans_min_docs):

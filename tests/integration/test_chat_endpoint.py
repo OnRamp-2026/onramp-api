@@ -64,8 +64,11 @@ class _Reranker:
     """리랭커 stub."""
 
     def rerank(self, query, candidates):
-        """후보를 고정 점수로 통과시킨다."""
-        return [(0.5, payload) for _, payload in candidates]
+        """후보를 τ(trust_rerank_floor) 위 점수로 통과시킨다 — 보정으로 τ가 바뀌어도 의도 유지."""
+        from app.config import get_settings
+
+        passing = get_settings().trust_rerank_floor + 0.1
+        return [(passing, payload) for _, payload in candidates]
 
 
 @pytest.fixture
