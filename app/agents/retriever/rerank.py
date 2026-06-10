@@ -87,7 +87,7 @@ class OnnxCrossEncoderReranker:
         )
         with torch.no_grad():
             logits = self._model(**features).logits  # type: ignore[misc]
-        scores = logits.squeeze(-1).cpu().tolist()
+        scores = torch.sigmoid(logits).squeeze(-1).cpu().tolist()
         ranked = [(float(score), payload) for score, (_, payload) in zip(scores, candidates, strict=True)]
         ranked.sort(key=lambda item: item[0], reverse=True)
         return ranked

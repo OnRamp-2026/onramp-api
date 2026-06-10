@@ -25,7 +25,9 @@ QDRANT = "http://localhost:6333/collections/onramp"
 
 
 def _post(path: str, body: dict) -> dict:
-    req = urllib.request.Request(QDRANT + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(
+        QDRANT + path, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}
+    )
     return json.load(urllib.request.urlopen(req, timeout=15))["result"]
 
 
@@ -83,8 +85,11 @@ def _bench(name, predict, evalset):
         "recall@5": avg(1),
         "mrr@10": avg(2),
     }
-    print(f"[{name:<10}] lat med {res['lat_med_s']}s mean {res['lat_mean_s']}s | "
-          f"hit@5 {res['hit@5']} recall@5 {res['recall@5']} mrr@10 {res['mrr@10']}", flush=True)
+    print(
+        f"[{name:<10}] lat med {res['lat_med_s']}s mean {res['lat_mean_s']}s | "
+        f"hit@5 {res['hit@5']} recall@5 {res['recall@5']} mrr@10 {res['mrr@10']}",
+        flush=True,
+    )
     return res
 
 
@@ -109,18 +114,28 @@ def main() -> None:
     out["torch"] = _bench("torch", lambda q, ps: ce.predict([(q, p) for p in ps]), evalset)
 
     tok = AutoTokenizer.from_pretrained(settings.reranker_model)
-    m8 = ORTModelForSequenceClassification.from_pretrained(args.onnx_dir, file_name=args.onnx_file, provider="CPUExecutionProvider")
+    m8 = ORTModelForSequenceClassification.from_pretrained(
+        args.onnx_dir, file_name=args.onnx_file, provider="CPUExecutionProvider"
+    )
 
     def pred8(query: str, passages: list[str]):
-        feats = tok([query] * len(passages), passages, padding=True, truncation=True, max_length=512, return_tensors="pt")
+        feats = tok(
+            [query] * len(passages), passages, padding=True, truncation=True, max_length=512, return_tensors="pt"
+        )
         with torch.no_grad():
-            return m8(**feats).logits.squeeze(-1).cpu().numpy()
+            logits = m8(**feats).logits
+            return torch.sigmoid(logits).squeeze(-1).cpu().numpy()
 
     out["onnx_int8"] = _bench("onnx_int8", pred8, evalset)
 
     t, q = out["torch"], out["onnx_int8"]
-    print(f"\n속도: {t['lat_mean_s']}s → {q['lat_mean_s']}s = {round(t['lat_mean_s'] / q['lat_mean_s'], 1)}x", flush=True)
-    print(f"품질: hit@5 {t['hit@5']}→{q['hit@5']} / recall@5 {t['recall@5']}→{q['recall@5']} / mrr@10 {t['mrr@10']}→{q['mrr@10']}", flush=True)
+    print(
+        f"\n속도: {t['lat_mean_s']}s → {q['lat_mean_s']}s = {round(t['lat_mean_s'] / q['lat_mean_s'], 1)}x", flush=True
+    )
+    print(
+        f"품질: hit@5 {t['hit@5']}→{q['hit@5']} / recall@5 {t['recall@5']}→{q['recall@5']} / mrr@10 {t['mrr@10']}→{q['mrr@10']}",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

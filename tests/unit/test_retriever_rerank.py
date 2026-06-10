@@ -2,8 +2,11 @@ import sys
 import threading
 import types
 
+import pytest
+
 from app.agents.retriever.rerank import (
     CrossEncoderReranker,
+    OnnxCrossEncoderReranker,
     _recency_factor,
     apply_domain_weight,
     apply_metadata_weight,
@@ -28,6 +31,31 @@ def test_rerank_sorts_desc():
 
 def test_rerank_empty():
     assert CrossEncoderReranker(settings=Settings()).rerank("q", []) == []
+
+
+def test_onnx_rerank_applies_sigmoid_to_match_torch_score_contract():
+    import torch
+
+    logits = torch.tensor([[-1.1073], [1.0]])
+
+    class _Tokenizer:
+        def __call__(self, *args, **kwargs):
+            return {}
+
+    class _OnnxModel:
+        def __call__(self, **kwargs):
+            return types.SimpleNamespace(logits=logits)
+
+    reranker = OnnxCrossEncoderReranker(settings=Settings())
+    reranker._tokenizer = _Tokenizer()
+    reranker._model = _OnnxModel()
+
+    out = reranker.rerank("q", [("a", {"id": 1}), ("b", {"id": 2})])
+
+    expected = torch.sigmoid(logits).squeeze(-1).tolist()
+    assert [payload["id"] for _, payload in out] == [2, 1]
+    assert [score for score, _ in out] == pytest.approx([expected[1], expected[0]])
+    assert all(0.0 <= score <= 1.0 for score, _ in out)
 
 
 def test_recency_factor_fresh_gt_old_and_safe():
