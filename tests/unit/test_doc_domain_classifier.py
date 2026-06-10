@@ -150,6 +150,31 @@ def _patch_llm(monkeypatch, *, returns=None, raises=None):
     monkeypatch.setattr(mod, "call_llm", _fake)
 
 
+def _patch_llm_sequence(monkeypatch, responses):
+    """호출마다 다음 응답을 돌려준다. 받은 user 프롬프트를 기록(교정 프롬프트 검증용)."""
+    seen: list[str] = []
+    it = iter(responses)
+
+    async def _fake(system, user, **kwargs):
+        seen.append(user)
+        return next(it)
+
+    monkeypatch.setattr(mod, "call_llm", _fake)
+    return seen
+
+
+async def test_classify_page_error_correcting_retry(monkeypatch):
+    # 재현 버그: primary=incident인데 domains=[manual] (primary 부재) → 1차 검증 실패
+    bad = '{"primary_domain": "incident", "domains": [{"domain": "manual", "confidence": 0.9, "evidence_headings": ["절차"]}]}'
+    good = '{"primary_domain": "manual", "domains": [{"domain": "manual", "confidence": 0.9, "evidence_headings": ["절차"]}]}'
+    seen = _patch_llm_sequence(monkeypatch, [bad, good])
+    r = await DocumentDomainClassifier(max_retries=1).classify_page(page_title="설치 절차", content="...")
+    assert r.source == "llm"  # 교정 재시도로 폴백 회피
+    assert r.classification.primary_domain == "manual"
+    assert len(seen) == 2
+    assert "검증 오류" in seen[1]  # 2차 프롬프트에 오류 되먹임
+
+
 async def test_classify_page_llm_success(monkeypatch):
     _patch_llm(
         monkeypatch,

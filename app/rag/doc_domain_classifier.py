@@ -207,6 +207,20 @@ def _build_user_prompt(page_title: str, content: str) -> str:
     return f"제목: {page_title}\n\n본문:\n{heading_aware_sample(content)}"
 
 
+def _build_correction_prompt(base_user: str, bad_output: str, error: Exception) -> str:
+    """재시도용 — 이전 잘못된 응답과 검증 오류를 되먹여 구조를 교정시킨다.
+
+    temperature=0이라 같은 프롬프트 재시도는 같은 오답을 반복하므로, 오류를 명시해 프롬프트를 바꾼다.
+    """
+    return (
+        f"{base_user}\n\n"
+        "[이전 응답이 스키마 검증에 실패했다. 아래 오류를 고쳐 올바른 JSON만 다시 반환하라.]\n"
+        f"이전 응답: {bad_output[:500]}\n"
+        f"검증 오류: {error}\n"
+        "특히 primary_domain은 반드시 domains 목록에 실제로 포함돼야 하고, domains[0]이 primary_domain이어야 한다."
+    )
+
+
 class DocumentDomainClassifier:
     """페이지 텍스트를 LLM으로 분류해 멀티라벨 도메인을 낸다. 실패 시 규칙 폴백.
 
@@ -226,8 +240,10 @@ class DocumentDomainClassifier:
         secondary_threshold: float = DEFAULT_SECONDARY_THRESHOLD,
     ) -> ClassificationResult:
         system = build_doc_classifier_system_prompt()
-        user = _build_user_prompt(page_title, content)
+        base_user = _build_user_prompt(page_title, content)
+        user = base_user
         for attempt in range(self.max_retries + 1):
+            raw = ""
             try:
                 raw = await call_llm(
                     system,
@@ -240,8 +256,12 @@ class DocumentDomainClassifier:
                 classification = PageDomainClassification.model_validate_json(raw)
                 adopted = adopt_domains(classification, secondary_threshold=secondary_threshold)
                 return ClassificationResult(classification, adopted, "llm")
-            except (LLMError, ValidationError) as exc:
-                logger.warning("문서 도메인 분류 실패(%d/%d): %s", attempt + 1, self.max_retries + 1, exc)
+            except ValidationError as exc:
+                # temperature=0이라 같은 프롬프트 재시도는 같은 오답 → 오류를 되먹여 구조 교정
+                logger.warning("문서 도메인 분류 스키마 실패(%d/%d): %s", attempt + 1, self.max_retries + 1, exc)
+                user = _build_correction_prompt(base_user, raw, exc)
+            except LLMError as exc:
+                logger.warning("문서 도메인 분류 호출 실패(%d/%d): %s", attempt + 1, self.max_retries + 1, exc)
         # 재시도 소진 → 규칙 폴백
         fallback = rule_fallback_classification(page_title, content)
         return ClassificationResult(
