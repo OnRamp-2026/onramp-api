@@ -63,7 +63,14 @@ async def _top_candidates(query: str, domain: str | None, *, top_k: int, top_n: 
 
 
 async def run(args) -> None:
-    rows = [json.loads(line) for line in args.queries.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = []
+    for line_num, line in enumerate(args.queries.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:  # 깨진 라인 하나가 전체 배치를 중단시키지 않도록
+            logger.warning("라인 %d: JSON 파싱 실패 — 스킵", line_num)
     out_rows = []
     for i, row in enumerate(rows, start=1):
         qid, query = row.get("qid"), row.get("query")

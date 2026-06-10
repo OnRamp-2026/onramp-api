@@ -166,7 +166,7 @@ def _neighbor_payloads(target: dict, *, limit: int = 4, min_score: float = 0.5) 
     neighbors = []
     for p in result.points:
         payload = p.payload or {}
-        if p.score < min_score or payload.get("page_id") == target.get("page_id"):
+        if p.score < min_score or payload.get("page_id") == target.get("page_id") or not payload.get("content"):
             continue
         neighbors.append(payload)
         if len(neighbors) >= limit:
