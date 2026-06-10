@@ -128,14 +128,20 @@ class ConfluenceClient:
             if not results:
                 break
 
+            added_this_round = 0
             for result in results:
                 page = self._to_page(result)
                 if page.page_id in seen_page_ids:  # 서버측 중복 반환 방어
                     continue
                 seen_page_ids.add(page.page_id)
                 pages.append(page)
+                added_this_round += 1
                 if len(pages) >= limit:
                     return pages
+
+            if added_this_round == 0:  # 전부 중복 = 커서가 전진하지 않음 → 무한 루프 방지
+                logger.warning("커서 페이지네이션이 신규 페이지 없이 반복됨 — 중단 (수집 %d페이지)", len(pages))
+                break
 
             next_link = (payload.get("_links") or {}).get("next")
             if not next_link:

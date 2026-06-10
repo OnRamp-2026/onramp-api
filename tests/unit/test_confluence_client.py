@@ -189,6 +189,21 @@ async def test_search_dedupes_repeated_pages_from_server() -> None:
     assert [p.page_id for p in pages] == ["1", "2"]
 
 
+async def test_search_breaks_when_cursor_stops_progressing() -> None:
+    """next 커서가 계속 와도 신규 페이지가 0건이면 중단한다 (무한 루프 방지)."""
+    stuck_payload = {
+        "results": [_search_result("1"), _search_result("2")],
+        "_links": {"next": "/rest/api/content/search?cursor=stuck"},
+    }
+    fake_client = FakeAsyncClient([stuck_payload])  # 같은 응답을 무한 반복하는 서버
+    client = ConfluenceClient(settings=_settings(), client=fake_client)  # type: ignore[arg-type]
+
+    pages = await client.fetch_all_pages(limit=10)
+
+    assert [p.page_id for p in pages] == ["1", "2"]
+    assert len(fake_client.requests) == 2  # 1회차 수집 + 2회차 전부 중복 → 즉시 중단
+
+
 async def test_create_page_posts_storage_payload() -> None:
     fake_client = FakeAsyncClient({"id": "999", "title": "보고서", "_links": {"webui": "/spaces/TRUSTRAG/pages/999"}})
     client = ConfluenceClient(settings=_settings(), client=fake_client)  # type: ignore[arg-type]
