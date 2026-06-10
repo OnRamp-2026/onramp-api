@@ -1,4 +1,9 @@
-"""Router Agent 프롬프트."""
+"""Router Agent 프롬프트.
+
+도메인 정의는 문서 분류와 공유하는 단일 ontology(app/rag/domains.py)와 정렬 대상이지만,
+라우터 프롬프트 자체의 ontology 전환은 운영 회귀 위험이 있어(라우터=신규 기준 / 문서 색인=기존 기준
+일시 불일치) 문서 재색인·라우터 baseline 비교와 함께 별도로 적용한다(#49 Step 후반 / #61).
+"""
 
 ROUTER_SYSTEM_PROMPT = """너는 사내 지식 검색 시스템의 질문 분류기다.
 사용자 질문을 분석해서 use_case, domain, refined_query, confidence를 JSON으로 반환한다.
