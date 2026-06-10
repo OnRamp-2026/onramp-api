@@ -34,7 +34,7 @@ def test_rerank_empty():
 
 
 def test_onnx_rerank_applies_sigmoid_to_match_torch_score_contract():
-    import torch
+    torch = pytest.importorskip("torch")  # CI(.[dev])엔 torch 미설치 → skip (로컬 .[rerank]에서만 실행)
 
     logits = torch.tensor([[-1.1073], [1.0]])
 

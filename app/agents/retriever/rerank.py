@@ -125,19 +125,24 @@ recency_factor = _recency_factor
 
 
 _reranker: CrossEncoderReranker | OnnxCrossEncoderReranker | None = None
+_reranker_key: tuple[str, str, str, str] | None = None
 
 
 def get_reranker(settings: Settings | None = None) -> CrossEncoderReranker | OnnxCrossEncoderReranker:
-    global _reranker
-    if _reranker is None:
-        cfg = settings or get_settings()
+    # backend/model/artifact 조합이 바뀌면 재생성 (torch↔onnx 전환·테스트 격리 보장)
+    global _reranker, _reranker_key
+    cfg = settings or get_settings()
+    key = (cfg.reranker_backend, cfg.reranker_model, cfg.reranker_onnx_dir, cfg.reranker_onnx_file)
+    if _reranker is None or _reranker_key != key:
+        _reranker_key = key
         if cfg.reranker_backend == "onnx":  # #60: int8 경량화 백엔드(opt-in)
-            _reranker = OnnxCrossEncoderReranker(settings)
+            _reranker = OnnxCrossEncoderReranker(cfg)
         else:
-            _reranker = CrossEncoderReranker(settings)
+            _reranker = CrossEncoderReranker(cfg)
     return _reranker
 
 
 def reset_reranker() -> None:
-    global _reranker
+    global _reranker, _reranker_key
     _reranker = None
+    _reranker_key = None
