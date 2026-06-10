@@ -1,28 +1,32 @@
 {
-  "generated_at": "2026-06-08T05:20:01.456066+00:00",
+  "generated_at": "2026-06-10T03:10:11.689186+00:00",
   "n": 45,
   "config": {
     "top_k": 20,
     "top_n": 5,
     "embedding_model": "text-embedding-3-small",
-    "reranker_model": "BAAI/bge-reranker-v2-m3"
+    "reranker_model": "BAAI/bge-reranker-v2-m3",
+    "corpus": {
+      "collection": "onramp",
+      "points_count": 5734
+    }
   },
   "dense": {
-    "hit_rate@5": 0.8667,
-    "mrr@10": 0.6641,
-    "recall@5": 0.8667,
-    "ndcg@10": 0.7141
+    "hit_rate@5": 0.4444,
+    "mrr@10": 0.3852,
+    "recall@5": 0.3889,
+    "ndcg@10": 0.3576
   },
   "rerank": {
-    "hit_rate@5": 0.9111,
-    "mrr@10": 0.8481,
-    "recall@5": 0.9111,
-    "ndcg@10": 0.8643
+    "hit_rate@5": 0.5333,
+    "mrr@10": 0.4415,
+    "recall@5": 0.4648,
+    "ndcg@10": 0.4287
   },
   "answerability": {
-    "accuracy": 0.95,
-    "precision": 1.0,
-    "recall": 0.9333,
-    "f1": 0.9655
+    "accuracy": 0.8621,
+    "precision": 0.9744,
+    "recall": 0.8444,
+    "f1": 0.9048
   }
 }

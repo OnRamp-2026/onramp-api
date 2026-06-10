@@ -38,6 +38,7 @@ class _FakeEmbedder:
 class _FakeClient:
     def __init__(self):
         self.upserted = None
+        self.upsert_calls = 0
 
     def get_collections(self):
         return type("R", (), {"collections": []})()
@@ -49,7 +50,8 @@ class _FakeClient:
         pass
 
     def upsert(self, collection_name, points):
-        self.upserted = points
+        self.upserted = points if self.upserted is None else self.upserted + points
+        self.upsert_calls += 1
 
 
 def test_point_id_stable_and_unique():
@@ -79,3 +81,15 @@ async def test_index_children_upserts_with_clean_payload():
 @pytest.mark.asyncio
 async def test_index_children_empty_returns_zero():
     assert await index_children([], embedder=_FakeEmbedder(), client=_FakeClient(), settings=Settings()) == 0
+
+
+@pytest.mark.asyncio
+async def test_index_children_batches_upserts(monkeypatch):
+    """Qdrant payload 한도(32MB) 초과 방지 — 배치 크기 단위로 나눠 upsert 한다."""
+    monkeypatch.setattr("app.rag.indexer.UPSERT_BATCH_SIZE", 2)
+    client = _FakeClient()
+    children = [_child(f"pg_{i:03d}") for i in range(5)]
+    n = await index_children(children, embedder=_FakeEmbedder(), client=client, settings=Settings(embedding_dim=3))
+    assert n == 5
+    assert client.upsert_calls == 3  # 2+2+1
+    assert len(client.upserted) == 5

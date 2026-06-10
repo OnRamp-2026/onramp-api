@@ -14,6 +14,8 @@ from app.db.qdrant import ensure_collection, get_qdrant
 from app.rag.chunker import ChildChunk
 from app.rag.embedder import Embedder, get_embedder
 
+UPSERT_BATCH_SIZE = 256  # 청크당 payload+벡터 ~20KB → 배치당 ~5MB (Qdrant 한도 32MB 대비 여유)
+
 
 def _point_id(chunk_id: str) -> str:
     # chunk_id("{page_id}_{idx:03d}")는 Qdrant ID로 부적합 → UUID5 (멱등)
@@ -47,5 +49,10 @@ async def index_children(
         PointStruct(id=_point_id(c.chunk_id), vector=vec, payload=_payload(c))
         for c, vec in zip(children, vectors, strict=True)
     ]
-    await anyio.to_thread.run_sync(lambda: client.upsert(collection_name=settings.qdrant_collection, points=points))
+    # Qdrant JSON payload 한도(32MB) 초과 방지 — 전체 적재(수천 청크)는 단일 upsert가 불가
+    for start in range(0, len(points), UPSERT_BATCH_SIZE):
+        batch = points[start : start + UPSERT_BATCH_SIZE]
+        await anyio.to_thread.run_sync(
+            lambda b=batch: client.upsert(collection_name=settings.qdrant_collection, points=b)
+        )
     return len(points)
