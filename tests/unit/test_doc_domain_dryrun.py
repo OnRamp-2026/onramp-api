@@ -150,14 +150,32 @@ async def test_run_dry_run_fallback_stays_pending():
     assert records[0]["review_status"] == "pending"
 
 
-def test_merge_records_drops_previous_version_of_same_page():
-    # 같은 페이지의 과거 버전 레코드는 제거 → 페이지당 1줄(Step 6 stale 승인본 오용 방지)
+def test_merge_records_one_row_per_page_id_across_version_change():
+    # 같은 page_id의 과거 버전 레코드는 제거 → page_id당 1줄(Step 6 stale 승인본 오용 방지)
     old = build_record(_page(version=1), _result(), classifier_model="gpt-4o-mini")
     old["review_status"] = "approved"
     new = build_record(_page(version=2), _result(), classifier_model="gpt-4o-mini")
     merged = merge_records({record_reuse_key(old): old}, [new])
     p1_versions = [r["page_version"] for r in merged if r["page_id"] == "p1"]
     assert p1_versions == [2]  # v1 제거, v2만 남음
+
+
+def test_merge_records_one_row_per_page_id_across_prompt_change():
+    # 프롬프트 버전이 바뀌어도 같은 page_id는 1줄만 — 최신 스냅샷 보장
+    old = build_record(_page(), _result(), classifier_model="gpt-4o-mini")
+    old["prompt_version"] = "0"
+    new = build_record(_page(), _result(), classifier_model="gpt-4o-mini")  # prompt_version 현재값
+    merged = merge_records({record_reuse_key(old): old}, [new])
+    p1 = [r for r in merged if r["page_id"] == "p1"]
+    assert len(p1) == 1
+    assert p1[0]["prompt_version"] != "0"  # 옛 프롬프트 결과 제거
+
+
+def test_load_existing_reports_missing_required_field(tmp_path):
+    path = tmp_path / "out.jsonl"
+    path.write_text('{"page_id": "p1"}\n', encoding="utf-8")  # 필수 필드 누락(유효 JSON)
+    with pytest.raises(ValueError, match="필수 필드 누락"):
+        load_existing(path)
 
 
 def test_load_existing_reports_corrupted_line(tmp_path):

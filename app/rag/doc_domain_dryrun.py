@@ -77,9 +77,12 @@ def build_record(page: DryRunPage, result: ClassificationResult, *, classifier_m
     }
 
 
-def _page_identity(record: dict) -> tuple[str, str, str, str]:
-    """버전을 뺀 페이지 식별자 — 같은 페이지의 과거 버전 레코드를 찾기 위함."""
-    return (record["page_id"], record["classifier_model"], record["prompt_version"], record["ontology_version"])
+def _page_identity(record: dict) -> str:
+    """검수용 최신 스냅샷의 페이지 식별자 = page_id. (버전/모델/프롬프트/ontology 무관 → 페이지당 1줄)
+
+    과거 결과 이력이 필요하면 별도 이력 파일로 분리한다(이 파일은 '최신 1줄/페이지'를 보장).
+    """
+    return str(record["page_id"])
 
 
 def load_existing(path: str | Path) -> dict[ReuseKey, dict]:
@@ -97,7 +100,11 @@ def load_existing(path: str | Path) -> dict[ReuseKey, dict]:
             except json.JSONDecodeError as exc:
                 # 사람이 검수 중 편집하다 깨질 수 있으므로 파일·줄 위치를 알려준다
                 raise ValueError(f"{path}:{lineno} JSONL 파싱 실패 (검수 중 손상 의심): {exc}") from exc
-            existing[record_reuse_key(record)] = record
+            try:
+                key = record_reuse_key(record)
+            except KeyError as exc:
+                raise ValueError(f"{path}:{lineno} 필수 필드 누락: {exc} (검수 중 손상 의심)") from exc
+            existing[key] = record
     return existing
 
 
@@ -136,11 +143,10 @@ async def run_dry_run(
 
 def merge_records(existing: dict[ReuseKey, dict], new_records: list[dict]) -> list[dict]:
     """기존 전체 결과에 이번 실행 결과를 병합. 이번 대상 밖 페이지(검수본)는 보존하되,
-    이번에 분류한 페이지의 **과거 버전 레코드는 제거**한다 → 페이지당 1줄 보장(Step 6에서 stale 승인본 오용 방지).
+    이번에 분류한 page_id의 **기존 레코드(버전/프롬프트/모델 무관)는 모두 제거**한다 → page_id당 1줄 보장.
     """
-    new_identities = {_page_identity(record) for record in new_records}
-    # 같은 page-identity(버전 무관)의 기존 레코드는 버린다 — 신규로 대체
-    kept = [record for record in existing.values() if _page_identity(record) not in new_identities]
+    new_page_ids = {_page_identity(record) for record in new_records}
+    kept = [record for record in existing.values() if _page_identity(record) not in new_page_ids]
     return kept + new_records
 
 
