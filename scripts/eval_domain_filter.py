@@ -5,13 +5,13 @@
 
   [A] 구조적 분석 (결정론, 오프라인 — Qdrant 불필요)
       골든셋의 `gold_domains`(정답이 걸친 도메인 집합)만으로 멀티 도메인 질문을 판정하고,
-      하드 필터(domain=g.domain)가 도달 불가능하게 만드는 정답 **도메인** 비율(=recall 상한
+      하드 필터(domains=[g.domain] if g.domain else None)가 도달 불가능하게 만드는 정답 **도메인** 비율(=recall 상한
       손실)을 집계한다. 단일 도메인 하드 필터가 멀티 도메인 정답을 구조적으로 배제하는 양.
   [A'] 드리프트 검증 (Qdrant 필요, 선택)
       저장된 `gold_domains` 가 실제 색인 청크 도메인(payload.domain 역참조)과 어긋나면 경고.
       골든 라벨이 색인 재라벨링으로 stale 됐는지 잡는다.
   [B] 실측 비교 (라이브 검색)
-      같은 질문을 filter ON(domain=g.domain) vs OFF(domain=None)로 검색해 recall@k 등을
+      같은 질문을 filter ON(domains=[g.domain] if g.domain else None) vs OFF(domain=None)로 검색해 recall@k 등을
       비교한다. 정답이 멀티 도메인인 질문을 따로 묶어 격차를 본다.
 
 [A']·[B]는 라이브 Qdrant(+[B]는 OpenAI 임베딩·리랭커)를 사용한다(비용·인프라 필요).
@@ -153,8 +153,8 @@ async def empirical_recall(golden: list[GoldenQuery], *, mode: Mode, top_k, top_
     async def measure_one(g: GoldenQuery) -> dict:
         rel = set(g.relevant_chunk_ids)
         on, off = await asyncio.gather(
-            retrieve_for_eval(g.query, mode=mode, domain=g.domain, top_k=top_k, top_n=top_n),
-            retrieve_for_eval(g.query, mode=mode, domain=None, top_k=top_k, top_n=top_n),
+            retrieve_for_eval(g.query, mode=mode, domains=[g.domain] if g.domain else None, top_k=top_k, top_n=top_n),
+            retrieve_for_eval(g.query, mode=mode, domains=None, top_k=top_k, top_n=top_n),
         )
         return {
             "qid": g.qid,

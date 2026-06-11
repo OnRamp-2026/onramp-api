@@ -10,32 +10,26 @@ from app.agents.retriever.rerank import (
     _recency_factor,
     apply_domain_weight,
     apply_metadata_weight,
-    payload_domains,
 )
 from app.config import Settings
 
 
-def test_payload_domains_multi_and_backward_compat():
-    assert payload_domains({"domains": ["incident", "manual"]}) == ["incident", "manual"]
-    assert payload_domains({"domains": "manual"}) == ["manual"]  # 문자열 단일값 → 글자 분해 금지(회귀)
-    assert payload_domains({"domain": "manual"}) == ["manual"]  # 단일 domain 하위호환
-    assert payload_domains({}) == []
-
-
-def test_apply_domain_weight_string_domains_regression():
-    """domains가 문자열로 들어와도 도메인 매칭이 정상 동작한다(list('manual') 분해 버그 방지)."""
+def test_apply_domain_weight_primary_and_secondary():
+    """#61 반전: 문서 단일 domain이 질의 domains[0]이면 primary, domains[1:]이면 secondary 가산."""
     s = Settings()
-    w = s.retriever_domain_match_weight
-    assert apply_domain_weight(0.5, {"domains": "manual"}, "manual", s) == 0.5 + w
-
-
-def test_apply_domain_weight_multidomain():
-    s = Settings()
-    w = s.retriever_domain_match_weight
-    # router domain이 문서 domains 집합에 들면 가산
-    assert apply_domain_weight(0.5, {"domains": ["incident", "manual"]}, "manual", s) == 0.5 + w
-    assert apply_domain_weight(0.5, {"domains": ["incident", "manual"]}, "planning", s) == 0.5  # 불일치
-    assert apply_domain_weight(0.5, {"domain": "manual"}, "manual", s) == 0.5 + w  # 단일 하위호환
+    wp = s.domain_primary_weight  # 대표 도메인 가중
+    ws = s.domain_secondary_weight  # 추가 도메인 가중
+    # 문서 domain == 질의 domains[0] → primary
+    assert apply_domain_weight(0.5, {"domain": "manual"}, ["manual"], s) == 0.5 + wp
+    # 문서 domain ∈ domains[1:] → secondary
+    assert apply_domain_weight(0.5, {"domain": "incident"}, ["manual", "incident"], s) == 0.5 + ws
+    # 불일치 → 무가중
+    assert apply_domain_weight(0.5, {"domain": "planning"}, ["manual", "incident"], s) == 0.5
+    # 빈 질의 도메인 → 무가중
+    assert apply_domain_weight(0.5, {"domain": "manual"}, [], s) == 0.5
+    assert apply_domain_weight(0.5, {"domain": "manual"}, None, s) == 0.5
+    # 문서에 domain 없음 → 무가중
+    assert apply_domain_weight(0.5, {}, ["manual"], s) == 0.5
 
 
 class _FakeModel:
@@ -109,14 +103,14 @@ def test_apply_metadata_weight_additive_on_negative():
     assert apply_metadata_weight(-0.5, {}, settings) == -0.5  # 날짜 없으면 무가중
 
 
-def test_apply_domain_weight_additive_and_negative():
-    """도메인 일치 시 가산 — 음수 점수여도 단조 증가, 불일치/None은 무가중."""
-    settings = Settings()  # domain_match_weight 0.1
-    w = settings.retriever_domain_match_weight
-    assert apply_domain_weight(-0.5, {"domain": "manual"}, "manual", settings) == -0.5 + w
-    assert apply_domain_weight(0.5, {"domain": "manual"}, "manual", settings) == 0.5 + w
-    assert apply_domain_weight(-0.5, {"domain": "api_reference"}, "manual", settings) == -0.5  # 불일치
-    assert apply_domain_weight(-0.5, {"domain": "manual"}, None, settings) == -0.5  # 신뢰 도메인 없음
+def test_apply_domain_weight_primary_gt_secondary_and_negative():
+    """primary > secondary(대표 우선), 음수 점수에서도 단조 증가."""
+    s = Settings()
+    assert s.domain_primary_weight > s.domain_secondary_weight
+    assert apply_domain_weight(-0.5, {"domain": "manual"}, ["manual"], s) == -0.5 + s.domain_primary_weight
+    assert (
+        apply_domain_weight(-0.5, {"domain": "manual"}, ["incident", "manual"], s) == -0.5 + s.domain_secondary_weight
+    )
 
 
 def test_lazy_load_thread_safe(monkeypatch):

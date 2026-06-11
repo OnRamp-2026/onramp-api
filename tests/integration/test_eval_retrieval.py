@@ -105,6 +105,6 @@ async def test_adapter_domain_filter(qclient, settings, monkeypatch):
     monkeypatch.setattr(search_mod, "get_settings", lambda: settings)
 
     ids = await adapter.ranked_chunk_ids(
-        "incident 문서 본문 1", mode="dense", domain="incident", filter_mode="hard", top_n=5
+        "incident 문서 본문 1", mode="dense", domains=["incident"], filter_mode="hard", top_n=5
     )
     assert ids == ["pg1_000"]  # 도메인 필터로 incident만

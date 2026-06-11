@@ -148,7 +148,8 @@ class AgentState(TypedDict, total=False):
 
     # ── Router Agent 출력 ──
     use_case: UseCase
-    domain: Domain | None  # None이면 Retriever가 도메인 필터 없이 검색
+    domains: list[Domain]  # 질의 도메인(순서=우선순위, 최대 2). 빈 리스트면 가산 미적용
+    domain: Domain | None  # 하위호환 파생값 = domains[0] (없으면 None). 별도 판단 아님
     refined_query: str  # 검색용 정제 쿼리
 
     # ── Retriever Agent 출력 ──

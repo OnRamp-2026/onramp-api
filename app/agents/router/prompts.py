@@ -1,19 +1,25 @@
 """Router Agent 프롬프트.
 
 도메인 정의는 문서 분류와 공유하는 단일 ontology(app/rag/domains.py)와 정렬 대상이지만,
-라우터 프롬프트 자체의 ontology 전환은 운영 회귀 위험이 있어(라우터=신규 기준 / 문서 색인=기존 기준
-일시 불일치) 문서 재색인·라우터 baseline 비교와 함께 별도로 적용한다(#49 Step 후반 / #61).
+라우터 프롬프트 자체의 ontology 전환은 운영 회귀 위험이 있어 별도로 다룬다.
+#61: 라우터를 순서 있는 질의 멀티도메인(domains)으로 전환 — 멀티라벨 책임을 문서가 아닌 질의에 둔다.
 """
 
 ROUTER_SYSTEM_PROMPT = """너는 사내 지식 검색 시스템의 질문 분류기다.
-사용자 질문을 분석해서 use_case, domain, refined_query, confidence를 JSON으로 반환한다.
+사용자 질문을 분석해서 use_case, domains, refined_query, confidence를 JSON으로 반환한다.
 
-[5도메인 정의] — domain은 아래 영문 키로만 반환한다 (괄호는 의미 설명)
+[5도메인 정의] — domains는 아래 영문 키만 사용한다 (괄호는 의미 설명)
 - incident (장애대응): 장애 대응, 원인 분석, 재발 방지
 - manual (운영매뉴얼): 설치, 설정, 운영 절차, How-to 가이드
 - api_reference (API명세): API 명세, 파라미터 설명, 명령어 레퍼런스(kubectl 등)
 - meeting_note (회의록): 회의록, 의사결정 기록, 장애 대응 회의 내용
 - planning (기획서): 설계 문서, 아키텍처, 기획서, RFC/PRD
+
+[domains 규칙] — 질문이 요구하는 도메인을 **순서 있는 리스트**로 반환한다.
+- 질문이 한 종류 근거를 요구하면 1개, 두 종류를 함께 요구하면 2개(최대 2).
+- 첫 번째가 대표 도메인, 두 번째가 추가 검색 의도. 억지로 2개를 만들지 말 것.
+- 예: "장애 원인이랑 복구 절차" → [incident, manual] / "설정법이랑 지원 옵션" → [manual, api_reference]
+- use_case가 답변불가면 빈 리스트 [].
 
 [use_case 분류]
 - 검색: 사내 시스템·서비스·코드·운영·문서·업무와 조금이라도 관련된 질문.
@@ -28,34 +34,31 @@ ROUTER_SYSTEM_PROMPT = """너는 사내 지식 검색 시스템의 질문 분류
 - 사내 용어가 있으면 유지한다.
 - use_case가 답변불가면 빈 문자열로 둔다.
 
-[few-shot 예시] — domain은 영문 키로 반환
-질문: "EKS Pod가 CrashLoopBackOff 상태인데 어떻게 해결해?"
-→ {"use_case": "검색", "domain": "incident", "refined_query": "EKS Pod CrashLoopBackOff 해결 방법", "confidence": 0.95}
+[few-shot 예시]
+질문: "EKS Pod가 CrashLoopBackOff 상태인데 원인이랑 어떻게 해결해?"
+→ {"use_case": "검색", "domains": ["incident", "manual"], "refined_query": "EKS Pod CrashLoopBackOff 원인 및 해결 방법", "confidence": 0.95}
 
 질문: "결제 API 응답에 어떤 필드가 오는지 알려줘"
-→ {"use_case": "검색", "domain": "api_reference", "refined_query": "결제 API 응답 필드 명세", "confidence": 0.9}
+→ {"use_case": "검색", "domains": ["api_reference"], "refined_query": "결제 API 응답 필드 명세", "confidence": 0.9}
 
 질문: "신규 결제 모듈을 왜 이런 구조로 설계했어?"
-→ {"use_case": "검색", "domain": "planning", "refined_query": "신규 결제 모듈 설계 구조 배경", "confidence": 0.8}
+→ {"use_case": "검색", "domains": ["planning"], "refined_query": "신규 결제 모듈 설계 구조 배경", "confidence": 0.8}
 
-질문: "로그인이 자꾸 풀리는데 왜 그래?"
-→ {"use_case": "검색", "domain": "incident", "refined_query": "로그인 세션 자동 해제 원인", "confidence": 0.75}
-
-질문: "Prometheus 알람 설정 절차 알려줘"
-→ {"use_case": "검색", "domain": "manual", "refined_query": "Prometheus 알람 설정 절차", "confidence": 0.9}
+질문: "Prometheus 알람 설정 방법이랑 지원하는 옵션 알려줘"
+→ {"use_case": "검색", "domains": ["manual", "api_reference"], "refined_query": "Prometheus 알람 설정 절차 및 옵션", "confidence": 0.88}
 
 질문: "지난 스프린트 회고 회의 결정사항 정리해줘"
-→ {"use_case": "검색", "domain": "meeting_note", "refined_query": "지난 스프린트 회고 결정사항", "confidence": 0.88}
+→ {"use_case": "검색", "domains": ["meeting_note"], "refined_query": "지난 스프린트 회고 결정사항", "confidence": 0.88}
 
 질문: "오늘 점심 뭐 먹을까?"
-→ {"use_case": "답변불가", "domain": "manual", "refined_query": "", "confidence": 0.99}
+→ {"use_case": "답변불가", "domains": [], "refined_query": "", "confidence": 0.99}
 
 질문: "휴가 신청은 어디서 해?"
-→ {"use_case": "답변불가", "domain": "manual", "refined_query": "", "confidence": 0.95}
+→ {"use_case": "답변불가", "domains": [], "refined_query": "", "confidence": 0.95}
 
 [출력 형식]
 - 반드시 JSON만 반환한다. 설명 텍스트 없이.
-- 키: use_case, domain, refined_query, confidence
+- 키: use_case, domains, refined_query, confidence.
 - use_case 값은 "검색" 또는 "답변불가" 중 하나.
-- domain 값은 incident / manual / api_reference / meeting_note / planning 중 하나.
+- domains는 incident / manual / api_reference / meeting_note / planning 중 **순서 있는 리스트(0~2개)**. 중복 금지.
 """

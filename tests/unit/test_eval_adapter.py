@@ -51,10 +51,10 @@ async def test_dense_mode_applies_domain_bonus(monkeypatch, patch_embedder):
 
     monkeypatch.setattr(search_mod, "dense_search", _search)
     s = Settings()  # domain_match_weight=0.1 → 0.45+0.1=0.55 > 0.50
-    ids = await adapter.ranked_chunk_ids("q", mode="dense", domain="manual", filter_mode="soft", settings=s)
+    ids = await adapter.ranked_chunk_ids("q", mode="dense", domains=["manual"], filter_mode="soft", settings=s)
     assert ids == ["c2", "c1"]  # 도메인 가산이 순서를 뒤집음
     # 가산이 없으면(domain=None) 순수 vector score 순
-    ids_no_domain = await adapter.ranked_chunk_ids("q", mode="dense", domain=None, filter_mode="soft", settings=s)
+    ids_no_domain = await adapter.ranked_chunk_ids("q", mode="dense", domains=None, filter_mode="soft", settings=s)
     assert ids_no_domain == ["c1", "c2"]
 
 
@@ -88,10 +88,10 @@ async def test_domain_overfilter_falls_back(monkeypatch, patch_embedder):
 
     monkeypatch.setattr(search_mod, "dense_search", _search)
     ids = await adapter.ranked_chunk_ids(
-        "q", mode="dense", domain="incident", filter_mode="hybrid", settings=Settings()
+        "q", mode="dense", domains=["incident"], filter_mode="hybrid", settings=Settings()
     )
     assert ids == ["c1"]
-    assert calls == ["incident", None]  # 무필터 재검색 발생
+    assert calls == ["incident", None]  # 무필터 재검색 발생 (필터용 domain=domains[0])
 
 
 async def test_reranker_failure_falls_back_to_vector(monkeypatch, patch_embedder):

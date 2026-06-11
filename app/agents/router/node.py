@@ -22,10 +22,11 @@ _UNANSWERABLE_REASON = "사내 지식 범위를 벗어난 질문입니다."
 
 
 def _fallback(query: str, error: str = "") -> dict:
-    """LLM/파싱 실패 시 기본 상태. 검색은 진행하되 도메인은 None(필터 미적용)."""
+    """LLM/파싱 실패 시 기본 상태. 검색은 진행하되 도메인은 없음(가산 미적용)."""
     result: dict = {
         "use_case": UseCase.SEARCH,
-        "domain": None,
+        "domains": [],
+        "domain": None,  # 하위호환: domains[0] 파생 (빈 리스트 → None)
         "refined_query": query,
         "agent_trace": ["router"],
     }
@@ -51,11 +52,12 @@ async def route_node(state: AgentState) -> dict:
         logger.warning("Router 응답 파싱 실패 — 기본값 fallback", exc_info=True)
         return _fallback(query)
 
-    # confidence가 낮으면 도메인을 신뢰하지 않고 None으로 둔다 (필터 없이 검색).
-    domain = output.domain if output.confidence >= _CONFIDENCE_THRESHOLD else None
+    # confidence가 낮으면 도메인을 신뢰하지 않고 빈 리스트로 둔다 (가산 미적용).
+    domains = list(output.domains) if output.confidence >= _CONFIDENCE_THRESHOLD else []
     result: dict = {
         "use_case": output.use_case,
-        "domain": domain,
+        "domains": domains,
+        "domain": domains[0] if domains else None,  # 하위호환: 항상 domains[0] 파생(불일치 금지)
         "refined_query": output.refined_query,
         "agent_trace": ["router"],
     }

@@ -20,13 +20,30 @@ async def test_route_incident(monkeypatch):
         node_mod,
         "call_llm",
         _mock_llm(
-            '{"use_case": "검색", "domain": "incident", "refined_query": "EKS Pod CrashLoop 해결", "confidence": 0.95}'
+            '{"use_case": "검색", "domains": ["incident"], "refined_query": "EKS Pod CrashLoop 해결", "confidence": 0.95}'
         ),
     )
     out = await route_node({"query": "EKS Pod CrashLoop 해결법"})
     assert out["use_case"] == UseCase.SEARCH
-    assert out["domain"] == Domain.INCIDENT
+    assert out["domains"] == [Domain.INCIDENT]
+    assert out["domain"] == Domain.INCIDENT  # 하위호환 = domains[0]
     assert out["refined_query"] == "EKS Pod CrashLoop 해결"
+
+
+@pytest.mark.asyncio
+async def test_route_multidomain(monkeypatch):
+    """질의가 두 도메인을 요구하면 순서 있는 domains, domain은 domains[0] 파생."""
+    monkeypatch.setattr(
+        node_mod,
+        "call_llm",
+        _mock_llm(
+            '{"use_case": "검색", "domains": ["incident", "manual"], '
+            '"refined_query": "장애 원인과 복구 절차", "confidence": 0.9}'
+        ),
+    )
+    out = await route_node({"query": "장애 원인이랑 복구 절차 알려줘"})
+    assert out["domains"] == [Domain.INCIDENT, Domain.MANUAL]
+    assert out["domain"] == Domain.INCIDENT  # 대표 = domains[0]
 
 
 @pytest.mark.asyncio
@@ -35,7 +52,7 @@ async def test_route_api_spec(monkeypatch):
         node_mod,
         "call_llm",
         _mock_llm(
-            '{"use_case": "검색", "domain": "api_reference", "refined_query": "결제 API 응답 필드", "confidence": 0.9}'
+            '{"use_case": "검색", "domains": ["api_reference"], "refined_query": "결제 API 응답 필드", "confidence": 0.9}'
         ),
     )
     out = await route_node({"query": "결제 API 응답에 뭐가 오는지 알려줘"})
@@ -48,7 +65,9 @@ async def test_route_unanswerable(monkeypatch):
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm('{"use_case": "답변불가", "domain": "manual", "refined_query": "잘못 채운 값", "confidence": 0.99}'),
+        _mock_llm(
+            '{"use_case": "답변불가", "domains": ["manual"], "refined_query": "잘못 채운 값", "confidence": 0.99}'
+        ),
     )
     out = await route_node({"query": "오늘 날씨 어때?"})
     assert out["use_case"] == UseCase.UNANSWERABLE
@@ -62,7 +81,7 @@ async def test_route_no_asset_case(monkeypatch):
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm('{"use_case": "검색", "domain": "planning", "refined_query": "기획 의도", "confidence": 0.8}'),
+        _mock_llm('{"use_case": "검색", "domains": ["planning"], "refined_query": "기획 의도", "confidence": 0.8}'),
     )
     out = await route_node({"query": "이 기능 왜 만들었어?"})
     assert out["use_case"] in (UseCase.SEARCH, UseCase.UNANSWERABLE)
@@ -74,7 +93,7 @@ async def test_route_low_confidence_no_filter(monkeypatch):
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm('{"use_case": "검색", "domain": "api_reference", "refined_query": "x", "confidence": 0.3}'),
+        _mock_llm('{"use_case": "검색", "domains": ["api_reference"], "refined_query": "x", "confidence": 0.3}'),
     )
     out = await route_node({"query": "애매한 질문"})
     assert out["use_case"] == UseCase.SEARCH
@@ -87,7 +106,7 @@ async def test_route_confidence_boundary_keeps_domain(monkeypatch):
     monkeypatch.setattr(
         node_mod,
         "call_llm",
-        _mock_llm('{"use_case": "검색", "domain": "api_reference", "refined_query": "x", "confidence": 0.5}'),
+        _mock_llm('{"use_case": "검색", "domains": ["api_reference"], "refined_query": "x", "confidence": 0.5}'),
     )
     out = await route_node({"query": "경계값 질문"})
     assert out["domain"] == Domain.API_REFERENCE
@@ -121,7 +140,7 @@ async def test_route_adds_trace(monkeypatch):
         node_mod,
         "call_llm",
         _mock_llm(
-            '{"use_case": "검색", "domain": "meeting_note", "refined_query": "회고 결정사항", "confidence": 0.88}'
+            '{"use_case": "검색", "domains": ["meeting_note"], "refined_query": "회고 결정사항", "confidence": 0.88}'
         ),
     )
     out = await route_node({"query": "회고 결정사항 정리해줘"})

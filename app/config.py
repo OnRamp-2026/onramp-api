@@ -87,9 +87,12 @@ class Settings(BaseSettings):
     # soft: 무필터+가산 / hybrid: 저품질 무필터 확장 / hard: 필터만
     retriever_domain_filter_mode: Literal["hard", "hybrid", "soft"] = "soft"
     # 도메인 필터 보정 (임계값은 #49에서 골든셋으로 튜닝)
-    # min_score: dense 유사도 임계값 → [0, 1]. match_weight: rerank 가산값(additive, logit 스케일) → 음수만 금지.
+    # min_score: dense 유사도 임계값 → [0, 1].
     retriever_domain_min_score: float = Field(default=0.45, ge=0.0, le=1.0)
-    retriever_domain_match_weight: float = Field(default=0.1, ge=0.0)
+    # Soft 가산(질의 멀티도메인, #61): 문서 단일 domain이 query.domains[0]이면 primary, domains[1:]이면 secondary 가산.
+    # primary > secondary 여야 함(대표 도메인 우선). additive·logit 스케일 → 음수만 금지.
+    domain_primary_weight: float = Field(default=0.1, ge=0.0)
+    domain_secondary_weight: float = Field(default=0.05, ge=0.0)
 
     # ── Trust Agent (Evidence Confidence, P1) ──
     trust_max_retries: int = Field(default=1, ge=0)  # 재검색 최대 횟수 (무한루프 방지)

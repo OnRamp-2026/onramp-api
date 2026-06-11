@@ -16,11 +16,16 @@ def test_domain_min_score_in_range():
         Settings(retriever_domain_min_score=-0.1)
 
 
-def test_domain_match_weight_non_negative():
-    """retriever_domain_match_weight는 음수면 거부된다 (additive 가산이라 상한은 없음)."""
-    assert Settings(retriever_domain_match_weight=2.0).retriever_domain_match_weight == 2.0
+def test_domain_weights_non_negative_and_primary_gt_secondary():
+    """domain primary/secondary 가중치는 음수면 거부, 기본은 primary > secondary."""
+    assert Settings(domain_primary_weight=2.0).domain_primary_weight == 2.0
+    assert Settings(domain_secondary_weight=0.0).domain_secondary_weight == 0.0
     with pytest.raises(ValidationError):
-        Settings(retriever_domain_match_weight=-0.1)
+        Settings(domain_primary_weight=-0.1)
+    with pytest.raises(ValidationError):
+        Settings(domain_secondary_weight=-0.1)
+    s = Settings()
+    assert s.domain_primary_weight > s.domain_secondary_weight
 
 
 def test_reranker_backend_literal_and_onnx_requires_dir(tmp_path):

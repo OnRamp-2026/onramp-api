@@ -59,10 +59,10 @@ async def main_async(modes: list[FilterMode]) -> None:
         for mode in modes:
             # 오라클: 골든 도메인으로 검색
             oracle[mode].append(
-                (await ranked_chunk_ids(g.query, mode="dense", domain=g.domain, filter_mode=mode), relevant)
+                (await ranked_chunk_ids(g.query, mode="dense", domains=[g.domain] if g.domain else None, filter_mode=mode), relevant)
             )
             # 라우터: 예측 도메인으로 검색 (UNANSWERABLE이면 검색 생략 → 빈 결과)
-            ids = [] if blocked else await ranked_chunk_ids(g.query, mode="dense", domain=pred_domain, filter_mode=mode)
+            ids = [] if blocked else await ranked_chunk_ids(g.query, mode="dense", domains=[pred_domain] if pred_domain else None, filter_mode=mode)
             router[mode].append((ids, relevant))
 
     _print_block("오라클 도메인 (골든 정답)", oracle, modes)
