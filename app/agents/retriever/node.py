@@ -23,9 +23,13 @@ async def retrieve_node(state: AgentState) -> dict:
     """정제 쿼리로 검색·리랭킹해 top-N 출처 문서를 반환한다."""
     settings = get_settings()
     refined = state["refined_query"]
-    # 질의 도메인 집합(순서 우선). 구형 호출자가 단수 domain만 넘긴 경우 방어적으로 [domain] 폴백.
-    single = state.get("domain")
-    domains = _domain_values(state.get("domains") or ([single] if single else None))
+    # 질의 도메인 집합(순서 우선). domains 키가 **아예 없을 때만** 구형 단수 domain으로 폴백.
+    # (명시적 domains=[] — 예: Trust 재검색 초기화 — 은 그대로 빈 집합으로 존중, 단수로 복구 금지)
+    domains_state = state.get("domains")
+    if domains_state is None:
+        single = state.get("domain")
+        domains_state = [single] if single else []
+    domains = _domain_values(domains_state)
 
     qvec = await get_embedder().embed_query(refined)
     # 필터용 domain은 대표(domains[0])만 — soft에선 무시되고 hard/hybrid에서만 쓰인다.

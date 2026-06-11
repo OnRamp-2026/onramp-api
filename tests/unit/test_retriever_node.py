@@ -203,6 +203,39 @@ async def test_node_domain_match_bonus(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_node_explicit_empty_domains_no_single_fallback(monkeypatch):
+    """명시적 domains=[](예: Trust 재검색 초기화)는 구형 단수 domain으로 복구하지 않는다 → 가산 없음."""
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return [_hit("c1", "a", 0.9, domain="api_reference"), _hit("c2", "b", 0.9, domain="manual")]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.5, p) for _, p in cands]  # 동일 기저 점수
+
+    _patch(monkeypatch, fake_search, _R())
+    # domains=[] 명시 + 구형 domain="manual" 동시 존재 → domains=[]를 존중(가산 0), 입력 순서 유지
+    out = await retrieve_node({"refined_query": "q", "domains": [], "domain": "manual"})
+    assert out["documents"][0].content_snippet == "a"  # 가산 없음 → 입력 순서 그대로(c1=a 먼저)
+
+
+@pytest.mark.asyncio
+async def test_node_legacy_single_domain_fallback(monkeypatch):
+    """domains 키가 아예 없으면 구형 단수 domain으로 폴백해 가산이 동작한다."""
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return [_hit("c1", "a", 0.9, domain="api_reference"), _hit("c2", "b", 0.9, domain="manual")]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.5, p) for _, p in cands]
+
+    _patch(monkeypatch, fake_search, _R())
+    out = await retrieve_node({"refined_query": "q", "domain": "manual"})  # domains 키 없음
+    assert out["documents"][0].content_snippet == "b"  # 단수 폴백 → manual 가산
+
+
+@pytest.mark.asyncio
 async def test_node_honors_config_filter_mode_hard(monkeypatch):
     """config가 hard면 filtered가 저품질이어도 무필터 확장하지 않는다."""
     calls = []

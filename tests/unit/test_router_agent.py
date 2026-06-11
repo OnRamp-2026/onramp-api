@@ -31,6 +31,20 @@ async def test_route_incident(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_route_unanswerable_with_duplicate_domains_still_blocks(monkeypatch):
+    """UNANSWERABLE + 중복 domains여도 검증 실패(→SEARCH fallback)가 아니라 차단 유지(domains=[])."""
+    monkeypatch.setattr(
+        node_mod,
+        "call_llm",
+        _mock_llm('{"use_case": "답변불가", "domains": ["manual", "manual"], "refined_query": "x", "confidence": 0.9}'),
+    )
+    out = await route_node({"query": "오늘 날씨 어때?"})
+    assert out["use_case"] == UseCase.UNANSWERABLE  # SEARCH로 잘못 빠지지 않음
+    assert out["domains"] == []
+    assert out["domain"] is None
+
+
+@pytest.mark.asyncio
 async def test_route_multidomain(monkeypatch):
     """질의가 두 도메인을 요구하면 순서 있는 domains, domain은 domains[0] 파생."""
     monkeypatch.setattr(

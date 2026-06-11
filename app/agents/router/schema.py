@@ -28,12 +28,15 @@ class RouterOutput(BaseModel):
 
     @model_validator(mode="after")
     def _check_domains(self) -> RouterOutput:
+        # UNANSWERABLE은 검색 자체를 안 하므로 domains 내용과 무관 — 먼저 비우고 즉시 반환한다.
+        # (중복/빈 배열 검증을 UNANSWERABLE에 적용하면, LLM 결함으로 검증 실패→SEARCH fallback되어
+        #  답변불가 질문을 검색하는 잘못된 경로가 된다.)
+        if self.use_case == UseCase.UNANSWERABLE:
+            self.domains = []
+            return self
         if len(self.domains) != len(set(self.domains)):
             raise ValueError(f"domains 중복 금지: {self.domains}")
-        if self.use_case == UseCase.UNANSWERABLE:
-            # UNANSWERABLE이면 도메인 없음 (검색 자체를 하지 않음)
-            self.domains = []
-        elif not self.domains:
+        if not self.domains:
             # 정상 SEARCH 출력은 최소 1개 도메인 필요. 빈 배열이면 LLM 출력 결함 →
             # 파싱 실패로 처리해 route_node가 fallback(무가산 검색)하게 한다.
             # (저신뢰 도메인 비움은 route_node가 별도로 처리)
