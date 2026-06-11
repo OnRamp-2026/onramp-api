@@ -24,6 +24,10 @@ def test_domain_weights_non_negative_and_primary_gt_secondary():
         Settings(domain_primary_weight=-0.1)
     with pytest.raises(ValidationError):
         Settings(domain_secondary_weight=-0.1)
+    # primary < secondary 역전은 거부 (우선순위 뒤집힘 방지)
+    with pytest.raises(ValidationError):
+        Settings(domain_primary_weight=0.01, domain_secondary_weight=1.0)
+    assert Settings(domain_primary_weight=0.2, domain_secondary_weight=0.2)  # 같음은 허용
     s = Settings()
     assert s.domain_primary_weight > s.domain_secondary_weight
 

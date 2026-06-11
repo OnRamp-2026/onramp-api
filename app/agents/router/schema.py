@@ -30,7 +30,12 @@ class RouterOutput(BaseModel):
     def _check_domains(self) -> RouterOutput:
         if len(self.domains) != len(set(self.domains)):
             raise ValueError(f"domains 중복 금지: {self.domains}")
-        # UNANSWERABLE이면 도메인 없음 (검색 자체를 하지 않음)
         if self.use_case == UseCase.UNANSWERABLE:
+            # UNANSWERABLE이면 도메인 없음 (검색 자체를 하지 않음)
             self.domains = []
+        elif not self.domains:
+            # 정상 SEARCH 출력은 최소 1개 도메인 필요. 빈 배열이면 LLM 출력 결함 →
+            # 파싱 실패로 처리해 route_node가 fallback(무가산 검색)하게 한다.
+            # (저신뢰 도메인 비움은 route_node가 별도로 처리)
+            raise ValueError("use_case=SEARCH면 domains는 최소 1개여야 합니다")
         return self

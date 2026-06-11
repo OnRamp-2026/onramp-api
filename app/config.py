@@ -77,6 +77,16 @@ class Settings(BaseSettings):
                 )
         return self
 
+    @model_validator(mode="after")
+    def _check_domain_weights(self) -> "Settings":
+        # 대표 도메인(primary) 가산이 추가 도메인(secondary)보다 작으면 우선순위가 뒤집힌다 → 금지.
+        if self.domain_primary_weight < self.domain_secondary_weight:
+            raise ValueError(
+                f"domain_primary_weight({self.domain_primary_weight})는 "
+                f"domain_secondary_weight({self.domain_secondary_weight}) 이상이어야 합니다"
+            )
+        return self
+
     retriever_top_k: int = 20  # Qdrant 후보 풀
     retriever_top_n: int = 5  # 리랭킹 후 최종
     classifier_model: str = "gpt-4o-mini"
@@ -90,7 +100,7 @@ class Settings(BaseSettings):
     # min_score: dense 유사도 임계값 → [0, 1].
     retriever_domain_min_score: float = Field(default=0.45, ge=0.0, le=1.0)
     # Soft 가산(질의 멀티도메인, #61): 문서 단일 domain이 query.domains[0]이면 primary, domains[1:]이면 secondary 가산.
-    # primary > secondary 여야 함(대표 도메인 우선). additive·logit 스케일 → 음수만 금지.
+    # primary ≥ secondary 여야 함(대표 도메인 우선, _check_domain_weights로 강제). additive·logit 스케일 → 음수만 금지.
     domain_primary_weight: float = Field(default=0.1, ge=0.0)
     domain_secondary_weight: float = Field(default=0.05, ge=0.0)
 
