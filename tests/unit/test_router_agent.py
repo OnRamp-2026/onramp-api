@@ -1,9 +1,11 @@
 """Router Agent 단위 테스트 (LLM mock 사용)."""
 
 import pytest
+from pydantic import ValidationError
 
 from app.agents.router import node as node_mod
 from app.agents.router.node import route_node
+from app.agents.router.schema import RouterOutput
 from app.agents.state import Domain, UseCase
 
 
@@ -42,6 +44,72 @@ async def test_route_unanswerable_with_duplicate_domains_still_blocks(monkeypatc
     assert out["use_case"] == UseCase.UNANSWERABLE  # SEARCH로 잘못 빠지지 않음
     assert out["domains"] == []
     assert out["domain"] is None
+
+
+@pytest.mark.asyncio
+async def test_route_unanswerable_with_too_many_domains_not_searched(monkeypatch):
+    """UNANSWERABLE + domains 3개(max_length 초과)여도 필드검증 전 비워져 SEARCH로 새지 않는다.
+
+    회귀: mode="after"만 있으면 max_length=2 위반이 먼저 ValidationError→SEARCH fallback돼
+    답변불가 질문이 검색으로 전환되는 안전성 버그가 났다.
+    """
+    monkeypatch.setattr(
+        node_mod,
+        "call_llm",
+        _mock_llm(
+            '{"use_case": "답변불가", "domains": ["manual", "incident", "planning"], '
+            '"refined_query": "x", "confidence": 0.9}'
+        ),
+    )
+    out = await route_node({"query": "오늘 점심 뭐 먹지?"})
+    assert out["use_case"] == UseCase.UNANSWERABLE  # SEARCH로 잘못 빠지지 않음
+    assert out["domains"] == []
+    assert out["domain"] is None
+
+
+@pytest.mark.asyncio
+async def test_route_unanswerable_with_invalid_domain_not_searched(monkeypatch):
+    """UNANSWERABLE + 잘못된 domain 문자열(enum 위반)이어도 비워져 SEARCH로 새지 않는다."""
+    monkeypatch.setattr(
+        node_mod,
+        "call_llm",
+        _mock_llm('{"use_case": "답변불가", "domains": ["bogus"], "refined_query": "x", "confidence": 0.9}'),
+    )
+    out = await route_node({"query": "주식 추천해줘"})
+    assert out["use_case"] == UseCase.UNANSWERABLE  # SEARCH로 잘못 빠지지 않음
+    assert out["domains"] == []
+    assert out["domain"] is None
+
+
+def test_schema_search_rejects_too_many_domains():
+    """SEARCH + domains 3개(max_length 초과) → ValidationError 유지."""
+    with pytest.raises(ValidationError):
+        RouterOutput.model_validate_json(
+            '{"use_case": "검색", "domains": ["manual", "incident", "planning"], '
+            '"refined_query": "x", "confidence": 0.9}'
+        )
+
+
+def test_schema_search_rejects_invalid_domain():
+    """SEARCH + 잘못된 domain 문자열(enum 위반) → ValidationError 유지."""
+    with pytest.raises(ValidationError):
+        RouterOutput.model_validate_json(
+            '{"use_case": "검색", "domains": ["bogus"], "refined_query": "x", "confidence": 0.9}'
+        )
+
+
+def test_schema_search_rejects_empty_domains():
+    """SEARCH + domains=[] → ValidationError 유지 (최소 1개 필요)."""
+    with pytest.raises(ValidationError):
+        RouterOutput.model_validate_json('{"use_case": "검색", "domains": [], "refined_query": "x", "confidence": 0.9}')
+
+
+def test_schema_rejects_invalid_use_case():
+    """use_case 자체가 잘못된 값이면 정상적으로 ValidationError (before validator가 가로채지 않음)."""
+    with pytest.raises(ValidationError):
+        RouterOutput.model_validate_json(
+            '{"use_case": "헛소리", "domains": ["manual"], "refined_query": "x", "confidence": 0.9}'
+        )
 
 
 @pytest.mark.asyncio

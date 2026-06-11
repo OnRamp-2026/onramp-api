@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field, model_validator
 
 from app.agents.state import Domain, UseCase
@@ -26,13 +28,28 @@ class RouterOutput(BaseModel):
     refined_query: str
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _clear_unanswerable_domains(cls, data: Any) -> Any:
+        # UNANSWERABLE은 검색 자체를 안 하므로 domains 내용과 무관 — **필드 검증(max_length·enum)
+        # 전에** 미리 비운다. mode="after"에서 비우면 그 전에 필드 검증이 먼저 실패할 수 있고,
+        # route_node가 ValidationError를 잡아 SEARCH fallback하므로 "답변불가 질문이 검색으로
+        # 전환되는" 안전성 버그가 된다. 입력 dict는 직접 mutate하지 않고 복사해서 수정한다.
+        # (use_case 자체가 잘못된 값이면 여기서 손대지 않고 평소대로 ValidationError가 나게 둔다.)
+        if isinstance(data, dict) and data.get("use_case") in (
+            UseCase.UNANSWERABLE,
+            UseCase.UNANSWERABLE.value,
+        ):
+            data = dict(data)
+            data["domains"] = []
+        return data
+
     @model_validator(mode="after")
     def _check_domains(self) -> RouterOutput:
-        # UNANSWERABLE은 검색 자체를 안 하므로 domains 내용과 무관 — 먼저 비우고 즉시 반환한다.
-        # (중복/빈 배열 검증을 UNANSWERABLE에 적용하면, LLM 결함으로 검증 실패→SEARCH fallback되어
-        #  답변불가 질문을 검색하는 잘못된 경로가 된다.)
-        if self.use_case == UseCase.UNANSWERABLE:
-            self.domains = []
+        # SEARCH만 도메인 검증 대상. UNANSWERABLE은 위 before validator에서 domains=[]로
+        # 정규화되므로 여기 중복/빈 배열 검사를 적용하지 않는다(적용하면 빈 배열→ValidationError→
+        # SEARCH fallback으로 다시 답변불가 질문이 검색으로 새게 된다).
+        if self.use_case != UseCase.SEARCH:
             return self
         if len(self.domains) != len(set(self.domains)):
             raise ValueError(f"domains 중복 금지: {self.domains}")
