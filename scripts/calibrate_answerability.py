@@ -33,7 +33,7 @@ async def _collect(golden, top_k, top_n) -> list[tuple[float, bool, int]]:
     """(top_score, is_answerable, n_docs) 수집 (rerank 모드)."""
     rows: list[tuple[float, bool, int]] = []
     for g in golden:
-        r = await retrieve_for_eval(g.query, mode="rerank", domain=g.domain, top_k=top_k, top_n=top_n)
+        r = await retrieve_for_eval(g.query, mode="rerank", domains=[g.domain] if g.domain else None, top_k=top_k, top_n=top_n)
         rows.append((r.top_score, g.is_answerable, r.n))
     return rows
 

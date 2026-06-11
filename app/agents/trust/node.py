@@ -140,7 +140,8 @@ async def trust_node(state: AgentState) -> dict:
     result["should_re_retrieve"] = re_retrieve
     if re_retrieve:
         result["retry_count"] = retry + 1
-        result["domain"] = None  # 재시도: 도메인 필터 해제로 폭 확대 (같은 결과 회피)
+        result["domains"] = []  # 재시도: 도메인 가산 해제로 폭 확대 (같은 결과 회피)
+        result["domain"] = None  # 하위호환 파생값 동기화
     return result
 
 

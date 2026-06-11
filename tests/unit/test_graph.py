@@ -34,7 +34,7 @@ def _no_network(monkeypatch):
 
     async def _fake_router_llm(system_prompt, user_prompt, **kwargs):
         # 검색 경로로 분류, 질문을 그대로 refined_query로 echo
-        return json.dumps({"use_case": "검색", "domain": "manual", "refined_query": user_prompt, "confidence": 0.9})
+        return json.dumps({"use_case": "검색", "domains": ["manual"], "refined_query": user_prompt, "confidence": 0.9})
 
     async def _empty_search(*args, **kwargs):
         return []
@@ -66,9 +66,25 @@ class TestGraphSearchFlow:
 
         assert result["query"] == "EKS Pod 장애 해결법"
         assert result["use_case"] == UseCase.SEARCH
-        # Router는 domain=manual로 분류하나, 0건 → Trust 재검색이 domain 필터를 해제(None)
+        # Router는 domains=[manual]로 분류하나, 0건 → Trust 재검색이 domains/domain을 모두 초기화
+        assert result["domains"] == []
         assert result["domain"] is None
         assert result["refined_query"] == "EKS Pod 장애 해결법"
+
+    async def test_router_multidomain_reaches_retriever(self, monkeypatch) -> None:
+        """Router 멀티도메인이 Retriever까지 전달되는지 검증 (재검색 없으면 domains 보존)."""
+
+        async def _multi(system_prompt, user_prompt, **kwargs):
+            return json.dumps(
+                {"use_case": "검색", "domains": ["incident", "manual"], "refined_query": user_prompt, "confidence": 0.9}
+            )
+
+        monkeypatch.setattr("app.agents.router.node.call_llm", _multi)
+        # max_retries=0 → Trust 재검색 없음 → 라우터 domains가 초기화되지 않고 보존
+        result = await compiled_graph.ainvoke({"query": "장애 원인과 복구 절차", "max_retries": 0})
+
+        assert result["domains"] == [Domain.INCIDENT, Domain.MANUAL]
+        assert result["domain"] == Domain.INCIDENT  # 하위호환 = domains[0]
 
     async def test_empty_docs_holds_answer(self) -> None:
         """검색 결과 0건이면 Answer가 보류(NOT_ENOUGH)로 수렴하는지 확인한다."""
@@ -91,7 +107,8 @@ class TestGraphUnanswerableFlow:
             """검색 범위 밖 질문을 retrieve 전에 차단하는 route_node 대체 스텁."""
             return {
                 "use_case": UseCase.UNANSWERABLE,
-                "domain": Domain.MANUAL,
+                "domains": [],  # UNANSWERABLE → 도메인 없음
+                "domain": None,
                 "refined_query": state["query"],
                 "answerability_reason": "사내 지식 범위 밖 질문입니다.",
                 "agent_trace": ["router"],

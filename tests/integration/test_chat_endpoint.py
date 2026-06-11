@@ -11,7 +11,8 @@ import pytest
 
 def _router_resp(use_case: str = "검색", domain: str = "incident") -> str:
     """Router LLM 응답(JSON 문자열)을 만든다."""
-    return json.dumps({"use_case": use_case, "domain": domain, "refined_query": "정제된 질문", "confidence": 0.9})
+    domains = [domain] if domain else []
+    return json.dumps({"use_case": use_case, "domains": domains, "refined_query": "정제된 질문", "confidence": 0.9})
 
 
 def _answer_resp() -> str:

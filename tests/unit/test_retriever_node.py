@@ -44,7 +44,7 @@ async def test_node_maps_to_source_document(monkeypatch):
             return [(0.5, p) for _, p in cands]
 
     _patch(monkeypatch, fake_search, _R())
-    out = await retrieve_node({"refined_query": "q", "domain": "장애대응"})
+    out = await retrieve_node({"refined_query": "q", "domains": ["장애대응"]})
     docs = out["documents"]
     assert out["agent_trace"] == ["retriever"]
     assert all(isinstance(d, SourceDocument) for d in docs)
@@ -67,7 +67,7 @@ async def test_node_domain_filter_fallback(monkeypatch):
 
     _patch(monkeypatch, fake_search, _R())
     monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(retriever_domain_filter_mode="hybrid"))
-    out = await retrieve_node({"refined_query": "q", "domain": "장애대응"})
+    out = await retrieve_node({"refined_query": "q", "domains": ["장애대응"]})
     assert calls == ["장애대응", None]  # hybrid: 필터→0건→무필터 재검색
     assert len(out["documents"]) == 1
 
@@ -86,7 +86,7 @@ async def test_node_soft_default_no_filter_but_bonus(monkeypatch):
             return [(0.5, p) for _, p in cands]
 
     _patch(monkeypatch, fake_search, _R())  # 기본값 soft
-    out = await retrieve_node({"refined_query": "q", "domain": "manual"})
+    out = await retrieve_node({"refined_query": "q", "domains": ["manual"]})
     assert calls == [None]  # soft → 무필터 검색
     assert out["documents"][0].content_snippet == "b"  # manual 일치 가산으로 우선
 
@@ -104,7 +104,7 @@ async def test_node_fallback_applies_domain_bonus(monkeypatch):
             raise RuntimeError("OOM")
 
     _patch(monkeypatch, fake_search, _R())  # 기본값 soft
-    out = await retrieve_node({"refined_query": "q", "domain": "manual"})
+    out = await retrieve_node({"refined_query": "q", "domains": ["manual"]})
     # 폴백: 0.55(api_reference) vs 0.5+0.1(manual 가산)=0.6 → manual 먼저
     assert out["documents"][0].content_snippet == "match"
     assert out["documents"][0].rerank_score == 0.0
@@ -122,7 +122,7 @@ async def test_node_rerank_oom_fallback(monkeypatch):
             raise RuntimeError("OOM")
 
     _patch(monkeypatch, fake_search, _R())
-    out = await retrieve_node({"refined_query": "q", "domain": "장애대응"})
+    out = await retrieve_node({"refined_query": "q", "domains": ["장애대응"]})
     # 리랭커 실패 → vector score 순 폴백 (c2=0.9 먼저)
     assert out["documents"][0].content_snippet == "b"
     assert out["documents"][0].rerank_score == 0.0
@@ -141,7 +141,7 @@ async def test_node_rerank_missing_dependency_fallback(monkeypatch):
             raise ModuleNotFoundError("No module named 'sentence_transformers'")
 
     _patch(monkeypatch, fake_search, _R())
-    out = await retrieve_node({"refined_query": "q", "domain": "장애대응"})
+    out = await retrieve_node({"refined_query": "q", "domains": ["장애대응"]})
     assert out["documents"][0].content_snippet == "b"  # vec score 0.9 우선
     assert out["documents"][0].rerank_score == 0.0
 
@@ -162,7 +162,7 @@ async def test_node_low_quality_filtered_expands_and_recovers(monkeypatch):
 
     _patch(monkeypatch, fake_search, _R())
     monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(retriever_domain_filter_mode="hybrid"))
-    out = await retrieve_node({"refined_query": "q", "domain": "manual"})
+    out = await retrieve_node({"refined_query": "q", "domains": ["manual"]})
     assert calls == ["manual", None]  # hybrid: 저품질 filtered → 무필터 확장
     assert out["documents"][0].content_snippet == "right"  # merge 후 정답 회수
 
@@ -182,7 +182,7 @@ async def test_node_high_quality_filtered_no_expand(monkeypatch):
 
     _patch(monkeypatch, fake_search, _R())
     monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(retriever_domain_filter_mode="hybrid"))
-    await retrieve_node({"refined_query": "q", "domain": "manual"})
+    await retrieve_node({"refined_query": "q", "domains": ["manual"]})
     assert calls == ["manual"]  # hybrid 고품질 → 확장 없음
 
 
@@ -198,8 +198,41 @@ async def test_node_domain_match_bonus(monkeypatch):
             return [(0.5, p) for _, p in cands]  # 동일 기저 점수
 
     _patch(monkeypatch, fake_search, _R())
-    out = await retrieve_node({"refined_query": "q", "domain": "manual"})
+    out = await retrieve_node({"refined_query": "q", "domains": ["manual"]})
     assert out["documents"][0].content_snippet == "b"  # domain=manual 일치 → 가산으로 먼저
+
+
+@pytest.mark.asyncio
+async def test_node_explicit_empty_domains_no_single_fallback(monkeypatch):
+    """명시적 domains=[](예: Trust 재검색 초기화)는 구형 단수 domain으로 복구하지 않는다 → 가산 없음."""
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return [_hit("c1", "a", 0.9, domain="api_reference"), _hit("c2", "b", 0.9, domain="manual")]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.5, p) for _, p in cands]  # 동일 기저 점수
+
+    _patch(monkeypatch, fake_search, _R())
+    # domains=[] 명시 + 구형 domain="manual" 동시 존재 → domains=[]를 존중(가산 0), 입력 순서 유지
+    out = await retrieve_node({"refined_query": "q", "domains": [], "domain": "manual"})
+    assert out["documents"][0].content_snippet == "a"  # 가산 없음 → 입력 순서 그대로(c1=a 먼저)
+
+
+@pytest.mark.asyncio
+async def test_node_legacy_single_domain_fallback(monkeypatch):
+    """domains 키가 아예 없으면 구형 단수 domain으로 폴백해 가산이 동작한다."""
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return [_hit("c1", "a", 0.9, domain="api_reference"), _hit("c2", "b", 0.9, domain="manual")]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.5, p) for _, p in cands]
+
+    _patch(monkeypatch, fake_search, _R())
+    out = await retrieve_node({"refined_query": "q", "domain": "manual"})  # domains 키 없음
+    assert out["documents"][0].content_snippet == "b"  # 단수 폴백 → manual 가산
 
 
 @pytest.mark.asyncio
@@ -217,5 +250,5 @@ async def test_node_honors_config_filter_mode_hard(monkeypatch):
 
     _patch(monkeypatch, fake_search, _R())
     monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(retriever_domain_filter_mode="hard"))
-    await retrieve_node({"refined_query": "q", "domain": "manual"})
+    await retrieve_node({"refined_query": "q", "domains": ["manual"]})
     assert calls == ["manual"]  # hard → 확장 없음

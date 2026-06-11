@@ -29,13 +29,15 @@ logger = logging.getLogger(__name__)
 Mode = Literal["dense", "rerank"]
 
 
-def _soft_ranked(results: list[tuple[float, dict]], domain: str | None, settings: Settings) -> list[tuple[float, dict]]:
+def _soft_ranked(
+    results: list[tuple[float, dict]], query_domains: list[str] | None, settings: Settings
+) -> list[tuple[float, dict]]:
     """vector score에 도메인 가산을 적용해 정렬 — 운영 retrieve_node._vector_fallback과 동일한 soft 정책.
 
-    domain=None이거나 문서 도메인과 불일치면 가산 0 → 순수 vector score 정렬과 동치.
+    query_domains가 비거나 문서 domain과 불일치면 가산 0 → 순수 vector score 정렬과 동치.
     (이게 빠지면 soft A/B가 '무필터 dense'만 측정해 도메인 가산 효과를 누락한다.)
     """
-    scored = [(apply_domain_weight(score, payload, domain, settings), payload) for score, payload in results]
+    scored = [(apply_domain_weight(score, payload, query_domains, settings), payload) for score, payload in results]
     scored.sort(key=lambda item: item[0], reverse=True)
     return scored
 
@@ -53,13 +55,16 @@ async def retrieve_for_eval(
     query: str,
     *,
     mode: Mode,
-    domain: str | None = None,
+    domains: list[str] | None = None,
     filter_mode: FilterMode | None = None,
     top_k: int | None = None,
     top_n: int | None = None,
     settings: Settings | None = None,
 ) -> RetrievalResult:
-    """query를 검색해 ranked chunk_id와 1위 점수를 반환한다 (retrieve_node와 동일 코어)."""
+    """query를 검색해 ranked chunk_id와 1위 점수를 반환한다 (retrieve_node와 동일 코어).
+
+    domains: 질의 도메인 집합(순서 우선). soft 가산이 문서 단일 domain을 이 집합과 비교한다.
+    """
     settings = settings or get_settings()
     top_k = settings.retriever_top_k if top_k is None else top_k
     top_n = settings.retriever_top_n if top_n is None else top_n
@@ -68,19 +73,21 @@ async def retrieve_for_eval(
     effective_filter = filter_mode if filter_mode is not None else settings.retriever_domain_filter_mode
 
     qvec = await get_embedder().embed_query(query)
-    hits = await search_with_mode(qvec, top_k, domain=domain, mode=effective_filter, settings=settings)
+    # 필터용 domain은 대표(domains[0])만 — soft에선 무시되고 hard/hybrid에서만 쓰인다.
+    filter_domain = domains[0] if domains else None
+    hits = await search_with_mode(qvec, top_k, domain=filter_domain, mode=effective_filter, settings=settings)
 
     results = [(point.score, point.payload or {}) for point in hits]
 
     if mode == "dense":
-        ranked = _soft_ranked(results, domain, settings)
+        ranked = _soft_ranked(results, domains, settings)
     else:  # rerank — 운영 retrieve_node와 동일하게 최신성 + 도메인 일치 가산
         candidates = [(payload.get("content", ""), payload) for _, payload in results]
         try:
             reranked = await anyio.to_thread.run_sync(get_reranker().rerank, query, candidates)
             ranked = [
                 (
-                    apply_domain_weight(apply_metadata_weight(score, payload, settings), payload, domain, settings),
+                    apply_domain_weight(apply_metadata_weight(score, payload, settings), payload, domains, settings),
                     payload,
                 )
                 for score, payload in reranked
@@ -88,7 +95,7 @@ async def retrieve_for_eval(
             ranked.sort(key=lambda item: item[0], reverse=True)
         except Exception as exc:  # 리랭커 실패 → vector score + 도메인 가산 폴백 (retrieve_node._vector_fallback 동일)
             logger.warning("리랭커 실패로 dense 폴백: %s", exc, exc_info=True)
-            ranked = _soft_ranked(results, domain, settings)
+            ranked = _soft_ranked(results, domains, settings)
 
     top = ranked[:top_n]
     chunk_ids = [payload.get("chunk_id", "") for _, payload in top if payload.get("chunk_id")]
@@ -100,7 +107,7 @@ async def ranked_chunk_ids(
     query: str,
     *,
     mode: Mode,
-    domain: str | None = None,
+    domains: list[str] | None = None,
     filter_mode: FilterMode | None = None,
     top_k: int | None = None,
     top_n: int | None = None,
@@ -108,7 +115,7 @@ async def ranked_chunk_ids(
 ) -> list[str]:
     """검색 지표용 — ranked chunk_id 리스트만 반환."""
     result = await retrieve_for_eval(
-        query, mode=mode, domain=domain, filter_mode=filter_mode, top_k=top_k, top_n=top_n, settings=settings
+        query, mode=mode, domains=domains, filter_mode=filter_mode, top_k=top_k, top_n=top_n, settings=settings
     )
     return result.chunk_ids
 

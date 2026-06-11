@@ -103,24 +103,24 @@ def apply_metadata_weight(rerank_score: float, payload: dict, settings: Settings
     return rerank_score + settings.rerank_recency_weight * factor
 
 
-def payload_domains(payload: dict) -> list[str]:
-    """문서가 걸친 도메인 집합. 멀티도메인 `domains[]` 우선, 없으면 단일 `domain`(하위호환)."""
-    domains = payload.get("domains")
-    if domains:
-        # 문자열 단일값("manual")이 들어와도 글자 분해(list("manual"))되지 않도록 분기
-        return [domains] if isinstance(domains, str) else list(domains)
-    single = payload.get("domain")
-    return [single] if single else []
+def apply_domain_weight(
+    rerank_score: float, payload: dict, query_domains: list[str] | None, settings: Settings
+) -> float:
+    """문서 단일 도메인이 질의 도메인 집합에 들면 점수를 더한다(Soft 가산, 순서 우선, #61).
 
-
-def apply_domain_weight(rerank_score: float, payload: dict, domain: str | None, settings: Settings) -> float:
-    """라우터 도메인이 문서 도메인 집합에 들면 점수를 더한다(Soft 가산).
-
-    가산식이라 음수 점수(Cross-Encoder logit)에서도 단조 증가. domain이 None이거나
-    문서 domains에 없으면 원점수를 그대로 반환한다. 멀티도메인 `domains[]`/단일 `domain` 모두 지원.
+    가산식이라 음수 점수(Cross-Encoder logit)에서도 단조 증가.
+    문서 domain == query.domains[0] → primary 가중 / domains[1:] → secondary 가중 / 아니면 원점수.
+    query_domains가 비면 가산 없음. (문서는 단일 도메인 — payload["domain"]만 본다.)
     """
-    if domain and domain in payload_domains(payload):
-        return rerank_score + settings.retriever_domain_match_weight
+    if not query_domains:
+        return rerank_score
+    doc = payload.get("domain")
+    if not doc:
+        return rerank_score
+    if doc == query_domains[0]:
+        return rerank_score + settings.domain_primary_weight
+    if doc in query_domains[1:]:
+        return rerank_score + settings.domain_secondary_weight
     return rerank_score
 
 

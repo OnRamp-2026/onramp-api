@@ -21,7 +21,7 @@ FILTER_MODES: tuple[FilterMode, ...] = ("hard", "hybrid", "soft")
 async def _eval_filter_mode(golden, filter_mode: FilterMode, rank_mode: Mode) -> MetricSummary:
     per_query: list[tuple[list[str], set[str]]] = []
     for g in golden:
-        ranked = await ranked_chunk_ids(g.query, mode=rank_mode, domain=g.domain, filter_mode=filter_mode)
+        ranked = await ranked_chunk_ids(g.query, mode=rank_mode, domains=[g.domain] if g.domain else None, filter_mode=filter_mode)
         per_query.append((ranked, set(g.relevant_chunk_ids)))
     return aggregate(per_query)
 

@@ -46,7 +46,7 @@ async def _eval_mode(golden, mode: Mode, *, top_k, top_n, ans_floor, ans_min_doc
     preds: list[bool] = []
     labels: list[bool] = []
     for g in golden:
-        result = await retrieve_for_eval(g.query, mode=mode, domain=g.domain, top_k=top_k, top_n=top_n)
+        result = await retrieve_for_eval(g.query, mode=mode, domains=[g.domain] if g.domain else None, top_k=top_k, top_n=top_n)
         per_query.append((result.chunk_ids, set(g.relevant_chunk_ids)))
         preds.append(predicted_answerable(result, floor=ans_floor, min_docs=ans_min_docs))
         labels.append(g.is_answerable)
