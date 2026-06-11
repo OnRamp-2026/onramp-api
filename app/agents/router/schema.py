@@ -8,6 +8,10 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.agents.state import Domain, UseCase
 
+# RouterOutput 계약 버전. domains 계약/검증 규칙이 바뀌면 올린다.
+# 평가 예측 캐시의 stale 판정 키로 쓰여, 계약이 바뀌면 옛 캐시를 무효화한다.
+SCHEMA_VERSION = "1"
+
 
 class RouterOutput(BaseModel):
     """Router LLM 응답(JSON) 파싱 전용 스키마.
