@@ -1,0 +1,185 @@
+{
+  "eval_datetime": "2026-06-11T23:31:30.785341+00:00",
+  "reproduction": {
+    "golden_sha": "1471ca0c5d8f",
+    "code_commit_sha": "04512292275635a8ea8146c577e435a09c97d918",
+    "cache_commit_sha": "04512292275635a8ea8146c577e435a09c97d918",
+    "provider": "openai",
+    "model": "gpt-4o-mini (default_model 미설정 → 폴백)",
+    "prompt_sha": "f2e161ca7562",
+    "schema_version": "1",
+    "confidence_threshold": 0.5,
+    "note": "캐시는 gitignore(.cache/onramp-eval/). 완전 재현은 같은 조건으로 --build-cache 재생성 필요(LLM 비결정)."
+  },
+  "counts": {
+    "golden_total": 118,
+    "answerable": 82,
+    "unanswerable": 36,
+    "n_eval_explicit_router_domains": 82
+  },
+  "router_multidomain": {
+    "raw_classification_and_calibration": {
+      "n_eval": 82,
+      "primary_accuracy": 0.5366,
+      "exact_ordered_match": 0.378,
+      "exact_set_match": 0.4146,
+      "micro": {
+        "precision": 0.6442,
+        "recall": 0.6204,
+        "f1": 0.6321
+      },
+      "macro_label": {
+        "precision": 0.4245,
+        "recall": 0.4251,
+        "f1": 0.3972
+      },
+      "per_domain": {
+        "incident": {
+          "precision": 0.3636,
+          "recall": 0.5714,
+          "f1": 0.4444,
+          "support": 7.0
+        },
+        "manual": {
+          "precision": 0.6562,
+          "recall": 0.9767,
+          "f1": 0.785,
+          "support": 43.0
+        },
+        "api_reference": {
+          "precision": 0.7692,
+          "recall": 0.3774,
+          "f1": 0.5063,
+          "support": 53.0
+        },
+        "meeting_note": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0.0
+        },
+        "planning": {
+          "precision": 0.3333,
+          "recall": 0.2,
+          "f1": 0.25,
+          "support": 5.0
+        }
+      },
+      "secondary_precision": 0.5769,
+      "secondary_over_prediction_rate": 0.4231,
+      "secondary_under_prediction_rate": 0.3846,
+      "confidence_bins": [
+        {
+          "lo": 0.0,
+          "hi": 0.5,
+          "n": 0,
+          "primary_accuracy": null,
+          "mean_confidence": null
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.7,
+          "n": 0,
+          "primary_accuracy": null,
+          "mean_confidence": null
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.9,
+          "n": 4,
+          "primary_accuracy": 0.0,
+          "mean_confidence": 0.85
+        },
+        {
+          "lo": 0.9,
+          "hi": 1.0,
+          "n": 78,
+          "primary_accuracy": 0.5641025641025641,
+          "mean_confidence": 0.9032051282051282
+        }
+      ],
+      "ece": 0.364,
+      "ece_n_used": 82,
+      "ece_n_excluded": 0,
+      "parse_failures": 0,
+      "low_conf_empty": 0
+    },
+    "effective_after_gate": {
+      "n_eval": 82,
+      "primary_accuracy": 0.5366,
+      "exact_ordered_match": 0.378,
+      "exact_set_match": 0.4146,
+      "micro": {
+        "precision": 0.6442,
+        "recall": 0.6204,
+        "f1": 0.6321
+      },
+      "macro_label": {
+        "precision": 0.4245,
+        "recall": 0.4251,
+        "f1": 0.3972
+      },
+      "per_domain": {
+        "incident": {
+          "precision": 0.3636,
+          "recall": 0.5714,
+          "f1": 0.4444,
+          "support": 7.0
+        },
+        "manual": {
+          "precision": 0.6562,
+          "recall": 0.9767,
+          "f1": 0.785,
+          "support": 43.0
+        },
+        "api_reference": {
+          "precision": 0.7692,
+          "recall": 0.3774,
+          "f1": 0.5063,
+          "support": 53.0
+        },
+        "meeting_note": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0.0
+        },
+        "planning": {
+          "precision": 0.3333,
+          "recall": 0.2,
+          "f1": 0.25,
+          "support": 5.0
+        }
+      },
+      "secondary_precision": 0.5769,
+      "secondary_over_prediction_rate": 0.4231,
+      "secondary_under_prediction_rate": 0.3846,
+      "parse_failures": 0,
+      "low_conf_empty": 0
+    }
+  },
+  "unanswerable_block": {
+    "total": {
+      "blocked": 17,
+      "n": 36,
+      "rate": 0.4722
+    },
+    "near_miss_n0xx": {
+      "blocked": 7,
+      "n": 20,
+      "rate": 0.35,
+      "note": "질문만으론 코퍼스 정답 부재를 알기 어려움 — 라우터 단계 차단 본질적 한계"
+    },
+    "out_of_scope_d0xx": {
+      "blocked": 10,
+      "n": 16,
+      "rate": 0.625,
+      "note": "사외·일상·HR 등 — 라우터가 차단해야 하는 진짜 대상"
+    },
+    "answerable_false_block": {
+      "n": 82,
+      "false_blocked": 4,
+      "rate": 0.0488
+    }
+  }
+}
