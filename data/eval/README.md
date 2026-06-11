@@ -21,18 +21,26 @@
   `m0xx` 멀티 도메인, `h0xx` multi-hop(인접 청크 2~3개 종합, 멀티청크 qrels),
   `n0xx` near-miss unanswerable(도메인 안 주제지만 코퍼스에 답 없음),
   `c0xx` confusable(유사 문서 군집 속 타깃 청크 저격).
-- `domain`: **라우터가 고를 단일 도메인** = 프로덕션 하드 필터 입력. `incident|manual|api_reference|meeting_note|planning` 또는 `null`(무필터).
+- `domain`: **과거 단일 라우터 정답 / 하위호환 필드**(`incident|manual|api_reference|meeting_note|planning` 또는 `null`).
+  #86 피벗 이후 **운영 검색 기본은 soft** — 문서 단일 `domain`과 질의 `domains[]`(라우터 멀티)를 비교해 **점수 가산**(필터 아님).
+  현재 질의 도메인 정답은 `router_domains`다. `domain`을 입력으로 쓰는 **hard/hybrid 필터는 비교 평가·후속 옵션**으로만 보존(#49).
 - `gold_domains`: **정답 청크들이 실제로 걸친 도메인 집합**(선택). 장애 대응·온보딩처럼 근거가
   여러 도메인에 흩어진 질문은 `len>=2`(멀티 도메인). 생략 시 answerable이면 `[domain]`로 기본.
   `domain`(라우터 단일 픽)은 반드시 `gold_domains`에 포함돼야 한다(로더가 검증).
+- `router_domains`: **질의를 라우터가 분류해야 하는 순서 있는 도메인 정답**(선택, #61). 순서=우선순위,
+  answerable은 1~2개·중복 금지·`Domain` enum만. **`gold_domains`(정답 *문서*가 걸친 도메인)와 의미가 다르다**
+  — 이쪽은 *질의 의도*다. 둘을 같은 값으로 재사용 금지(우연히 같을 수는 있음). 로더는 **출처**(`router_domains_source`)를
+  구분한다: 명시값=`explicit`, 필드 없으면 `[domain]`(domain 없으면 빈 무필터)=`fallback`, unanswerable=`none`(`[]`).
+  명시적 `[]`(answerable)은 거부(빈 정답=결함). **공식 라우터 지표는 `explicit`만 사용**하고 `fallback`은 제외하므로,
+  검수 전 단일 fallback이 멀티 평가를 오염시키지 않는다. **최종 평가 전 사람 검수 필수**(아래 멀티 도메인 라우터 평가 참고).
 - `is_answerable`: answerability 정확도 측정용. 범위 밖(답변 불가) 질문 일부 포함.
 - `ground_truth_answer`: 선택. RAGAS LLM-judge(#C) 전용 — 검색 평가(#A)는 미사용.
 - `_draft`: 부트스트랩 초안 표시. **팀 검수 후 제거**.
 
-> **`domain` vs `gold_domains` (역할 분리, IR 골든셋 모범사례)** — `domain`은 질문의 *의도 facet*
-> (라우터 단일 픽, #65의 하드 필터가 쓰는 값)이고, `gold_domains`는 *relevance judgment의 도메인
-> 커버리지*다. 둘을 분리해야 "단일 도메인 필터가 멀티 도메인 정답을 배제한다"(#65)를 골든셋 파일만으로
-> 측정할 수 있다.
+> **세 도메인 필드 역할 분리** — `domain`(과거 단일 라우터 정답·하위호환, hard/hybrid 필터 입력) ·
+> `gold_domains`(정답 *문서*가 걸친 도메인 = **relevance 평가 메타데이터**, #65 분석용 — 운영 검색엔 미사용) ·
+> `router_domains`(*질의* 의도 도메인 정답 = 현재 멀티도메인 라우터 평가, #61). 셋은 의미가 다르며
+> 재사용 금지. 운영 soft 가산은 **문서 payload `domain` ∈ 질의 `domains[]`**로 계산하며 `gold_domains`는 쓰지 않는다.
 
 ### `qrels.jsonl`
 ```json
@@ -82,6 +90,50 @@
 python scripts/eval_domain_filter.py --structural-only  # gold_domains 기반 구조 분석(오프라인)
 python scripts/eval_domain_filter.py --mode dense       # filter ON/OFF recall 격차 실측(#65)
 ```
+
+### 멀티 도메인 라우터 평가 (#61)
+
+질의 멀티도메인 라우터의 분류 품질을 측정한다. **정답 = `router_domains`(사람 검수)**,
+**예측 = 라우터 캐시의 `raw_predicted_domains`(분류·calibration) + `predicted_domains`(게이트 이후 운영 결과)**.
+정답과 두 예측을 raw·effective 두 관점으로 비교한다.
+
+```bash
+# 1) 예측 캐시 생성 + 지표 리포트 (라우터 LLM 1회/질문, 신선 캐시는 재사용, Qdrant 불필요)
+python scripts/eval_router_domains.py
+python scripts/eval_router_domains.py --build-cache   # 예측 캐시만 생성/갱신(리포트 생략)
+python scripts/eval_router_domains.py --report        # LLM 없이 캐시만으로 리포트
+
+# 2) 사람 검수표 초안 생성 (캐시 있으면 예측을 제안값으로 채움)
+python scripts/draft_router_domains.py
+python scripts/draft_router_domains.py --blind   # 중요 문항 제안을 가려 독립 라벨링(앵커링 완화)
+#    → data/eval/reviews/router_domains_review.jsonl (review_status: pending)
+```
+
+- **예측 캐시** `.cache/onramp-eval/router_predictions.jsonl` — **gitignore**(실행 환경·모델별 비결정 산출물).
+  **오프라인 평가 전용 — production 런타임(route_node)은 읽지도 쓰지도 않는다.** 평가 스크립트를 수동 실행할
+  때만 생성되고, 사용자 질문마다 누적되지 않으며(현재 골든셋 기준 전체를 덮어씀, append 아님), 운영 컨테이너에서
+  평가를 돌리지 않으면 디스크가 늘지 않는다(Helm PVC·Redis 불필요). stale 키 = `qid + query_sha + requested_model
+  + effective_provider + llm_provider + default_model + prompt_sha + schema_version`. `commit_sha`·`created_at`는
+  재현 메타로만 저장. **query 평문 미저장**. 프롬프트·모델·계약이 바뀌면 해당 qid만 자동 재예측한다.
+  레코드는 `raw_predicted_domains`(게이팅 전)와 `predicted_domains`(게이팅 후)를 **둘 다** 저장 —
+  "분류가 틀린 것"과 "도메인은 맞지만 저신뢰로 비워진 것"을 구분하기 위함.
+- **검수표** `reviews/router_domains_review.jsonl` — **Git 추적**(합성 질문이라 평문 OK). 행마다
+  `query_sha`·`suggestion_source`(router_prediction|none)·`proposed_router_domains`(제안)·`reviewed_router_domains`(사람)·
+  `review_status`·`reviewer`·`reviewed_at`. **자동 제안을 그대로 정답화하지 않는다** — 사람이 `reviewed_*`를
+  채운(approved/edited) 행만 `queries.jsonl`의 `router_domains`로 반영한다(자기 정답화 방지). 우선 검수: 멀티(`m0xx`)·confusable(`c0xx`).
+  재실행 시 검수 결과는 qid로 보존하되 **`query_sha`가 일치할 때만** — 질문 문구가 바뀌면 옛 검수를 `pending`으로
+  초기화해 재검수를 강제한다(질문 변경에도 옛 라벨이 따라붙는 stale 검수 방지).
+- 지표(answerable ∧ **explicit** `router_domains`)는 **raw·effective 두 관점**으로 분리해 낸다:
+  - `raw_classification_and_calibration`: 게이팅 **전**(`raw_predicted_domains`) → 라우터 분류 능력 + **calibration(ECE)**.
+  - `effective_after_gate`: 게이팅 **후**(`predicted_domains`) → 운영 결과. calibration(ECE·confidence_bins)은 **빼서** 표시한다
+    (게이팅 후 빈 예측을 오답 처리하면 calibration이 왜곡되므로 raw 기준만 유효).
+  - 공통: primary accuracy · exact ordered/set match · micro P/R/F1 · macro-label P/R/F1 · 도메인별 P/R/F1 ·
+    secondary precision/과다·미예측률 · parse 실패 수 · low-confidence empty 수 · UNANSWERABLE 차단 정확도(별도).
+  - ECE(raw, primary 기준): parse 실패·confidence 없음은 제외하고 **제외 수 보고**. **모든 분모 0은 0 또는 N/A로 명시.**
+
+> ⚠️ 현재 `queries.jsonl`에는 검수된 `router_domains`가 아직 없어 전부 `fallback`(단일)이다. 멀티도메인 문항(`m0xx`)의
+> 진짜 정답은 사람이 검수표에서 채워 반영해야 한다. **`explicit`이 0건이면 `eval_router_domains.py`는 지표를 출력하지
+> 않고** 검수 절차만 안내한다(부정확한 단일-fallback 숫자를 내지 않는다).
 
 ## 사용
 

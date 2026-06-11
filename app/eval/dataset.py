@@ -44,6 +44,10 @@ class GoldenQuery:
     is_answerable: bool
     relevant_chunk_ids: tuple[str, ...]
     gold_domains: tuple[str, ...] = ()  # 정답이 걸친 도메인 집합 (멀티도메인이면 len>=2)
+    router_domains: tuple[str, ...] = ()  # 질의를 라우터가 분류해야 하는 순서 있는 도메인 정답
+    # router_domains 출처: "explicit"(사람 검수 정답) | "fallback"(domain 단일 하위호환) | "none"(unanswerable).
+    # 공식 라우터 지표는 explicit만 정답으로 쓴다 — fallback을 검수 정답처럼 평가하지 않기 위함.
+    router_domains_source: str = "none"
     ground_truth_answer: str | None = None
     is_draft: bool = False  # 부트스트랩 초안(_draft) — 팀 검수 전
 
@@ -51,6 +55,16 @@ class GoldenQuery:
     def is_multi_domain(self) -> bool:
         """정답 근거가 2개 이상 도메인에 걸친 질문인지 (파일만으로 판정, Qdrant 불필요)."""
         return len(self.gold_domains) >= 2
+
+    @property
+    def has_explicit_router_domains(self) -> bool:
+        """사람 검수된 명시적 router_domains 정답을 가진 질문인지 (공식 라우터 지표 대상)."""
+        return self.router_domains_source == "explicit" and bool(self.router_domains)
+
+    @property
+    def is_multi_router_domain(self) -> bool:
+        """라우터가 2개 도메인으로 분류해야 하는 질의인지 (명시적 검수 정답 기준)."""
+        return self.has_explicit_router_domains and len(self.router_domains) >= 2
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -117,6 +131,55 @@ def _parse_gold_domains(row: dict, qid: str, *, domain: str | None, is_answerabl
     return tuple(domains)
 
 
+def _parse_router_domains(
+    row: dict, qid: str, *, domain: str | None, is_answerable: bool
+) -> tuple[tuple[str, ...], str]:
+    """`router_domains`(질의를 라우터가 분류해야 하는 순서 있는 도메인 정답)를 파싱·검증한다.
+
+    반환: `(domains, source)`. source는 정답 **출처**로, 평가가 하위호환 fallback을 사람 검수
+    정답처럼 쓰지 않도록 구분한다(공식 라우터 지표는 source=="explicit"만 사용).
+
+    `gold_domains`(정답 **문서**가 걸친 도메인)와 **의미가 다르다** — 여기서는 *질의 의도*다.
+    둘을 같은 값으로 재사용하면 안 되며, 로더는 router_domains↔domain/gold_domains 일치를
+    강제하지 않는다(우연히 같을 수는 있다).
+
+    규칙:
+      · unanswerable → `((), "none")` (라우터는 차단만 한다 — 명시값이 있어도 무시)
+      · 명시값(answerable) → Domain enum만·중복 금지·1~2개(순서 보존), source="explicit"
+      · 명시적 `[]`(answerable) → **ValueError** (빈 정답은 fallback이 아니라 결함)
+      · 필드 없음(answerable) → `((domain,) or ())`, source="fallback"
+        (※ 임시 하위호환값. domain=None(무필터)도 허용 — 단 공식 지표에선 제외된다)
+    """
+    raw = row.get("router_domains")
+
+    if not is_answerable:
+        return (), "none"  # unanswerable: 라우터는 차단만 하므로 도메인 정답 없음
+
+    if raw is None:
+        # 하위호환 로딩용 fallback(검수 전). 공식 라우터 지표에서는 제외되므로 안전.
+        # domain=None(무필터 answerable)도 그대로 허용한다 — 기존 로더 계약 유지.
+        return ((domain,) if domain is not None else ()), "fallback"
+
+    if not isinstance(raw, list):
+        raise ValueError(f"queries: '{qid}' router_domains 는 리스트여야 합니다")
+    if not raw:
+        raise ValueError(f"queries: '{qid}' answerable의 router_domains 가 비어 있습니다 (빈 정답 금지)")
+    if len(raw) > 2:
+        raise ValueError(f"queries: '{qid}' router_domains 는 최대 2개여야 합니다: {raw}")
+    seen: set[str] = set()
+    domains: list[str] = []
+    for value in raw:
+        if not isinstance(value, str) or value not in VALID_DOMAINS:
+            raise ValueError(
+                f"queries: '{qid}' router_domains 에 알 수 없는 도메인 '{value}' (허용: {sorted(VALID_DOMAINS)})"
+            )
+        if value in seen:
+            raise ValueError(f"queries: '{qid}' router_domains 중복 금지: {raw}")
+        seen.add(value)
+        domains.append(value)  # 순서(우선순위) 보존
+    return tuple(domains), "explicit"
+
+
 def load_golden_set(
     queries_path: Path | str = DEFAULT_QUERIES_PATH,
     qrels_path: Path | str = DEFAULT_QRELS_PATH,
@@ -152,6 +215,9 @@ def load_golden_set(
         draft_n += int(is_draft)
         domain = row.get("domain")
         gold_domains = _parse_gold_domains(row, qid, domain=domain, is_answerable=is_answerable)
+        router_domains, router_domains_source = _parse_router_domains(
+            row, qid, domain=domain, is_answerable=is_answerable
+        )
         golden.append(
             GoldenQuery(
                 qid=qid,
@@ -160,6 +226,8 @@ def load_golden_set(
                 is_answerable=is_answerable,
                 relevant_chunk_ids=qrels[qid],
                 gold_domains=gold_domains,
+                router_domains=router_domains,
+                router_domains_source=router_domains_source,
                 ground_truth_answer=row.get("ground_truth_answer"),
                 is_draft=is_draft,
             )
