@@ -41,16 +41,16 @@ async def main_async(modes: list[FilterMode]) -> None:
     for g in golden:
         relevant = set(g.relevant_chunk_ids)
 
-        # 라우터 1회 실행 → 예측 도메인 / use_case
+        # 라우터 1회 실행 → 예측 도메인 집합(순서 우선) / use_case
         routed = await route_node({"query": g.query})
-        pred_domain = _domain_str(routed.get("domain"))
+        pred_domains = [d for d in (_domain_str(x) for x in routed.get("domains") or []) if d]
         blocked = routed.get("use_case") == UseCase.UNANSWERABLE
 
         # 라우터 도메인 정확도 (answerable + 골든 도메인 보유)
         if g.is_answerable and g.domain is not None:
             domain_total += 1
-            domain_correct += pred_domain == g.domain  # strict: 단일 정답
-            acceptable_correct += pred_domain in g.gold_domains  # acceptable: 정답이 걸친 도메인 집합
+            domain_correct += bool(pred_domains) and pred_domains[0] == g.domain  # strict: 대표(domains[0]) 일치
+            acceptable_correct += any(p in g.gold_domains for p in pred_domains)  # acceptable: 예측 중 하나라도 정답 집합
         # 범위밖 차단 정확도
         if not g.is_answerable:
             unanswerable_total += 1
@@ -61,8 +61,8 @@ async def main_async(modes: list[FilterMode]) -> None:
             oracle[mode].append(
                 (await ranked_chunk_ids(g.query, mode="dense", domains=[g.domain] if g.domain else None, filter_mode=mode), relevant)
             )
-            # 라우터: 예측 도메인으로 검색 (UNANSWERABLE이면 검색 생략 → 빈 결과)
-            ids = [] if blocked else await ranked_chunk_ids(g.query, mode="dense", domains=[pred_domain] if pred_domain else None, filter_mode=mode)
+            # 라우터: 예측 도메인 **집합**으로 검색 (멀티도메인 가산 측정 — secondary 보존). UNANSWERABLE이면 생략
+            ids = [] if blocked else await ranked_chunk_ids(g.query, mode="dense", domains=pred_domains, filter_mode=mode)
             router[mode].append((ids, relevant))
 
     _print_block("오라클 도메인 (골든 정답)", oracle, modes)
