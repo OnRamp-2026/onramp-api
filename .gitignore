@@ -55,3 +55,6 @@ Thumbs.db
 # #60 리랭커 ONNX 빌드 산출물 (build_reranker_onnx.py로 생성)
 models/
 uv.lock
+
+# #49 문서 도메인 분류 dry-run 산출물(검수용)
+data/eval/doc_domain_dryrun*.jsonl
