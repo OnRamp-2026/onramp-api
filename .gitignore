@@ -64,3 +64,5 @@ data/eval/doc_domain_dryrun*.jsonl
 .cache/onramp-eval/
 # --blind 모드의 가린 제안 sidecar(앵커링 방지 — 검수 후 비교용 로컬 산출물) → 추적 제외
 data/eval/reviews/*.blinded.jsonl
+# qrels 마이그레이션 검수 draft(원문 content preview 포함) → 추적 제외
+data/eval/reviews/qrels_migration*
