@@ -76,8 +76,10 @@ def test_aggregate_and_success_criteria():
     ]
     agg = _aggregate(rows)
     assert agg["overall"]["delta_B_minus_A"]["recall@5"] > 0
-    assert any(d["qid"] == "m1" for d in agg["deltas"]["improved"])
-    assert agg["deltas"]["worsened"] == []
+    rec = agg["deltas_by_metric"]["recall@5"]
+    assert any(d["qid"] == "m1" for d in rec["improved"]) and rec["worsened"] == []
+    # 순위 지표도 질의별로 잡힌다(B가 m1의 mrr/ndcg 개선)
+    assert any(d["qid"] == "m1" for d in agg["deltas_by_metric"]["mrr@10"]["improved"])
     sc = _success_criteria(agg)
     assert sc["overall_recall@5_no_drop"][0] is True
     assert sc["multi_recall@5_improved"][0] is True

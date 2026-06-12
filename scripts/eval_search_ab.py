@@ -87,19 +87,28 @@ _ALL_TAGS = (
 )
 
 
+def _per_metric_deltas(rows: list[dict]) -> dict:
+    """**지표별**(hit@5·recall@5·mrr@10·ndcg@10) 질의별 Δ(B−A)와 improved/worsened 목록.
+
+    Recall@5만 보면 순위 지표(MRR/NDCG)의 질의별 악화가 가려진다 → 전 지표를 각각 집계한다.
+    """
+    out: dict = {}
+    for m in _METRIC_KEYS:
+        diffs = [{"qid": r["qid"], "delta": round(r["b"][m] - r["a"][m], 4)} for r in rows]
+        out[m] = {
+            "improved": sorted([d for d in diffs if d["delta"] > 0], key=lambda d: -d["delta"]),
+            "worsened": sorted([d for d in diffs if d["delta"] < 0], key=lambda d: d["delta"]),
+        }
+    return out
+
+
 def _aggregate(rows: list[dict]) -> dict:
-    """전체 + 그룹별 A/B/Δ + 질의별 개선·악화(ΔRecall@5)."""
+    """전체 + 그룹별 A/B/Δ + **지표별** 질의 개선·악화(전 지표)."""
     by_group = {tag: _group_metrics([r for r in rows if tag in r["groups"]]) for tag in _ALL_TAGS}
-    diffs = sorted(
-        ({"qid": r["qid"], "delta_recall@5": round(r["b"]["recall@5"] - r["a"]["recall@5"], 4)} for r in rows),
-        key=lambda d: d["delta_recall@5"],
-    )
-    improved = [d for d in reversed(diffs) if d["delta_recall@5"] > 0]
-    worsened = [d for d in diffs if d["delta_recall@5"] < 0]
     return {
         "overall": _group_metrics(rows),
         "by_group": {t: m for t, m in by_group.items() if m["n"] > 0},
-        "deltas": {"improved": improved, "worsened": worsened},
+        "deltas_by_metric": _per_metric_deltas(rows),
     }
 
 
