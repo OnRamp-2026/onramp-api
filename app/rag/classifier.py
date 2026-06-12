@@ -271,27 +271,3 @@ class ChunkMetadataClassifier:
             if len(result) >= limit:
                 break
         return result
-
-
-class AutoClassifier(ChunkMetadataClassifier):
-    """Backward-compatible alias for older imports.
-
-    New ingestion code should use DocumentProfileClassifier and
-    ChunkMetadataClassifier explicitly.
-    """
-
-    def classify_chunk(
-        self,
-        chunk: ChildChunk,
-        chunking_profile: ChunkingProfile = "runbook_like",
-        primary_domain: str | None = None,
-    ) -> ChildChunk:
-        return super().classify_chunk(chunk, chunking_profile, primary_domain)
-
-    def classify_batch(
-        self,
-        chunks: list[ChildChunk],
-        chunking_profile: ChunkingProfile = "runbook_like",
-        parent_domains: dict[str, str] | None = None,
-    ) -> list[ChildChunk]:
-        return super().classify_batch(chunks, chunking_profile, parent_domains)
