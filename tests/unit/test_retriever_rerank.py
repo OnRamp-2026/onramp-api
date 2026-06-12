@@ -139,3 +139,52 @@ def test_lazy_load_thread_safe(monkeypatch):
         thread.join()
 
     assert len(instances) == 1
+
+
+# ── 버전·권위 부스트 (#103) ──────────────────────────────────────────
+
+
+def test_apply_version_weight_additive_monotonic():
+    from app.agents.retriever.rerank import apply_version_weight
+
+    s = Settings()
+    lineages = {"apache:cn": frozenset({"2.2", "2.4"})}
+    latest = {"doc_key": "apache:cn", "product_version": "2.4", "site": "apache", "is_eol": False}
+    eol = {"doc_key": "apache:cn", "product_version": "2.2", "site": "apache", "is_eol": True}
+    # 가산식 — 원점수보다 항상 크거나 같고, 최신 버전이 EOL보다 큰 가산을 받는다
+    assert apply_version_weight(0.5, latest, lineages, [], s) == 0.5 + s.rank_version_weight * 1.0
+    assert apply_version_weight(0.5, eol, lineages, [], s) == 0.5 + s.rank_version_weight * s.trust_eol_cap
+    # 계보 없는 문서(라벨 없음)는 중립 0.5 가산 — 부당 감점 없음
+    assert apply_version_weight(0.5, {}, {}, [], s) == 0.5 + s.rank_version_weight * 0.5
+
+
+def test_apply_authority_weight_uses_tier_map_with_default():
+    from app.agents.retriever.rerank import apply_authority_weight
+
+    s = Settings()
+    assert apply_authority_weight(0.5, {"site": "apache"}, s) == 0.5 + s.rank_authority_weight * 1.0
+    # 미등록 site(내부 문서)는 중립 기본값 — 감점 없음
+    assert apply_authority_weight(0.5, {"site": ""}, s) == 0.5 + s.rank_authority_weight * s.site_tier_default
+
+
+def test_apply_ranking_boosts_chains_all():
+    from app.agents.retriever.rerank import apply_metadata_weight, apply_ranking_boosts
+
+    s = Settings()
+    payload = {
+        "domain": "manual",
+        "site": "apache",
+        "product_version": "2.4",
+        "doc_key": "apache:cn",
+        "is_eol": False,
+        "last_modified": "",
+    }
+    lineages = {"apache:cn": frozenset({"2.2", "2.4"})}
+    out = apply_ranking_boosts(0.5, payload, ["manual"], lineages, [], s)
+    expected = (
+        apply_metadata_weight(0.5, payload, s)
+        + s.domain_primary_weight
+        + s.rank_version_weight * 1.0
+        + s.rank_authority_weight * 1.0
+    )
+    assert out == expected

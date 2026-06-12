@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import Settings, get_settings
+from app.rag.version_fit import version_fit_from_payload
 
 
 class CrossEncoderReranker:
@@ -122,6 +123,51 @@ def apply_domain_weight(
     if doc in query_domains[1:]:
         return rerank_score + settings.domain_secondary_weight
     return rerank_score
+
+
+def apply_version_weight(
+    rerank_score: float,
+    payload: dict,
+    lineages: dict[str, frozenset[str]],
+    target_versions: list[str],
+    settings: Settings,
+) -> float:
+    """버전 적합성(version_fit) 가산 (#103, 설계 7장).
+
+    최신 버전(또는 질의 target 버전) 문서가 형제들보다 위로 오게 한다 — 버전 형제가
+    top-k 슬롯을 낭비하는 것을 랭킹 단계에서 줄인다. 가산식·단조 증가(기존 부스트 계약).
+    """
+    fit = version_fit_from_payload(payload, lineages, target_versions, settings).fit
+    return rerank_score + settings.rank_version_weight * fit
+
+
+def apply_authority_weight(rerank_score: float, payload: dict, settings: Settings) -> float:
+    """site 권위 등급 가산 (#103, 설계 4.3 — 어댑터 자리).
+
+    현 코퍼스는 전부 공식 문서라 변별력이 없지만, 사내 Confluence 전환 시
+    space 등급·verified 라벨이 이 자리를 채운다. 미등록 site는 중립 기본값.
+    """
+    tier = settings.site_tier.get(payload.get("site", "") or "", settings.site_tier_default)
+    return rerank_score + settings.rank_authority_weight * tier
+
+
+def apply_ranking_boosts(
+    raw_score: float,
+    payload: dict,
+    query_domains: list[str] | None,
+    lineages: dict[str, frozenset[str]],
+    target_versions: list[str],
+    settings: Settings,
+) -> float:
+    """부스트 체인 단일 진입점 — 운영(retrieve_node)과 평가(retrieval_adapter)가 같은 함수를 쓴다.
+
+    반환값은 **정렬 전용 ranking 점수**다. raw 점수(τ 진단·SourceDocument.raw_rerank_score)는
+    호출측이 별도로 보존해야 한다 (#103 점수 분리 — 설계 7.3 "정렬은 블렌드, 진단은 원점수").
+    """
+    score = apply_metadata_weight(raw_score, payload, settings)
+    score = apply_domain_weight(score, payload, query_domains, settings)
+    score = apply_version_weight(score, payload, lineages, target_versions, settings)
+    return apply_authority_weight(score, payload, settings)
 
 
 def _recency_factor(last_modified: str, half_life_days: int) -> float:

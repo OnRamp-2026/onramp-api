@@ -44,7 +44,8 @@ def test_reranker_backend_literal_and_onnx_requires_dir(tmp_path):
     assert ok.reranker_backend == "onnx"
 
     with pytest.raises(ValidationError):
-        Settings(reranker_backend="onnx")  # onnx_dir 없음 → fail-fast
+        # onnx_dir 없음 → fail-fast (빈 dir 명시 — 로컬 .env의 RERANKER_ONNX_DIR에 영향받지 않게)
+        Settings(reranker_backend="onnx", reranker_onnx_dir="")
     with pytest.raises(ValidationError):
         Settings(reranker_backend="onnx", reranker_onnx_dir=str(tmp_path), reranker_onnx_file="  ")  # 파일 공백 → 거부
     with pytest.raises(ValidationError):
