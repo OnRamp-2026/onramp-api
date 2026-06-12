@@ -1,8 +1,9 @@
+import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -126,6 +127,20 @@ class Settings(BaseSettings):
     trust_conflict_score_gap: float = Field(default=0.05, ge=0.0)
     # [MASKED_*] 마커 수가 이 값이면 sensitivity_risk=1.0 포화. ge=1 — 0/음수면 채점이 무력화됨.
     trust_sensitivity_masked_cap: int = Field(default=5, ge=1)
+
+    # ── 버전 계보 (#94, Trust 재설계 선행 — 라벨 파생 payload + Qdrant facet 계보) ──
+    # site별 EOL 버전 목록. env로는 JSON 문자열('{"apache":["2.2"]}')로 덮어쓴다.
+    # k8s는 v1.33만 현행 지원 — v1.30 미만 전부 EOL.
+    eol_versions: dict[str, list[str]] = Field(
+        default_factory=lambda: {"apache": ["2.2"], "kubernetes": ["v1.18", "v1.25", "v1.29"]}
+    )
+    lineage_cache_ttl_seconds: int = Field(default=300, ge=0)  # 0이면 계보 캐시 비활성
+
+    @field_validator("eol_versions", mode="before")
+    @classmethod
+    def _parse_json_env(cls, v: object) -> object:
+        # env var는 문자열로 들어오므로 JSON 파싱 (dict 기본값/직접 주입은 그대로 통과)
+        return json.loads(v) if isinstance(v, str) else v
 
     model_config = {
         "env_file": ".env",

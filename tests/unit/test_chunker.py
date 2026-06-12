@@ -276,6 +276,27 @@ def test_chunker_does_not_merge_short_parents_beyond_parent_max_tokens() -> None
     assert all(parent.token_count <= 14 for parent in parents)
 
 
+def test_chunker_passes_lineage_meta_to_child_chunks() -> None:
+    # 버전 계보 메타 (#94) — MarkdownPage → ChildChunk 관통
+    markdown = "# Content Negotiation\n\nApache negotiates the best representation."
+    page = MarkdownPage(
+        page_id="777",
+        page_title="Content Negotiation [a78792-639072]",
+        markdown=markdown,
+        site="apache",
+        product_version="2.2",
+        doc_key="apache:content-negotiation",
+        is_eol=True,
+    )
+    _, children = SemanticChunker().chunk(page)
+
+    assert children
+    assert all(child.site == "apache" for child in children)
+    assert all(child.product_version == "2.2" for child in children)
+    assert all(child.doc_key == "apache:content-negotiation" for child in children)
+    assert all(child.is_eol is True for child in children)
+
+
 def test_child_chunk_to_index_record_matches_batch_jsonl_contract() -> None:
     markdown = "# Doc\n\n```bash\nkubectl get pods\n```"
     page = MarkdownPage(
