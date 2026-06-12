@@ -90,7 +90,6 @@ class Settings(BaseSettings):
 
     retriever_top_k: int = 20  # Qdrant 후보 풀
     retriever_top_n: int = 5  # 리랭킹 후 최종
-    classifier_model: str = "gpt-4o-mini"
     snippet_max_chars: int = 500  # SourceDocument content_snippet 길이
     rerank_recency_weight: float = 0.1  # 최신성 가산값 (additive, rerank 순서 우선)
     rerank_recency_half_life_days: int = 180
