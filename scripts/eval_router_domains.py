@@ -16,6 +16,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import json
+import os
 from dataclasses import asdict
 from datetime import UTC, datetime
 
@@ -36,6 +39,7 @@ from app.eval.router_cache import (
 from app.eval.router_metrics import RouterPred, summarize
 
 _REQUESTED_MODEL = ""  # 평가는 운영 기본 모델 사용 (config.default_model)
+_DEFAULT_RESULT_PATH = "data/eval/results/router_domains_baseline.json"
 
 
 def _record_from_diag(g: GoldenQuery, diag, meta, commit: str, now: str) -> PredictionRecord:
@@ -144,18 +148,111 @@ def _eval_samples(
     return raw_samples, eff_samples, parse_failures, low_conf_empty
 
 
-def _block_accuracy(golden: list[GoldenQuery], by_qid: dict[str, dict]) -> dict[str, float | int | None]:
-    """UNANSWERABLE 차단 정확도(별도 집계) + answerable 오차단율."""
+def _block_breakdown(golden: list[GoldenQuery], by_qid: dict[str, dict]) -> dict:
+    """UNANSWERABLE 차단을 near-miss(n0xx)와 사외·일반으로 **분리** 집계 + answerable 오차단율.
+
+    near-miss는 도메인 내 주제지만 코퍼스에 답이 없는 질문 — 질문만으론 차단 판단이 본질적으로
+    어렵다. 사외·일반과 섞어 한 숫자로 내면 "라우터 실패율"로 오독되므로 분리한다.
+    """
+
+    def blocked(g: GoldenQuery) -> bool:
+        return by_qid.get(g.qid, {}).get("use_case") == UseCase.UNANSWERABLE.value
+
+    def rate(n: int, d: int) -> float | None:
+        return round(n / d, 4) if d else None
+
     unans = [g for g in golden if not g.is_answerable and g.qid in by_qid]
-    blocked = sum(1 for g in unans if by_qid[g.qid].get("use_case") == UseCase.UNANSWERABLE.value)
+    near = [g for g in unans if g.qid.startswith("n")]
+    outs = [g for g in unans if not g.qid.startswith("n")]
     ans = [g for g in golden if g.is_answerable and g.qid in by_qid]
-    false_block = sum(1 for g in ans if by_qid[g.qid].get("use_case") == UseCase.UNANSWERABLE.value)
+    nb = sum(blocked(g) for g in near)
+    ob = sum(blocked(g) for g in outs)
+    fb = sum(blocked(g) for g in ans)
     return {
-        "unanswerable_block_accuracy": (blocked / len(unans)) if unans else None,
-        "unanswerable_n": len(unans),
-        "answerable_false_block_rate": (false_block / len(ans)) if ans else None,
-        "answerable_n": len(ans),
+        "total": {"blocked": nb + ob, "n": len(unans), "rate": rate(nb + ob, len(unans))},
+        "near_miss_n0xx": {
+            "blocked": nb,
+            "n": len(near),
+            "rate": rate(nb, len(near)),
+            "note": "질문만으론 코퍼스 정답 부재를 알기 어려움 — 라우터 단계 차단의 본질적 한계",
+        },
+        "out_of_scope": {
+            "blocked": ob,
+            "n": len(outs),
+            "rate": rate(ob, len(outs)),
+            "note": "사외·일상·HR 등 — 라우터가 차단해야 하는 진짜 대상",
+        },
+        "answerable_false_block": {"false_blocked": fb, "n": len(ans), "rate": rate(fb, len(ans))},
     }
+
+
+def _metrics_blocks(golden: list[GoldenQuery], by_qid: dict[str, dict]) -> tuple | None:
+    """(raw_metrics, effective_dict) 반환. explicit 표본이 없으면 None.
+
+    effective 블록은 calibration(ECE·confidence_bins)을 뺀다 — 게이팅 후 빈 예측을 오답
+    처리하면 calibration이 왜곡되므로 raw 기준만 유효.
+    """
+    raw_s, eff_s, pf, lce = _eval_samples(golden, by_qid)
+    if not eff_s:
+        return None
+    raw_m = summarize(raw_s, parse_failures=pf, low_conf_empty=lce)
+    eff_d = summarize(eff_s, parse_failures=pf, low_conf_empty=lce).as_dict()
+    for k in ("ece", "ece_n_used", "ece_n_excluded", "confidence_bins"):
+        eff_d.pop(k, None)
+    return raw_m, eff_d
+
+
+def _build_result(golden: list[GoldenQuery], by_qid: dict[str, dict]) -> dict | None:
+    """재현 가능한 baseline 결과 dict. explicit 표본이 없으면 None.
+
+    재현 메타는 **캐시 stale 키와 동일한 필드**(requested_model·effective_provider·llm_provider·
+    default_model·prompt_sha·schema_version)를 그대로 기록해 결과↔캐시 계약을 일치시킨다.
+    """
+    from app.agents.router.node import _CONFIDENCE_THRESHOLD
+
+    blocks = _metrics_blocks(golden, by_qid)
+    if blocks is None:
+        return None
+    raw_m, eff_d = blocks
+    meta = current_meta(_REQUESTED_MODEL, get_settings())
+    ans = [g for g in golden if g.is_answerable]
+    with open("data/eval/queries.jsonl", "rb") as f:
+        golden_sha = hashlib.sha256(f.read()).hexdigest()[:12]
+    return {
+        "eval_datetime": datetime.now(UTC).isoformat(),
+        "reproduction": {
+            "golden_sha": golden_sha,
+            "code_commit_sha": git_commit_sha(),
+            "requested_model": meta.requested_model,
+            "effective_provider": meta.effective_provider,
+            "llm_provider": meta.llm_provider,
+            "default_model": meta.default_model,
+            "prompt_sha": meta.prompt_sha,
+            "schema_version": meta.schema_version,
+            "confidence_threshold": _CONFIDENCE_THRESHOLD,
+            "note": "캐시는 gitignore(.cache/onramp-eval/)·LLM 비결정. 완전 재현은 같은 조건으로 --build-cache 재생성 필요.",
+        },
+        "counts": {
+            "golden_total": len(golden),
+            "answerable": len(ans),
+            "unanswerable": len([g for g in golden if not g.is_answerable]),
+            "n_eval_explicit_router_domains": raw_m.n_eval,
+        },
+        "router_multidomain": {
+            "raw_classification_and_calibration": raw_m.as_dict(),
+            "effective_after_gate": eff_d,
+        },
+        "unanswerable_block": _block_breakdown(golden, by_qid),
+    }
+
+
+def _write_result(result: dict, path: str) -> None:
+    """baseline 결과를 원자적으로 JSON 저장(.tmp→os.replace)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def _provenance_counts(golden: list[GoldenQuery]) -> dict[str, int]:
@@ -167,47 +264,34 @@ def _provenance_counts(golden: list[GoldenQuery]) -> dict[str, int]:
     }
 
 
-def _print_report(golden: list[GoldenQuery], by_qid: dict[str, dict]) -> None:
-    import json
+_NO_EXPLICIT_MSG = (
+    "\nℹ️  공식 지표를 출력하지 않습니다 — 사람 검수된 router_domains(explicit)가 0건입니다.\n"
+    "    절차: ① eval_router_domains.py --build-cache (예측 캐시 생성)\n"
+    "          ② draft_router_domains.py (캐시 예측을 검수표 proposed로)\n"
+    "          ③ 사람이 reviewed_router_domains 확정 → queries.jsonl 반영\n"
+    "          ④ eval_router_domains.py --report (이때부터 멀티도메인 지표가 의미를 가짐)"
+)
 
+
+def _print_report(golden: list[GoldenQuery], by_qid: dict[str, dict], write_path: str | None = None) -> None:
     prov = _provenance_counts(golden)
     print(
         f"\nrouter_domains 정답 출처: explicit(검수){prov['explicit']} · "
         f"fallback(미검수 단일){prov['fallback']} / answerable {prov['answerable']}"
     )
-
-    raw_samples, eff_samples, parse_failures, low_conf_empty = _eval_samples(golden, by_qid)
-    if not eff_samples:
-        print(
-            "\nℹ️  공식 지표를 출력하지 않습니다 — 사람 검수된 router_domains(explicit)가 0건입니다.\n"
-            "    절차: ① eval_router_domains.py --build-cache (예측 캐시 생성)\n"
-            "          ② draft_router_domains.py (캐시 예측을 검수표 proposed로)\n"
-            "          ③ 사람이 reviewed_router_domains 확정 → queries.jsonl 반영\n"
-            "          ④ eval_router_domains.py --report (이때부터 멀티도메인 지표가 의미를 가짐)"
-        )
+    result = _build_result(golden, by_qid)
+    if result is None:
+        print(_NO_EXPLICIT_MSG)
         return
-
-    # raw=게이팅 전(분류능력·calibration), effective=게이팅 후(운영 결과). ECE/calibration은 raw만 유효:
-    # 게이팅 후 빈 예측을 오답 처리하면 calibration이 왜곡되므로 effective 블록에선 calibration을 뺀다.
-    raw_metrics = summarize(raw_samples, parse_failures=parse_failures, low_conf_empty=low_conf_empty)
-    eff_metrics = summarize(eff_samples, parse_failures=parse_failures, low_conf_empty=low_conf_empty)
-    eff_dict = eff_metrics.as_dict()
-    for k in ("ece", "ece_n_used", "ece_n_excluded", "confidence_bins"):
-        eff_dict.pop(k, None)
-
-    report = {
-        "eval_set": "answerable ∧ explicit router_domains",
-        "n_eval": raw_metrics.n_eval,
-        "unanswerable_block": _block_accuracy(golden, by_qid),
-        "raw_classification_and_calibration": raw_metrics.as_dict(),
-        "effective_after_gate": eff_dict,
-    }
     print("\n=== 멀티도메인 라우터 지표 (explicit router_domains만) ===")
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    print(json.dumps(result, ensure_ascii=False, indent=2))
     print(
         "\nℹ️  raw=게이팅 전(라우터 분류 능력·confidence calibration) · effective=게이팅 후(운영 결과).\n"
         "    ECE/confidence_bins는 raw 기준만 유효 — 게이팅 후 빈 예측을 오답 처리하면 calibration이 왜곡된다."
     )
+    if write_path:
+        _write_result(result, write_path)
+        print(f"\n✅ baseline 결과 저장: {write_path}")
 
 
 def main() -> None:
@@ -215,16 +299,25 @@ def main() -> None:
     parser.add_argument("--build-cache", action="store_true", help="예측 캐시만 생성/갱신(LLM 호출), 지표 리포트 생략")
     parser.add_argument("--report", action="store_true", help="LLM 호출 없이 신선 캐시만으로 지표 리포트")
     parser.add_argument("--cache", default=str(DEFAULT_CACHE_PATH), help="예측 캐시 경로")
+    parser.add_argument(
+        "--write-result",
+        nargs="?",
+        const=_DEFAULT_RESULT_PATH,
+        default=None,
+        help=f"baseline 결과 JSON을 결정론적으로 저장(기본 {_DEFAULT_RESULT_PATH})",
+    )
     args = parser.parse_args()
 
     if args.build_cache and args.report:
         parser.error("--build-cache 와 --report 는 동시에 쓸 수 없습니다 (둘 다 빼면 생성+리포트)")
+    if args.build_cache and args.write_result:
+        parser.error("--build-cache 는 리포트를 생략하므로 --write-result 와 함께 쓸 수 없습니다")
 
     golden = load_golden_set()
     # --report: LLM 없이 캐시만. --build-cache: LLM로 캐시 생성(리포트 생략). 기본: 생성+리포트.
     by_qid = asyncio.run(_build_cache(golden, args.cache, from_cache=args.report))
     if not args.build_cache:
-        _print_report(golden, by_qid)
+        _print_report(golden, by_qid, write_path=args.write_result)
 
 
 if __name__ == "__main__":
