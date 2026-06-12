@@ -169,7 +169,10 @@ async def _run(cache_path: str) -> dict:
         )
 
     rows: list[dict] = []
-    for g in answerable:
+    total = len(answerable)
+    print(f"A/B 측정 시작: {total}문항 (질문당 검색·리랭크 1회, 리랭커 CPU라 ~10초/문항)", file=sys.stderr, flush=True)
+    for i, g in enumerate(answerable, 1):
+        print(f"[{i}/{total}] {g.qid}", file=sys.stderr, flush=True)
         pred = list(cache[g.qid].get("predicted_domains") or [])
         base = await base_soft_candidates(g.query, top_k=TOP_K, settings=settings)
         relevant = set(g.relevant_chunk_ids)
