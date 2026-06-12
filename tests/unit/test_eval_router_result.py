@@ -1,7 +1,10 @@
-"""eval_router_domains 결과 빌더 단위 테스트 (near-miss 분리 + explicit 게이트)."""
+"""eval_router_domains 결과 빌더 단위 테스트 (near-miss 분리 + explicit 게이트 + 캐시 완전성)."""
+
+import subprocess
+import sys
 
 from app.eval.dataset import GoldenQuery
-from scripts.eval_router_domains import _block_breakdown, _metrics_blocks
+from scripts.eval_router_domains import _block_breakdown, _metrics_blocks, missing_qids
 
 
 def _gq(qid, answerable, router=()):
@@ -56,3 +59,30 @@ def test_metrics_blocks_present_with_explicit():
     raw_m, eff_d = res
     assert raw_m.n_eval == 1 and raw_m.primary_accuracy == 1.0
     assert "ece" not in eff_d  # effective 블록은 calibration 제거
+
+
+def test_missing_qids_detects_gaps():
+    golden = [_gq("a", True, ("manual",)), _gq("b", True, ("manual",))]
+    assert missing_qids(golden, {"a": {}}) == ["b"]
+    assert missing_qids(golden, {"a": {}, "b": {}}) == []
+
+
+def test_write_result_aborts_on_incomplete_cache(tmp_path):
+    # 빈 캐시 + --write-result → 비정상 종료, baseline 미저장 (불완전 baseline 방지)
+    out = tmp_path / "baseline.json"
+    r = subprocess.run(
+        [
+            sys.executable,
+            "scripts/eval_router_domains.py",
+            "--report",
+            "--cache",
+            str(tmp_path / "empty.jsonl"),
+            "--write-result",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode != 0
+    assert not out.exists()
+    assert "캐시 누락" in (r.stdout + r.stderr)

@@ -19,6 +19,7 @@ import asyncio
 import hashlib
 import json
 import os
+import sys
 from dataclasses import asdict
 from datetime import UTC, datetime
 
@@ -230,7 +231,11 @@ def _build_result(golden: list[GoldenQuery], by_qid: dict[str, dict]) -> dict | 
             "prompt_sha": meta.prompt_sha,
             "schema_version": meta.schema_version,
             "confidence_threshold": _CONFIDENCE_THRESHOLD,
-            "note": "캐시는 gitignore(.cache/onramp-eval/)·LLM 비결정. 완전 재현은 같은 조건으로 --build-cache 재생성 필요.",
+            "note": (
+                "지표는 캐시로부터 재현 가능(결정론적). eval_datetime·code_commit_sha는 실행 메타라 매 실행 갱신된다 "
+                "— 이 파일은 '재현 가능한 스냅샷'이다. 캐시는 gitignore(.cache/onramp-eval/)·LLM 비결정이라 "
+                "완전 재생성은 같은 조건으로 --build-cache 필요."
+            ),
         },
         "counts": {
             "golden_total": len(golden),
@@ -253,6 +258,11 @@ def _write_result(result: dict, path: str) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
+
+
+def missing_qids(golden: list[GoldenQuery], by_qid: dict[str, dict]) -> list[str]:
+    """캐시에 예측이 없는 골든 qid 목록. --write-result는 이게 비어 있어야(완전 캐시) 저장한다."""
+    return sorted(g.qid for g in golden if g.qid not in by_qid)
 
 
 def _provenance_counts(golden: list[GoldenQuery]) -> dict[str, int]:
@@ -304,7 +314,7 @@ def main() -> None:
         nargs="?",
         const=_DEFAULT_RESULT_PATH,
         default=None,
-        help=f"baseline 결과 JSON을 결정론적으로 저장(기본 {_DEFAULT_RESULT_PATH})",
+        help=f"baseline 결과 JSON 스냅샷 저장(지표는 재현 가능, 실행 메타는 매 실행 갱신; 기본 {_DEFAULT_RESULT_PATH})",
     )
     args = parser.parse_args()
 
@@ -316,6 +326,16 @@ def main() -> None:
     golden = load_golden_set()
     # --report: LLM 없이 캐시만. --build-cache: LLM로 캐시 생성(리포트 생략). 기본: 생성+리포트.
     by_qid = asyncio.run(_build_cache(golden, args.cache, from_cache=args.report))
+
+    # --write-result: 불완전 캐시로 공식 baseline을 덮어쓰지 않는다. 누락 1건이라도 있으면 비정상 종료.
+    if args.write_result:
+        missing = missing_qids(golden, by_qid)
+        if missing:
+            sys.exit(
+                f"✗ --write-result: 캐시 누락 {len(missing)}건 {missing[:10]} — 불완전 캐시로 baseline을 저장하지 "
+                f"않습니다. 먼저 'python scripts/eval_router_domains.py --build-cache'로 전체 캐시를 생성하세요."
+            )
+
     if not args.build_cache:
         _print_report(golden, by_qid, write_path=args.write_result)
 
