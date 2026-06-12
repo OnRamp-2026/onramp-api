@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_BASELINE = ROOT_DIR / "data" / "eval" / "baseline.json"
 GATED_MODE = "rerank"  # 회귀 게이트 기준 모드 (운영 경로)
 # answerable 예측 임계값 τ — scripts/calibrate_answerability.py 로 보정한 운영값
-# (골든셋 118문항에 대해 전체 코퍼스 기준 Youden's J 최대, precision 0.984 / recall 0.744).
+# (골든셋 118문항 기준 보정: 전체 코퍼스 기준 Youden's J 최대, precision 0.984 / recall 0.744).
+# ※ #61에서 골든셋이 114(answerable 81)로 변경됨 — τ 재보정은 검색 baseline 재고정과 함께 별도 작업.
 # near-miss(n0xx) 도입으로 음성 분포가 어려워져 τ가 0.4641→1.0018로 상승 — 검색이 놓친
 # answerable과 near-miss가 점수상 겹치는 것이 원인(검색 개선 시 재보정 여지).
 # 골든셋·코퍼스·리랭크 가중치 갱신 시 재보정. config.trust_rerank_floor 와 동일 값 유지.
@@ -46,7 +47,9 @@ async def _eval_mode(golden, mode: Mode, *, top_k, top_n, ans_floor, ans_min_doc
     preds: list[bool] = []
     labels: list[bool] = []
     for g in golden:
-        result = await retrieve_for_eval(g.query, mode=mode, domains=[g.domain] if g.domain else None, top_k=top_k, top_n=top_n)
+        result = await retrieve_for_eval(
+            g.query, mode=mode, domains=[g.domain] if g.domain else None, top_k=top_k, top_n=top_n
+        )
         per_query.append((result.chunk_ids, set(g.relevant_chunk_ids)))
         preds.append(predicted_answerable(result, floor=ans_floor, min_docs=ans_min_docs))
         labels.append(g.is_answerable)
@@ -117,6 +120,17 @@ def _check_gate(report: dict, baseline_path: Path, tolerance: float) -> int:
         return 1
     if GATED_MODE not in report:
         logger.error("현재 리포트에 게이트 모드 '%s' 가 없습니다 (--modes 확인)", GATED_MODE)
+        return 1
+    # 평가 문항 수가 baseline과 다르면 서로 다른 평가셋이라 지표 비교가 무의미하다(골든셋 변경 등).
+    # 조용히 통과시키지 말고 baseline 재고정을 요구한다.
+    base_n, curr_n = baseline.get("n"), report.get("n")
+    if base_n is not None and curr_n is not None and base_n != curr_n:
+        logger.error(
+            "평가 문항 수 불일치: baseline n=%s ≠ 현재 n=%s — 골든셋이 바뀌었습니다. "
+            "'eval_retrieval.py --write-baseline'으로 baseline을 재고정한 뒤 게이트하세요.",
+            base_n,
+            curr_n,
+        )
         return 1
     base = baseline[GATED_MODE]
     curr = report[GATED_MODE]

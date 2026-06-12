@@ -1,0 +1,186 @@
+{
+  "eval_datetime": "2026-06-12T00:26:45.278255+00:00",
+  "reproduction": {
+    "golden_sha": "e735845a668e",
+    "code_commit_sha": "c2d81c43b7a286791cce740280ab4d641f367d47",
+    "requested_model": "",
+    "effective_provider": "openai",
+    "llm_provider": "",
+    "default_model": "",
+    "prompt_sha": "f2e161ca7562",
+    "schema_version": "1",
+    "confidence_threshold": 0.5,
+    "note": "지표는 캐시로부터 재현 가능(결정론적). eval_datetime·code_commit_sha는 실행 메타라 매 실행 갱신된다 — 이 파일은 '재현 가능한 스냅샷'이다. 캐시는 gitignore(.cache/onramp-eval/)·LLM 비결정이라 완전 재생성은 같은 조건으로 --build-cache 필요."
+  },
+  "counts": {
+    "golden_total": 114,
+    "answerable": 81,
+    "unanswerable": 33,
+    "n_eval_explicit_router_domains": 81
+  },
+  "router_multidomain": {
+    "raw_classification_and_calibration": {
+      "n_eval": 81,
+      "primary_accuracy": 0.5309,
+      "exact_ordered_match": 0.3827,
+      "exact_set_match": 0.4198,
+      "micro": {
+        "precision": 0.6408,
+        "recall": 0.6226,
+        "f1": 0.6316
+      },
+      "macro_label": {
+        "precision": 0.4234,
+        "recall": 0.4264,
+        "f1": 0.3976
+      },
+      "per_domain": {
+        "incident": {
+          "precision": 0.3636,
+          "recall": 0.5714,
+          "f1": 0.4444,
+          "support": 7.0
+        },
+        "manual": {
+          "precision": 0.6508,
+          "recall": 0.9762,
+          "f1": 0.781,
+          "support": 42.0
+        },
+        "api_reference": {
+          "precision": 0.7692,
+          "recall": 0.3846,
+          "f1": 0.5128,
+          "support": 52.0
+        },
+        "meeting_note": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0.0
+        },
+        "planning": {
+          "precision": 0.3333,
+          "recall": 0.2,
+          "f1": 0.25,
+          "support": 5.0
+        }
+      },
+      "secondary_precision": 0.5769,
+      "secondary_over_prediction_rate": 0.4231,
+      "secondary_under_prediction_rate": 0.36,
+      "confidence_bins": [
+        {
+          "lo": 0.0,
+          "hi": 0.5,
+          "n": 0,
+          "primary_accuracy": null,
+          "mean_confidence": null
+        },
+        {
+          "lo": 0.5,
+          "hi": 0.7,
+          "n": 0,
+          "primary_accuracy": null,
+          "mean_confidence": null
+        },
+        {
+          "lo": 0.7,
+          "hi": 0.9,
+          "n": 4,
+          "primary_accuracy": 0.0,
+          "mean_confidence": 0.85
+        },
+        {
+          "lo": 0.9,
+          "hi": 1.0,
+          "n": 77,
+          "primary_accuracy": 0.5584415584415584,
+          "mean_confidence": 0.9032467532467532
+        }
+      ],
+      "ece": 0.3698,
+      "ece_n_used": 81,
+      "ece_n_excluded": 0,
+      "parse_failures": 0,
+      "low_conf_empty": 0
+    },
+    "effective_after_gate": {
+      "n_eval": 81,
+      "primary_accuracy": 0.5309,
+      "exact_ordered_match": 0.3827,
+      "exact_set_match": 0.4198,
+      "micro": {
+        "precision": 0.6408,
+        "recall": 0.6226,
+        "f1": 0.6316
+      },
+      "macro_label": {
+        "precision": 0.4234,
+        "recall": 0.4264,
+        "f1": 0.3976
+      },
+      "per_domain": {
+        "incident": {
+          "precision": 0.3636,
+          "recall": 0.5714,
+          "f1": 0.4444,
+          "support": 7.0
+        },
+        "manual": {
+          "precision": 0.6508,
+          "recall": 0.9762,
+          "f1": 0.781,
+          "support": 42.0
+        },
+        "api_reference": {
+          "precision": 0.7692,
+          "recall": 0.3846,
+          "f1": 0.5128,
+          "support": 52.0
+        },
+        "meeting_note": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 0.0
+        },
+        "planning": {
+          "precision": 0.3333,
+          "recall": 0.2,
+          "f1": 0.25,
+          "support": 5.0
+        }
+      },
+      "secondary_precision": 0.5769,
+      "secondary_over_prediction_rate": 0.4231,
+      "secondary_under_prediction_rate": 0.36,
+      "parse_failures": 0,
+      "low_conf_empty": 0
+    }
+  },
+  "unanswerable_block": {
+    "total": {
+      "blocked": 14,
+      "n": 33,
+      "rate": 0.4242
+    },
+    "near_miss_n0xx": {
+      "blocked": 7,
+      "n": 20,
+      "rate": 0.35,
+      "note": "질문만으론 코퍼스 정답 부재를 알기 어려움 — 라우터 단계 차단의 본질적 한계"
+    },
+    "out_of_scope": {
+      "blocked": 7,
+      "n": 13,
+      "rate": 0.5385,
+      "note": "사외·일상·HR 등 — 라우터가 차단해야 하는 진짜 대상"
+    },
+    "answerable_false_block": {
+      "false_blocked": 4,
+      "n": 81,
+      "rate": 0.0494
+    }
+  }
+}

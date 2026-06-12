@@ -1,0 +1,100 @@
+"""eval_router_domains 결과 빌더 단위 테스트 (near-miss 분리 + explicit 게이트 + 캐시 완전성)."""
+
+import subprocess
+import sys
+from pathlib import Path
+
+from app.eval.dataset import GoldenQuery
+from scripts.eval_router_domains import _block_breakdown, _metrics_blocks, _write_result, missing_qids
+
+_SCRIPT = Path(__file__).resolve().parents[2] / "scripts/eval_router_domains.py"
+
+
+def _gq(qid: str, answerable: bool, router: tuple[str, ...] = ()) -> GoldenQuery:
+    src = "explicit" if router else "none"
+    return GoldenQuery(qid, "q", None, answerable, (), router_domains=router, router_domains_source=src)
+
+
+def test_block_breakdown_splits_near_miss_and_out_of_scope():
+    golden = [_gq("n001", False), _gq("n002", False), _gq("d050", False), _gq("d001", True)]
+    by_qid = {
+        "n001": {"use_case": "답변불가"},  # near-miss 차단됨
+        "n002": {"use_case": "검색"},  # near-miss 통과(미차단)
+        "d050": {"use_case": "답변불가"},  # 사외 차단됨
+        "d001": {"use_case": "검색"},  # answerable 정상
+    }
+    b = _block_breakdown(golden, by_qid)
+    assert b["near_miss_n0xx"]["blocked"] == 1 and b["near_miss_n0xx"]["n"] == 2 and b["near_miss_n0xx"]["rate"] == 0.5
+    assert b["out_of_scope"]["blocked"] == 1 and b["out_of_scope"]["n"] == 1 and b["out_of_scope"]["rate"] == 1.0
+    assert b["total"]["blocked"] == 2 and b["total"]["n"] == 3
+    assert b["answerable_false_block"]["false_blocked"] == 0 and b["answerable_false_block"]["n"] == 1
+
+
+def test_block_breakdown_zero_denominator_is_none():
+    b = _block_breakdown([_gq("d001", True)], {"d001": {"use_case": "검색"}})
+    assert b["near_miss_n0xx"]["rate"] is None  # near-miss 0건 → N/A
+    assert b["out_of_scope"]["rate"] is None
+    assert b["total"]["rate"] is None
+
+
+def test_metrics_blocks_none_when_no_explicit():
+    # fallback(미검수) 질문만 있으면 공식 지표 없음 → None (baseline도 안 써짐)
+    golden = [_gq("d001", True)]  # router_domains 없음 → explicit 아님
+    assert (
+        _metrics_blocks(golden, {"d001": {"predicted_domains": ["manual"], "raw_predicted_domains": ["manual"]}})
+        is None
+    )
+
+
+def test_metrics_blocks_present_with_explicit():
+    golden = [_gq("m001", True, ("incident", "manual"))]
+    by_qid = {
+        "m001": {
+            "predicted_domains": ["incident", "manual"],
+            "raw_predicted_domains": ["incident", "manual"],
+            "confidence": 0.9,
+            "parse_ok": True,
+            "low_conf_empty": False,
+        }
+    }
+    res = _metrics_blocks(golden, by_qid)
+    assert res is not None
+    raw_m, eff_d = res
+    assert raw_m.n_eval == 1 and raw_m.primary_accuracy == 1.0
+    assert "ece" not in eff_d  # effective 블록은 calibration 제거
+
+
+def test_missing_qids_detects_gaps():
+    golden = [_gq("a", True, ("manual",)), _gq("b", True, ("manual",))]
+    assert missing_qids(golden, {"a": {}}) == ["b"]
+    assert missing_qids(golden, {"a": {}, "b": {}}) == []
+
+
+def test_write_result_aborts_on_incomplete_cache_from_any_cwd(tmp_path):
+    # 빈 캐시 + --write-result → 비정상 종료·baseline 미저장. **다른 CWD(tmp_path)에서 실행**해
+    # data/eval/*.jsonl을 찾는지(경로 루트 기준)도 함께 검증 — 못 찾으면 다른 오류로 죽는다.
+    out = tmp_path / "baseline.json"
+    r = subprocess.run(
+        [
+            sys.executable,
+            str(_SCRIPT),
+            "--report",
+            "--cache",
+            str(tmp_path / "empty.jsonl"),
+            "--write-result",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,  # repo 루트가 아닌 곳에서 실행
+    )
+    assert r.returncode != 0
+    assert not out.exists()
+    assert "캐시 누락" in (r.stdout + r.stderr)  # 골든셋은 정상 로드됨(누락=캐시뿐)
+
+
+def test_write_result_handles_bare_filename(tmp_path, monkeypatch):
+    # 디렉터리 없는 경로("baseline.json")도 FileNotFoundError 없이 저장돼야 한다(dirname="" 가드)
+    monkeypatch.chdir(tmp_path)
+    _write_result({"ok": True}, "baseline.json")
+    assert (tmp_path / "baseline.json").exists()

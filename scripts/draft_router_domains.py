@@ -20,7 +20,12 @@ from app.config import get_settings
 from app.eval.dataset import GoldenQuery, load_golden_set
 from app.eval.router_cache import DEFAULT_CACHE_PATH, current_meta, is_fresh, load_cache, sha12
 
-DEFAULT_REVIEW_PATH = Path("data/eval/reviews/router_domains_review.jsonl")
+# 기본 경로는 repo 루트 기준으로 해결한다(CWD 비의존 — 다른 디렉터리에서 실행해도 동작).
+_ROOT = Path(__file__).resolve().parents[1]
+_QUERIES = _ROOT / "data/eval/queries.jsonl"
+_QRELS = _ROOT / "data/eval/qrels.jsonl"
+DEFAULT_REVIEW_PATH = _ROOT / "data/eval/reviews/router_domains_review.jsonl"
+_DEFAULT_CACHE = str(_ROOT / DEFAULT_CACHE_PATH)
 
 
 def _priority(qid: str) -> str:
@@ -99,7 +104,7 @@ def _write_atomic(rows: list[dict], path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="router_domains 사람 검수표 초안 생성")
-    parser.add_argument("--cache", default=str(DEFAULT_CACHE_PATH), help="라우터 예측 캐시 경로(제안값 출처)")
+    parser.add_argument("--cache", default=_DEFAULT_CACHE, help="라우터 예측 캐시 경로(제안값 출처)")
     parser.add_argument("--out", default=str(DEFAULT_REVIEW_PATH), help="검수표 출력 경로")
     parser.add_argument(
         "--allow-missing",
@@ -113,7 +118,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    golden = load_golden_set()
+    golden = load_golden_set(_QUERIES, _QRELS)
     cache = load_cache(args.cache)
     out_path = Path(args.out)
     existing = _load_existing(out_path)  # 기존 검수 결과 보존용
