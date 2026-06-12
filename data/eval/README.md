@@ -64,16 +64,19 @@
 4. **확정** — 도메인·티어 균형(목표 ~110문항), qid 충돌 확인, τ 재보정(`calibrate_answerability.py`) 후
    `--write-baseline` 재고정.
 
-### 현재 구성 (118문항, #81 확장 병합)
+### 현재 구성 (114문항, #61에서 중복 4쌍 제거 후)
 
 | 티어 | 수 | 비고 |
 |---|---|---|
-| 단일 도메인 single-hop (`d0xx`) | 51 | 5종 도메인 (meeting_note·planning 포함, #75 전체 적재 이후) |
+| 단일 도메인 single-hop (`d0xx`) | 50 | 5종 도메인 (meeting_note·planning 포함, #75 전체 적재 이후) |
 | 멀티 도메인 (`m0xx`) | 9 | 정답이 2~3개 도메인에 걸침 — #65 측정용 |
 | multi-hop (`h0xx`) | 10 | 같은 페이지 인접 청크 2개 종합 — 멀티청크 qrels |
 | confusable (`c0xx`) | 12 | 유사 문서 군집 속 타깃 청크 저격 — 리랭커 변별 측정 |
-| 범위 밖 unanswerable (`d0xx`) | 16 | "점심 메뉴"류 — Router 차단 측정 |
+| 범위 밖 unanswerable (`d0xx`) | 13 | "점심 메뉴"류 — Router 차단 측정 |
 | near-miss unanswerable (`n0xx`) | 20 | 도메인 내 주제지만 코퍼스에 답 없음 — τ 변별 측정 |
+
+> answerable 81 / unanswerable 33. #61에서 질문·qrels가 동일한 중복 4쌍(d063=d025·d076/d077/d078=d016/d017/d018) 제거.
+> 검색 baseline(`baseline.json` n=82·`baseline.single_label.json`)은 이 변경 이전 값이라 **stale** — 114/81로 재고정 필요(별도 작업).
 
 > 골든셋 구축 당시(53페이지 부분 색인)에는 `api_reference`·`manual`·`incident` 3종 도메인만
 > 존재해 `meeting_note`·`planning`을 다루지 않았다. #75 전체 적재(864페이지, 5,731청크) 이후
