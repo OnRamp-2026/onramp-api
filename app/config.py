@@ -112,20 +112,32 @@ class Settings(BaseSettings):
     # 114문항·재색인 코퍼스 보정: Youden 최대, precision 1.000 / recall 0.704.
     # eval_retrieval.ANSWERABILITY_FLOOR 와 동일 유지. 골든셋·코퍼스·리랭커 갱신 시 재보정.
     trust_rerank_floor: float = Field(default=0.8681, ge=0.0)
-    trust_min_docs: int = Field(default=1, ge=0)
-    # Evidence Confidence 5축 가중치 (기본 합 1.0).
-    #   env로 덮어써 합이 1.0이 아니어도 score_trust()가 wsum으로 나눠 자동 정규화하므로 동작은 정상이다.
-    #   단, 가중치 절댓값이 아니라 "상대 비율"로 해석된다는 점에 유의.
-    trust_w_recency: float = Field(default=0.30, ge=0.0, le=1.0)
-    trust_w_owner: float = Field(default=0.10, ge=0.0, le=1.0)
-    trust_w_verification: float = Field(default=0.10, ge=0.0, le=1.0)
-    trust_w_duplication: float = Field(default=0.20, ge=0.0, le=1.0)
-    trust_w_sensitivity: float = Field(default=0.30, ge=0.0, le=1.0)
-    # owner_trust / verification_label: 색인 payload에 소스 없음 → 중립 (track-B 수집 의존성)
-    trust_owner_neutral: float = Field(default=1.0, ge=0.0, le=1.0)
-    trust_verification_neutral: float = Field(default=1.0, ge=0.0, le=1.0)
-    # 서로 다른 page의 top rerank 점수 차 < 이 값이면 충돌 의심(gate)
-    trust_conflict_score_gap: float = Field(default=0.05, ge=0.0)
+    # ── Trust 4축 재설계 (#108, 설계 4·5장) ──
+    # 구 5축 가중치(trust_w_recency/owner/verification/duplication/sensitivity)와
+    # trust_min_docs·중립 상수는 제거 — 죽은 축이 overall을 부풀리던 왜곡 제거(설계 1.3).
+    trust_min_topics: int = Field(default=2, ge=1)  # coverage 기준 distinct 주제 수
+    # strong-single-topic waiver (설계 4.4) — calibrate_answerability 산출 후보 채택:
+    # unanswerable raw top1 최대 0.8639 바로 위 + answerable 격차 p75≈0.20 (보수적 시작).
+    # 미발동 시 비효율(재검색 1회)로 퇴행할 뿐 오답이 아님 — 안전 마진.
+    trust_tau_strong: float = Field(default=0.90, ge=0.0, le=1.0)
+    trust_gap_strong: float = Field(default=0.20, ge=0.0)
+    trust_adjacent_version_fit: float = Field(default=0.5, ge=0.0, le=1.0)  # match 모드 인접 부분점수
+    # per-doc evidence = w_version_fit·fit + w_authority·tier (Answer 인용 우선순위·overall 성분)
+    trust_w_version_fit: float = Field(default=0.8, ge=0.0, le=1.0)
+    trust_w_authority: float = Field(default=0.2, ge=0.0, le=1.0)
+    # overall = w_evidence_mean·mean(per_doc) + w_coverage·coverage + w_residual_dup·(1−잔여dup)
+    # (sensitivity는 블렌드 제외 — 게이트 전용. authority 별도 항 없음 — per_doc 경유로 이중 계상 방지)
+    trust_w_evidence_mean: float = Field(default=0.50, ge=0.0, le=1.0)
+    trust_w_coverage: float = Field(default=0.30, ge=0.0, le=1.0)
+    trust_w_residual_dup: float = Field(default=0.20, ge=0.0, le=1.0)
+    trust_rewrite_model: str = "gpt-4o-mini"  # 재검색 사다리의 쿼리 재작성용 경량 모델
+    # 같은 site·같은 product_version의 다른 주제 top raw 점수 차 < 이 값이면 충돌 의심(gate).
+    # 구값 0.05는 부스트 스케일 기준 — raw sigmoid는 관련 문서가 0.95+에 포화 압축되어
+    # 상호보완 문서끼리도 0.02~0.03 격차가 일상이라 0.05면 메인라인 질의가 상시 오탐된다
+    # (실측: "초기화 컨테이너 디버그" vs "스테이트풀셋 디버깅" 격차 0.023 → CONFLICTING 오탐).
+    # 차단성 게이트는 precision 우선 — 사실상 동점(0.005)만 충돌 후보로 본다.
+    # 점수 휴리스틱 자체가 약한 근사이며 근본 해결은 P2 내용 기반 모순 감지(설계 5.2).
+    trust_conflict_score_gap: float = Field(default=0.005, ge=0.0)
     # [MASKED_*] 마커 수가 이 값이면 sensitivity_risk=1.0 포화. ge=1 — 0/음수면 채점이 무력화됨.
     trust_sensitivity_masked_cap: int = Field(default=5, ge=1)
 

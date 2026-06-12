@@ -227,3 +227,69 @@ async def test_route_adds_trace(monkeypatch):
     )
     out = await route_node({"query": "회고 결정사항 정리해줘"})
     assert out["agent_trace"] == ["router"]
+
+
+# ── target_versions 추출 (#108) ──────────────────────────────────────
+
+
+async def test_route_extracts_target_versions(monkeypatch):
+    monkeypatch.setattr(
+        node_mod,
+        "call_llm",
+        _mock_llm(
+            '{"use_case": "검색", "domains": ["manual"], "refined_query": "k8s 1.25 1.33 차이",'
+            ' "confidence": 0.9, "target_versions": ["1.25", "1.33"]}'
+        ),
+    )
+    out = await route_node({"query": "k8s 1.25에서 1.33으로 올리면?"})
+    assert out["target_versions"] == ["1.25", "1.33"]
+
+
+async def test_route_filters_non_numeric_version_tokens(monkeypatch):
+    """LLM이 'latest' 류 토큰을 넣으면 방어 필터가 제거한다 — '최신'은 currency 모드가 정답."""
+    monkeypatch.setattr(
+        node_mod,
+        "call_llm",
+        _mock_llm(
+            '{"use_case": "검색", "domains": ["manual"], "refined_query": "q",'
+            ' "confidence": 0.9, "target_versions": ["latest", "v1.33", "최신"]}'
+        ),
+    )
+    out = await route_node({"query": "최신이랑 1.33"})
+    assert out["target_versions"] == ["v1.33"]
+
+
+async def test_route_missing_target_versions_key_defaults_empty(monkeypatch):
+    """LLM이 target_versions 키를 빠뜨려도 파싱 실패 없이 빈 리스트."""
+    monkeypatch.setattr(
+        node_mod,
+        "call_llm",
+        _mock_llm('{"use_case": "검색", "domains": ["manual"], "refined_query": "q", "confidence": 0.9}'),
+    )
+    out = await route_node({"query": "버전 없는 질문"})
+    assert out["target_versions"] == []
+
+
+async def test_route_unanswerable_clears_target_versions(monkeypatch):
+    monkeypatch.setattr(
+        node_mod,
+        "call_llm",
+        _mock_llm(
+            '{"use_case": "답변불가", "domains": [], "refined_query": "",'
+            ' "confidence": 0.95, "target_versions": ["1.25"]}'
+        ),
+    )
+    out = await route_node({"query": "점심 뭐 먹지 1.25"})
+    assert out["target_versions"] == []
+
+
+async def test_route_fallback_preserves_versions_from_query(monkeypatch):
+    """LLM/파싱 실패 fallback에서도 질의의 구체 버전을 정규식으로 보존한다 (#108 리뷰 반영)."""
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("LLM down")
+
+    monkeypatch.setattr(node_mod, "call_llm", _boom)
+    out = await route_node({"query": "k8s 1.25에서 v1.33으로 올리면?"})
+    assert out["target_versions"] == ["1.25", "v1.33"]
+    assert out["use_case"] == UseCase.SEARCH  # 기존 fallback 의미 유지

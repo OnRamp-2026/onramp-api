@@ -340,3 +340,72 @@ async def test_node_honors_config_filter_mode_hard(monkeypatch):
     monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(retriever_domain_filter_mode="hard"))
     await retrieve_node({"refined_query": "q", "domains": ["manual"]})
     assert calls == ["manual"]  # hard → 확장 없음
+
+
+# ── 재검색 사다리 소비 (#108) ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_node_expand_topics_doubles_top_k_and_excludes(monkeypatch):
+    from app.agents.state import RetryAction
+
+    seen = {}
+
+    async def fake_search(qv, top_k, *, domain=None, filters=None, **k):
+        seen["top_k"] = top_k
+        seen["filters"] = filters
+        return [_hit("c1", "a", 0.9)]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.9, p) for _, p in cands]
+
+    monkeypatch.setattr(node_mod, "get_embedder", lambda *a, **k: _FakeEmbedder())
+    monkeypatch.setattr(node_mod, "search_with_mode", fake_search)
+    monkeypatch.setattr(node_mod, "get_reranker", lambda *a, **k: _R())
+    monkeypatch.setattr(node_mod, "get_lineages", lambda keys, **kw: {k: frozenset() for k in keys})
+
+    out = await retrieve_node(
+        {
+            "refined_query": "q",
+            "domains": [],
+            "retry_action": RetryAction.EXPAND_TOPICS,
+            "excluded_doc_keys": ["apache:done"],
+        }
+    )
+    s = Settings()
+    assert seen["top_k"] == s.retriever_top_k * 2  # 주제 확장: 후보 풀 2배
+    assert seen["filters"].excluded_doc_keys == ("apache:done",)
+    assert out["documents"]
+
+
+@pytest.mark.asyncio
+async def test_node_retry_version_passes_filters(monkeypatch):
+    from app.agents.state import RetryAction
+
+    seen = {}
+
+    async def fake_search(qv, top_k, *, domain=None, filters=None, **k):
+        seen["filters"] = filters
+        return [_hit("c1", "a", 0.9)]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.9, p) for _, p in cands]
+
+    monkeypatch.setattr(node_mod, "get_embedder", lambda *a, **k: _FakeEmbedder())
+    monkeypatch.setattr(node_mod, "search_with_mode", fake_search)
+    monkeypatch.setattr(node_mod, "get_reranker", lambda *a, **k: _R())
+    monkeypatch.setattr(node_mod, "get_lineages", lambda keys, **kw: {k: frozenset() for k in keys})
+
+    await retrieve_node(
+        {
+            "refined_query": "q",
+            "domains": [],
+            "retry_action": RetryAction.RETRY_VERSION,
+            "version_filter": "2.4",
+            "pinned_doc_keys": ["apache:mpm"],
+        }
+    )
+    assert seen["filters"].version == "2.4"
+    assert seen["filters"].pinned_doc_keys == ("apache:mpm",)

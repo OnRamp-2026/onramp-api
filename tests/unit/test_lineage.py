@@ -87,3 +87,17 @@ def test_get_lineages_ttl_zero_disables_cache() -> None:
     get_lineages(["a:x"], client=client, settings=settings)
     get_lineages(["a:x"], client=client, settings=settings)
     assert client.calls == ["a:x", "a:x"]
+
+
+def test_get_lineages_fetch_failure_falls_back_to_empty() -> None:
+    """facet 장애는 빈 계보 폴백(미캐싱) — 보조 신호가 요청을 실패시키면 안 된다 (#108)."""
+
+    class _BoomClient:
+        def facet(self, *a, **kw):
+            raise RuntimeError("Qdrant down")
+
+    result = get_lineages(["a:x"], client=_BoomClient(), settings=_SETTINGS)
+    assert result["a:x"] == frozenset()
+    # 실패는 캐시되지 않음 — 복구 후 재조회 가능
+    ok_client = _FakeFacetClient({"a:x": ["1.0"]})
+    assert get_lineages(["a:x"], client=ok_client, settings=_SETTINGS)["a:x"] == frozenset({"1.0"})

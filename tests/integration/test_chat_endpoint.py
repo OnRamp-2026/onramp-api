@@ -57,8 +57,12 @@ def _hit():
         "space_key": "OnRamp",
         "domain": "incident",
         "last_modified": "",
+        "site": "kubernetes",
+        "product_version": "v1.33",
+        "doc_key": "kubernetes:장애-대응-가이드",
     }
-    return type("SP", (), {"payload": payload, "score": 0.9})()
+    # id 포함 — hybrid 경로의 _merge_hits()가 point.id로 dedupe한다 (fixture 공유 대비)
+    return type("SP", (), {"id": "c1", "payload": payload, "score": 0.9})()
 
 
 class _Reranker:
@@ -79,11 +83,17 @@ def stub_pipeline(monkeypatch):
     async def _search(qvec, top_k, *, domain=None, **kwargs):
         return [_hit()]
 
+    def _lineages(keys, **kwargs):
+        # 계보 facet은 라이브 Qdrant 의존 — CI(서비스 없음)에서도 돌도록 스텁 (#108)
+        return {k: frozenset({"v1.33"}) if k else frozenset() for k in keys}
+
     monkeypatch.setattr("app.agents.router.node.call_llm", _mk(_router_resp()))
     monkeypatch.setattr("app.agents.answer.node.call_llm", _mk(_answer_resp()))
     monkeypatch.setattr("app.agents.retriever.node.get_embedder", lambda *a, **k: _Embedder())
     monkeypatch.setattr("app.agents.retriever.search.dense_search", _search)
     monkeypatch.setattr("app.agents.retriever.node.get_reranker", lambda *a, **k: _Reranker())
+    monkeypatch.setattr("app.agents.retriever.node.get_lineages", _lineages)
+    monkeypatch.setattr("app.agents.trust.node.get_lineages", _lineages)
     return monkeypatch
 
 
@@ -97,6 +107,9 @@ async def test_chat_success(client, stub_pipeline):
     assert data["answer"]["situation"] != ""
     assert data["domain"] != ""
     assert len(data["sources"]) > 0
+    # 버전 계보 메타 노출 (#108) — 비교 질의에서 출처 버전 구분용
+    assert data["sources"][0]["site"] == "kubernetes"
+    assert data["sources"][0]["product_version"] == "v1.33"
 
 
 @pytest.mark.asyncio

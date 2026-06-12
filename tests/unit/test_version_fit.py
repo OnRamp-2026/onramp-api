@@ -55,3 +55,53 @@ def test_version_fit_from_payload_defaults() -> None:
     # payload에 메타가 없으면(재색인 전 stale 포인트 등) 중립 0.5 — 안전 동작
     fit = version_fit_from_payload({}, {}, [], S)
     assert fit.fit == 0.5
+
+
+# ── match 모드 (#108) ────────────────────────────────────────────────
+
+
+def test_match_exact_version_full_score() -> None:
+    from app.rag.version_fit import MATCH_MODE
+
+    fit = compute_version_fit(
+        product_version="v1.25", site="kubernetes", eol=False, lineage=K8S, target_versions=["1.25"], settings=S
+    )
+    assert fit.mode == MATCH_MODE
+    assert fit.fit == 1.0  # "1.25" ≡ "v1.25" 동치 매칭
+    assert fit.raw_currency == 0.5  # raw currency는 모드와 무관하게 보존 (타이브레이커용)
+
+
+def test_match_adjacent_partial_score() -> None:
+    fit = compute_version_fit(
+        product_version="v1.29", site="kubernetes", eol=False, lineage=K8S, target_versions=["1.25"], settings=S
+    )
+    assert fit.fit == S.trust_adjacent_version_fit  # 계보 정렬상 v1.25의 이웃
+
+
+def test_match_distant_zero() -> None:
+    fit = compute_version_fit(
+        product_version="v1.18", site="kubernetes", eol=False, lineage=K8S, target_versions=["1.33"], settings=S
+    )
+    assert fit.fit == 0.0
+
+
+def test_match_version_agnostic_doc_neutral() -> None:
+    """버전 무관 문서(라벨 없음)는 match 모드에서 처벌하지 않는다 — 중립 0.5."""
+    fit = compute_version_fit(
+        product_version="", site="", eol=False, lineage=frozenset(), target_versions=["1.25"], settings=S
+    )
+    assert fit.fit == 0.5
+
+
+def test_match_multi_target_comparison() -> None:
+    """비교 질의: 요청 집합에 든 버전은 모두 1.0."""
+    for v in ("v1.25", "v1.33"):
+        fit = compute_version_fit(
+            product_version=v,
+            site="kubernetes",
+            eol=False,
+            lineage=K8S,
+            target_versions=["1.25", "1.33"],
+            settings=S,
+        )
+        assert fit.fit == 1.0

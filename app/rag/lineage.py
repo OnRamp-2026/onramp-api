@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Iterable
@@ -20,6 +21,8 @@ from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from app.config import Settings, get_settings
 from app.db.qdrant import get_qdrant
+
+logger = logging.getLogger(__name__)
 
 _FACET_LIMIT = 32  # 계보당 버전 수는 한 자릿수 — 여유 상한
 
@@ -51,6 +54,8 @@ def get_lineages(
     """doc_key 배치의 계보 조회. TTL 캐시 적용 — 미스만 facet 호출.
 
     doc_key=""(계보 없는 문서)는 조회를 생략하고 빈 집합을 돌려준다.
+    facet 조회 실패는 빈 계보로 폴백(미캐싱) — 계보는 보조 신호라 version_fit 중립(0.5)으로
+    강등될 뿐, 조회 장애가 요청 전체를 실패시키면 안 된다.
     """
     settings = settings or get_settings()
     ttl = settings.lineage_cache_ttl_seconds
@@ -70,7 +75,12 @@ def get_lineages(
                 misses.append(key)
 
     for key in misses:
-        versions = fetch_lineage(key, client=client, settings=settings)
+        try:
+            versions = fetch_lineage(key, client=client, settings=settings)
+        except Exception:
+            logger.warning("계보 facet 조회 실패 — 빈 계보 폴백(미캐싱): %s", key, exc_info=True)
+            result[key] = frozenset()
+            continue
         result[key] = versions
         if ttl > 0:
             with _cache_lock:

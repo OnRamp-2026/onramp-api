@@ -53,7 +53,7 @@ docker-compose.override.yml
 Thumbs.db
 
 # #60 리랭커 ONNX 빌드 산출물 (build_reranker_onnx.py로 생성)
-models/
+/models/
 uv.lock
 
 # #61 라우터 예측 캐시 — 오프라인 평가 전용(운영 런타임 미사용), 실행 환경·모델별 산출물(LLM 비결정).

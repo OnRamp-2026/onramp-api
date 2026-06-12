@@ -13,7 +13,8 @@ async 노드이므로 그래프는 ainvoke로 실행한다 (retriever와 동일)
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 
 from pydantic import ValidationError
 
@@ -26,6 +27,23 @@ logger = logging.getLogger(__name__)
 
 _CONFIDENCE_THRESHOLD = 0.5  # 이 미만이면 도메인 미신뢰 → 빈 리스트(가산 미적용)
 _UNANSWERABLE_REASON = "사내 지식 범위를 벗어난 질문입니다."
+# target_versions 방어 필터 (#108) — LLM이 "latest" 류 비숫자 토큰을 넣으면 제거.
+# '최신' 질의는 match가 아니라 currency 모드가 정답이라 target으로 인정하지 않는다.
+_VERSION_TOKEN_RE = re.compile(r"^v?\d+(\.\d+)*$")
+# fallback용 — LLM 없이 원문 질의에서 "1.25"/"v1.33" 류 구체 버전 토큰을 직접 추출.
+# 점이 최소 1개(\d+\.\d+) — "버전" 아닌 단독 정수("3개" 등)의 오추출을 막는다.
+# \b 대신 숫자·점 lookaround: 한글은 \w라 "1.25에서"에서 \b가 성립하지 않는다.
+_VERSION_IN_TEXT_RE = re.compile(r"(?<![0-9.])v?\d+\.\d+(?:\.\d+)*(?![0-9.])")
+
+
+def _valid_versions(values: list[str]) -> list[str]:
+    return [v.strip() for v in values if _VERSION_TOKEN_RE.match(v.strip())]
+
+
+def _versions_from_text(query: str) -> list[str]:
+    """LLM/파싱 실패 fallback에서 버전 명시를 보존한다 — match 모드·RETRY_VERSION이
+    fallback 순간에 통째로 죽지 않게. 중복 제거·순서 보존."""
+    return list(dict.fromkeys(_VERSION_IN_TEXT_RE.findall(query)))
 
 
 @dataclass(frozen=True)
@@ -45,6 +63,7 @@ class RouterDiagnostics:
     fallback_reason: str | None  # None | "llm_error" | "parse_error"
     refined_query: str
     error: str | None = None  # llm_error 시 예외 메시지 (route_node의 error 키 패리티)
+    target_versions: list[str] = field(default_factory=list)  # 질의 명시 구체 버전 (#108)
 
 
 async def classify_query(query: str, model: str = "") -> RouterDiagnostics:
@@ -68,6 +87,7 @@ async def classify_query(query: str, model: str = "") -> RouterDiagnostics:
             fallback_reason="llm_error",
             refined_query=query,
             error=str(exc),
+            target_versions=_versions_from_text(query),  # fallback에서도 버전 명시 보존
         )
 
     try:
@@ -83,6 +103,7 @@ async def classify_query(query: str, model: str = "") -> RouterDiagnostics:
             fallback_reason="parse_error",
             refined_query=query,
             error=None,
+            target_versions=_versions_from_text(query),  # fallback에서도 버전 명시 보존
         )
 
     # confidence가 낮으면 도메인을 신뢰하지 않고 빈 리스트로 둔다 (가산 미적용).
@@ -97,16 +118,21 @@ async def classify_query(query: str, model: str = "") -> RouterDiagnostics:
         fallback_reason=None,
         refined_query=output.refined_query,
         error=None,
+        target_versions=_valid_versions(output.target_versions),
     )
 
 
 def _fallback(query: str, error: str = "") -> dict:
-    """LLM/파싱 실패 시 기본 상태. 검색은 진행하되 도메인은 없음(가산 미적용)."""
+    """LLM/파싱 실패 시 기본 상태. 검색은 진행하되 도메인은 없음(가산 미적용).
+
+    버전 명시는 정규식으로 보존 — fallback 순간에 match 모드가 통째로 죽지 않게.
+    """
     result: dict = {
         "use_case": UseCase.SEARCH,
         "domains": [],
         "domain": None,  # 하위호환: domains[0] 파생 (빈 리스트 → None)
         "refined_query": query,
+        "target_versions": _versions_from_text(query),
         "agent_trace": ["router"],
     }
     if error:
@@ -134,10 +160,12 @@ async def route_node(state: AgentState) -> dict:
         "domains": domains,
         "domain": domains[0] if domains else None,  # 하위호환: 항상 domains[0] 파생(불일치 금지)
         "refined_query": diag.refined_query,
+        "target_versions": diag.target_versions,  # 1차 추출값 — 재작성 재검색에도 고정(모드 보존)
         "agent_trace": ["router"],
     }
     # UNANSWERABLE이면 LLM 출력과 무관하게 refined_query를 비우고 안내 사유를 채운다 (노드 계약 보장)
     if diag.use_case == UseCase.UNANSWERABLE:
         result["refined_query"] = ""
+        result["target_versions"] = []
         result["answerability_reason"] = _UNANSWERABLE_REASON
     return result

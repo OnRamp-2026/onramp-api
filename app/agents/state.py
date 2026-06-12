@@ -54,6 +54,19 @@ class UseCase(StrEnum):
     UNANSWERABLE = "답변불가"
 
 
+class RetryAction(StrEnum):
+    """Trust 재검색 사다리의 액션 (#108, 설계 6장).
+
+    실패 원인에 전략을 맞춘다 — 같은 검색의 반복이 아니라 전략 변형.
+    판정 우선순위는 trust_node.decide_retry_action의 선언 순서(표 순서 = 우선순위).
+    """
+
+    REWRITE_QUERY = "rewrite_query"  # 관련 근거 전무(n_good_topics=0) → LLM 쿼리 재작성
+    RETRY_VERSION = "retry_version"  # 미회수/옛 버전 → doc_key 고정 + product_version 필터
+    EXPAND_TOPICS = "expand_topics"  # 주제 부족 → 도메인 해제 + top_k 확대 + doc_key 제외
+    PROCEED = "proceed"  # 재검색 불필요 (또는 한도 소진 강제 진행)
+
+
 class AnswerabilityStatus(StrEnum):
     """답변 가능성 상태 (Answer Agent의 최종 처리 방식). Sprint 3 P1.
 
@@ -95,6 +108,11 @@ class SourceDocument:
     product_version: str = ""
     doc_key: str = ""  # 버전 형제 묶음 키 (빈 값 = 계보 없음)
     is_eol: bool = False
+    # Trust per-doc 채점 (#108 — trust_node가 기입, Answer 인용 우선순위에 사용)
+    version_fit: float = 0.0  # 버전 적합성 [0,1] (currency/match 모드)
+    version_fit_mode: str = ""  # "currency" | "match" — 관측·디버깅용
+    raw_currency: float = 0.0  # 디버그 + collapse 타이브레이커
+    per_doc_evidence: float = 0.0  # w_version·fit + w_authority·tier — 인용 우선순위
 
 
 @dataclass
@@ -110,18 +128,28 @@ class FiveElements:
 
 @dataclass
 class TrustScore:
-    """Evidence Confidence 5축 신뢰도 평가 결과. Sprint 3 P1에서 Trust Agent가 사용한다.
+    """Evidence Confidence 신뢰도 평가 결과 (#108 — 버전 계보 4축 재설계).
 
-    5축 점수에 Intent-Document Fit / Document Base Score를 더해
-    Final Evidence Score(``overall``)를 산출한다.
+    채점 차원은 4축(version_fit·coverage·residual_duplication·authority)이며
+    overall은 그 가중 블렌드다(설계 5.1). 기존 5필드는 보고 계약 유지를 위해 남긴다 —
+    recency/sensitivity_risk는 관측값(블렌드 미포함), owner/verification은 중립 상수.
     """
 
-    recency: float = 0.0  # 최신성
-    verification_label: float = 0.0  # 검증 라벨 (검증됨/초안 등)
-    owner_trust: float = 0.0  # 소유자 신뢰도
-    duplication_conflict: float = 0.0  # 중복도/충돌
-    sensitivity_risk: float = 0.0  # 민감정보 위험
-    overall: float = 0.0  # Final Evidence Score (종합 점수)
+    # ── 보고 계약 유지 필드 (구 5축 — overall 블렌드에는 미포함) ──
+    recency: float = 0.0  # 최신성 관측값 (crawled 코퍼스에선 업로드 시각이라 참고용)
+    # 기본값 1.0 — trust/schema.py의 중립 상수와 일치. 부분 생성(TrustScore(overall=...))
+    # 경로에서 "최저 신뢰(0.0)"로 잘못 보고되지 않게 한다.
+    verification_label: float = 1.0  # 중립 상수 (track-B 데이터 부재)
+    owner_trust: float = 1.0  # 중립 상수 (track-B 데이터 부재)
+    duplication_conflict: float = 0.0  # = residual_duplication (하위호환 별칭)
+    sensitivity_risk: float = 0.0  # 민감정보 위험 — 게이트 전용 (블렌드 제외)
+    overall: float = 0.0  # Final Evidence Score (4축 가중 블렌드)
+    # ── 4축 재설계 (#108, 설계 4장) ──
+    version_fit_mean: float = 0.0  # 생존 문서 per_doc_evidence 평균의 버전 성분
+    coverage: float = 0.0  # 주제 충분성 (비교 질의는 회수율)
+    residual_duplication: float = 0.0  # collapse 후 잔여 중복
+    authority_mean: float = 0.0  # site 권위 평균
+    waiver_applied: bool = False  # strong-single-topic waiver 발동 여부
 
 
 @dataclass
@@ -159,20 +187,27 @@ class AgentState(TypedDict, total=False):
     domains: list[Domain]  # 질의 도메인(순서=우선순위, 최대 2). 빈 리스트면 가산 미적용
     domain: Domain | None  # 하위호환 파생값 = domains[0] (없으면 None). 별도 판단 아님
     refined_query: str  # 검색용 정제 쿼리
-    # 질의가 명시한 target 버전 (#103에서 계약 선언 — Router 추출은 Trust 재설계 본체에서.
-    # 그 전까지 항상 빈 리스트 = retriever 버전 부스트가 currency 모드로만 동작)
+    # 질의가 명시한 구체 target 버전 (#108 — Router가 추출, '최신/latest' 표현은 추출 금지).
+    # 복수면 버전 비교 질의. 재작성 재검색 시에도 1차 추출값 고정(모드 플립 방지, 설계 v1.5).
     target_versions: list[str]
 
     # ── Retriever Agent 출력 ──
     documents: list[SourceDocument]
 
-    # ── Trust Agent 출력 (Evidence Confidence, Sprint 3 P1 — 타입만 정의) ──
-    #    문서 기반 5축 채점 → 근거 부족 시 should_re_retrieve로 retriever 재검색 루프
+    # ── Trust Agent 출력 (Evidence Confidence, #108 재설계) ──
+    #    병합 → per-doc 채점 → collapse → coverage → overall → 재검색 사다리 → (소진 후) 게이트
     trust_score: TrustScore
     gate_flags: GateFlags  # Answerability 게이트 신호 (answer 노드가 소비)
-    should_re_retrieve: bool
+    should_re_retrieve: bool  # trust_decision 분기용 (retry_action != PROCEED)
     retry_count: int
     max_retries: int
+    # 재검색 사다리 상태 (#108, 설계 6장 — trust가 쓰고 retriever가 소비)
+    retry_action: RetryAction  # 이번 재검색의 전략 (PROCEED면 재검색 없음)
+    excluded_doc_keys: list[str]  # EXPAND_TOPICS: 확보한 doc_key 제외 (새 주제 발견 목적)
+    pinned_doc_keys: list[str]  # RETRY_VERSION: 대상 doc_key 고정
+    version_filter: str  # RETRY_VERSION: product_version 일치 필터 (payload 표기값)
+    first_pass_documents: list[SourceDocument]  # 병합 규칙(v1.4): 최종 = 1차 생존 ∪ 재검색 결과
+    missing_versions: list[str]  # 비교 질의에서 회수 못 한 target 버전 (PARTIALLY 사유용)
 
     # ── Answer Agent 출력 ──
     answer: FiveElements

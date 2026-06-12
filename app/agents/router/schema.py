@@ -10,7 +10,8 @@ from app.agents.state import Domain, UseCase
 
 # RouterOutput 계약 버전. domains 계약/검증 규칙이 바뀌면 올린다.
 # 평가 예측 캐시의 stale 판정 키로 쓰여, 계약이 바뀌면 옛 캐시를 무효화한다.
-SCHEMA_VERSION = "1"
+# "2": target_versions 추가 (#108) — 옛 캐시는 target_versions=[]라 match 모드를 우회한다.
+SCHEMA_VERSION = "2"
 
 
 class RouterOutput(BaseModel):
@@ -31,6 +32,9 @@ class RouterOutput(BaseModel):
     domains: list[Domain] = Field(default_factory=list, max_length=2)
     refined_query: str
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    # 질의가 명시한 구체 버전 번호 (#108). default_factory — LLM이 키를 빠뜨려도 파싱 실패 금지.
+    # '최신/latest' 표현은 추출 금지(프롬프트 규칙) — match 모드가 아니라 currency 모드가 정답.
+    target_versions: list[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
