@@ -1,12 +1,12 @@
 {
-  "eval_datetime": "2026-06-12T05:08:15.327838+00:00",
+  "eval_datetime": "2026-06-12T05:29:42.591165+00:00",
   "arms": {
     "A": "predicted_domains[:1]",
     "B": "predicted_domains[:2]"
   },
   "reproduction": {
-    "golden_sha": "c0c124d9d307",
-    "code_commit_sha": "671a841c71814e2fb55900e1ea052c6c06a0d999",
+    "golden_sha": "07d078a0ba1c",
+    "code_commit_sha": "7a67abdf66072c9ca041f1c9ab9a5e2ea70281e1",
     "requested_model": "",
     "effective_provider": "openai",
     "llm_provider": "",
