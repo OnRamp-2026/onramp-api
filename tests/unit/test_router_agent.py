@@ -281,3 +281,15 @@ async def test_route_unanswerable_clears_target_versions(monkeypatch):
     )
     out = await route_node({"query": "점심 뭐 먹지 1.25"})
     assert out["target_versions"] == []
+
+
+async def test_route_fallback_preserves_versions_from_query(monkeypatch):
+    """LLM/파싱 실패 fallback에서도 질의의 구체 버전을 정규식으로 보존한다 (#108 리뷰 반영)."""
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("LLM down")
+
+    monkeypatch.setattr(node_mod, "call_llm", _boom)
+    out = await route_node({"query": "k8s 1.25에서 v1.33으로 올리면?"})
+    assert out["target_versions"] == ["1.25", "v1.33"]
+    assert out["use_case"] == UseCase.SEARCH  # 기존 fallback 의미 유지

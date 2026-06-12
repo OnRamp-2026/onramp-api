@@ -61,7 +61,8 @@ def _hit():
         "product_version": "v1.33",
         "doc_key": "kubernetes:장애-대응-가이드",
     }
-    return type("SP", (), {"payload": payload, "score": 0.9})()
+    # id 포함 — hybrid 경로의 _merge_hits()가 point.id로 dedupe한다 (fixture 공유 대비)
+    return type("SP", (), {"id": "c1", "payload": payload, "score": 0.9})()
 
 
 class _Reranker:

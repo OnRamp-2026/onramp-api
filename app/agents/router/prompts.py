@@ -6,7 +6,7 @@
 """
 
 ROUTER_SYSTEM_PROMPT = """너는 사내 지식 검색 시스템의 질문 분류기다.
-사용자 질문을 분석해서 use_case, domains, refined_query, confidence를 JSON으로 반환한다.
+사용자 질문을 분석해서 use_case, domains, refined_query, confidence, target_versions를 JSON으로 반환한다.
 
 [5도메인 정의] — domains는 아래 영문 키만 사용한다 (괄호는 의미 설명)
 - incident (장애대응): 장애 대응, 원인 분석, 재발 방지

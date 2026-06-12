@@ -10,7 +10,8 @@ from app.agents.state import Domain, UseCase
 
 # RouterOutput 계약 버전. domains 계약/검증 규칙이 바뀌면 올린다.
 # 평가 예측 캐시의 stale 판정 키로 쓰여, 계약이 바뀌면 옛 캐시를 무효화한다.
-SCHEMA_VERSION = "1"
+# "2": target_versions 추가 (#108) — 옛 캐시는 target_versions=[]라 match 모드를 우회한다.
+SCHEMA_VERSION = "2"
 
 
 class RouterOutput(BaseModel):

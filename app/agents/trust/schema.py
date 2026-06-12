@@ -3,8 +3,10 @@
 규칙 기반 채점기(node.score_survivors)가 산출하는 4축 + overall + 게이트 신호.
 `AgentState.trust_score`(state.TrustScore)와 분리해, 계산 결과를 담는 순수 값 객체로 둔다.
 
-구 5축(recency/owner/verification/duplication/sensitivity)은 보고 계약 유지를 위해
-필드로 남긴다 — overall 블렌드에는 들어가지 않는다(설계 5.1: 측정 가능한 축만 블렌드).
+**계약 경계**: 이 모듈은 trust_node 내부 전용이다 — 외부(상태/응답)로 나가는 보고 계약은
+state.TrustScore가 담당하며, 구 5축 하위호환 별칭(duplication_conflict 등)도 그쪽에 있다.
+여기의 구 5축 필드(recency/owner/verification/sensitivity)는 TrustScore 매핑의 원료일 뿐
+overall 블렌드에는 들어가지 않는다(설계 5.1: 측정 가능한 축만 블렌드).
 """
 
 from __future__ import annotations

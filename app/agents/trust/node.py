@@ -93,7 +93,11 @@ def annotate_version_fits(
         doc.version_fit = fit.fit
         doc.version_fit_mode = fit.mode
         doc.raw_currency = fit.raw_currency
-        doc.per_doc_evidence = settings.trust_w_version_fit * fit.fit + settings.trust_w_authority * authority
+        # wsum 정규화 — env로 가중치 합이 1.0이 아니게 덮어써도 [0,1] 유지 (overall 블렌드와 동일 규약)
+        wsum = settings.trust_w_version_fit + settings.trust_w_authority
+        doc.per_doc_evidence = (settings.trust_w_version_fit * fit.fit + settings.trust_w_authority * authority) / (
+            wsum or 1.0
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -298,17 +302,21 @@ def decide_retry_action(
     # 3) [currency] 생존 전부 EOL & 계보에 더 새 버전 존재 → latest 필터 재검색
     #    계보에 새 버전 없으면 PROCEED (빈손 재검색 금지 — 게이트에서 OUTDATED 직행, 설계 v1.4)
     if not target_versions and survivors and all(d.is_eol for d in survivors):
-        newer = ""
-        eol_pinned: list[str] = []
+        # 계보별 최신 버전이 서로 다를 수 있다(예: apache 2.4 vs k8s v1.33 혼재) —
+        # 단일 version_filter에 이질 doc_key를 묶으면 일부 주제가 영원히 미회수된다.
+        # 최신 버전값으로 그룹핑해 가장 많은 doc_key를 구제하는 그룹 하나만 재검색한다.
+        pinned_by_latest: dict[str, set[str]] = defaultdict(set)
         for doc in survivors:
             lineage = lineages.get(doc.doc_key, frozenset())
             latest = latest_version(lineage)
-            if latest and not versions_equal(latest, doc.product_version):
-                newer = latest
-                eol_pinned.append(doc.doc_key)
-        if newer:
+            if doc.doc_key and latest and not versions_equal(latest, doc.product_version):
+                pinned_by_latest[latest].add(doc.doc_key)
+        if pinned_by_latest:
+            newer = max(pinned_by_latest, key=lambda v: (len(pinned_by_latest[v]), v))
             return RetryDecision(
-                action=RetryAction.RETRY_VERSION, version_filter=newer, pinned_doc_keys=sorted(set(eol_pinned))
+                action=RetryAction.RETRY_VERSION,
+                version_filter=newer,
+                pinned_doc_keys=sorted(pinned_by_latest[newer]),
             )
         return RetryDecision(action=RetryAction.PROCEED)
 

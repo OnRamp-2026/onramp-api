@@ -137,8 +137,10 @@ class TrustScore:
 
     # ── 보고 계약 유지 필드 (구 5축 — overall 블렌드에는 미포함) ──
     recency: float = 0.0  # 최신성 관측값 (crawled 코퍼스에선 업로드 시각이라 참고용)
-    verification_label: float = 0.0  # 중립 상수 (track-B 데이터 부재)
-    owner_trust: float = 0.0  # 중립 상수 (track-B 데이터 부재)
+    # 기본값 1.0 — trust/schema.py의 중립 상수와 일치. 부분 생성(TrustScore(overall=...))
+    # 경로에서 "최저 신뢰(0.0)"로 잘못 보고되지 않게 한다.
+    verification_label: float = 1.0  # 중립 상수 (track-B 데이터 부재)
+    owner_trust: float = 1.0  # 중립 상수 (track-B 데이터 부재)
     duplication_conflict: float = 0.0  # = residual_duplication (하위호환 별칭)
     sensitivity_risk: float = 0.0  # 민감정보 위험 — 게이트 전용 (블렌드 제외)
     overall: float = 0.0  # Final Evidence Score (4축 가중 블렌드)

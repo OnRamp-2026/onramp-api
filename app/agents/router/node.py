@@ -30,10 +30,20 @@ _UNANSWERABLE_REASON = "사내 지식 범위를 벗어난 질문입니다."
 # target_versions 방어 필터 (#108) — LLM이 "latest" 류 비숫자 토큰을 넣으면 제거.
 # '최신' 질의는 match가 아니라 currency 모드가 정답이라 target으로 인정하지 않는다.
 _VERSION_TOKEN_RE = re.compile(r"^v?\d+(\.\d+)*$")
+# fallback용 — LLM 없이 원문 질의에서 "1.25"/"v1.33" 류 구체 버전 토큰을 직접 추출.
+# 점이 최소 1개(\d+\.\d+) — "버전" 아닌 단독 정수("3개" 등)의 오추출을 막는다.
+# \b 대신 숫자·점 lookaround: 한글은 \w라 "1.25에서"에서 \b가 성립하지 않는다.
+_VERSION_IN_TEXT_RE = re.compile(r"(?<![0-9.])v?\d+\.\d+(?:\.\d+)*(?![0-9.])")
 
 
 def _valid_versions(values: list[str]) -> list[str]:
     return [v.strip() for v in values if _VERSION_TOKEN_RE.match(v.strip())]
+
+
+def _versions_from_text(query: str) -> list[str]:
+    """LLM/파싱 실패 fallback에서 버전 명시를 보존한다 — match 모드·RETRY_VERSION이
+    fallback 순간에 통째로 죽지 않게. 중복 제거·순서 보존."""
+    return list(dict.fromkeys(_VERSION_IN_TEXT_RE.findall(query)))
 
 
 @dataclass(frozen=True)
@@ -77,6 +87,7 @@ async def classify_query(query: str, model: str = "") -> RouterDiagnostics:
             fallback_reason="llm_error",
             refined_query=query,
             error=str(exc),
+            target_versions=_versions_from_text(query),  # fallback에서도 버전 명시 보존
         )
 
     try:
@@ -92,6 +103,7 @@ async def classify_query(query: str, model: str = "") -> RouterDiagnostics:
             fallback_reason="parse_error",
             refined_query=query,
             error=None,
+            target_versions=_versions_from_text(query),  # fallback에서도 버전 명시 보존
         )
 
     # confidence가 낮으면 도메인을 신뢰하지 않고 빈 리스트로 둔다 (가산 미적용).
@@ -111,13 +123,16 @@ async def classify_query(query: str, model: str = "") -> RouterDiagnostics:
 
 
 def _fallback(query: str, error: str = "") -> dict:
-    """LLM/파싱 실패 시 기본 상태. 검색은 진행하되 도메인은 없음(가산 미적용)."""
+    """LLM/파싱 실패 시 기본 상태. 검색은 진행하되 도메인은 없음(가산 미적용).
+
+    버전 명시는 정규식으로 보존 — fallback 순간에 match 모드가 통째로 죽지 않게.
+    """
     result: dict = {
         "use_case": UseCase.SEARCH,
         "domains": [],
         "domain": None,  # 하위호환: domains[0] 파생 (빈 리스트 → None)
         "refined_query": query,
-        "target_versions": [],
+        "target_versions": _versions_from_text(query),
         "agent_trace": ["router"],
     }
     if error:

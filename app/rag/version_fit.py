@@ -75,6 +75,10 @@ def match_fit(
         return 0.5
     if any(versions_equal(product_version, t) for t in target_versions):
         return 1.0
+    if not lineage:
+        # 계보 불명(facet 장애 폴백 등) — 인접 판정 불가를 0점으로 처벌하지 않는다.
+        # 계보는 보조 신호: 일시 장애가 Trust 점수를 구조적으로 과감점하면 안 된다.
+        return 0.5
     # 인접 판정: 계보 정렬에서 target 바로 옆 버전이면 부분점수
     ordered = sorted(lineage, key=version_sort_key)
     if product_version in ordered:
