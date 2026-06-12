@@ -1,4 +1,4 @@
-.PHONY: dev test lint format typecheck migrate seed clean eval eval-gate setup-reranker-onnx install-onnx build-reranker-onnx bench-reranker-onnx
+.PHONY: dev test lint format typecheck migrate clean eval eval-gate setup-reranker-onnx install-onnx build-reranker-onnx bench-reranker-onnx
 
 # ONNX 리랭커 양자화 타깃 아키텍처 (Apple Silicon=arm64 / 운영 x86 파드=avx512_vnni)
 ARCH ?= arm64
@@ -56,9 +56,6 @@ eval-gen:
 	python scripts/eval_generation.py
 
 # ─── 유틸 ───
-seed:
-	python scripts/seed_data.py
-
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
