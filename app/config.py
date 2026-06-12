@@ -40,6 +40,16 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
+    redis_outbox_batch_size: int = Field(default=100, ge=1)
+    redis_outbox_poll_interval_ms: int = Field(default=500, ge=1)
+
+    # Object Storage
+    storage_bucket: str = "onramp-stt"
+    storage_endpoint_url: str = ""
+    storage_region: str = "ap-northeast-2"
+    storage_access_key: str = ""
+    storage_secret_key: str = ""
+    storage_upload_expires_seconds: int = Field(default=900, ge=60, le=900)
 
     # Confluence
     confluence_base_url: str = ""
