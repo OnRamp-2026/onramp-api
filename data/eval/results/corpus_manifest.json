@@ -5,7 +5,7 @@
   "chunks": 6232,
   "snapshot": "onramp-5052959821299138-2026-06-12-02-10-24.snapshot",
   "snapshot_checksum": "f00ade80a7037e0225f2eed4c773e2513a22c6bbcc858a065d267caab327ddc3",
-  "embedding_model": "<.env의 EMBEDDING_MODEL 값으로 채우기>",
+  "embedding_model": "text-embedding-3-small",
   "chunker_commit": "b0916ac6997423002d54f5e833a0c54392de9c46",
   "note": "qrels 마이그레이션: d014/m003의 synthetic seed1_000 제거, 실제 k8s 디버그 청크로 재라벨. 나머지 79 intact(98% 생존)."
 }
