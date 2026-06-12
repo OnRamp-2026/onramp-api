@@ -2,12 +2,15 @@
 
 import subprocess
 import sys
+from pathlib import Path
 
 from app.eval.dataset import GoldenQuery
-from scripts.eval_router_domains import _block_breakdown, _metrics_blocks, missing_qids
+from scripts.eval_router_domains import _block_breakdown, _metrics_blocks, _write_result, missing_qids
+
+_SCRIPT = Path(__file__).resolve().parents[2] / "scripts/eval_router_domains.py"
 
 
-def _gq(qid, answerable, router=()):
+def _gq(qid: str, answerable: bool, router: tuple[str, ...] = ()) -> GoldenQuery:
     src = "explicit" if router else "none"
     return GoldenQuery(qid, "q", None, answerable, (), router_domains=router, router_domains_source=src)
 
@@ -67,13 +70,14 @@ def test_missing_qids_detects_gaps():
     assert missing_qids(golden, {"a": {}, "b": {}}) == []
 
 
-def test_write_result_aborts_on_incomplete_cache(tmp_path):
-    # 빈 캐시 + --write-result → 비정상 종료, baseline 미저장 (불완전 baseline 방지)
+def test_write_result_aborts_on_incomplete_cache_from_any_cwd(tmp_path):
+    # 빈 캐시 + --write-result → 비정상 종료·baseline 미저장. **다른 CWD(tmp_path)에서 실행**해
+    # data/eval/*.jsonl을 찾는지(경로 루트 기준)도 함께 검증 — 못 찾으면 다른 오류로 죽는다.
     out = tmp_path / "baseline.json"
     r = subprocess.run(
         [
             sys.executable,
-            "scripts/eval_router_domains.py",
+            str(_SCRIPT),
             "--report",
             "--cache",
             str(tmp_path / "empty.jsonl"),
@@ -82,7 +86,15 @@ def test_write_result_aborts_on_incomplete_cache(tmp_path):
         ],
         capture_output=True,
         text=True,
+        cwd=tmp_path,  # repo 루트가 아닌 곳에서 실행
     )
     assert r.returncode != 0
     assert not out.exists()
-    assert "캐시 누락" in (r.stdout + r.stderr)
+    assert "캐시 누락" in (r.stdout + r.stderr)  # 골든셋은 정상 로드됨(누락=캐시뿐)
+
+
+def test_write_result_handles_bare_filename(tmp_path, monkeypatch):
+    # 디렉터리 없는 경로("baseline.json")도 FileNotFoundError 없이 저장돼야 한다(dirname="" 가드)
+    monkeypatch.chdir(tmp_path)
+    _write_result({"ok": True}, "baseline.json")
+    assert (tmp_path / "baseline.json").exists()

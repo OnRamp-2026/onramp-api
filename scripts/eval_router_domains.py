@@ -22,6 +22,7 @@ import os
 import sys
 from dataclasses import asdict
 from datetime import UTC, datetime
+from pathlib import Path
 
 from app.agents.router.node import classify_query
 from app.agents.state import UseCase
@@ -40,7 +41,14 @@ from app.eval.router_cache import (
 from app.eval.router_metrics import RouterPred, summarize
 
 _REQUESTED_MODEL = ""  # 평가는 운영 기본 모델 사용 (config.default_model)
-_DEFAULT_RESULT_PATH = "data/eval/results/router_domains_baseline.json"
+
+# 모든 기본 경로는 **repo 루트 기준**으로 해결한다 — CWD에 의존하면 다른 디렉터리에서 실행 시
+# data/eval/*.jsonl을 못 찾는다. (스크립트는 repo_root/scripts/ 에 있으므로 parents[1]=repo root)
+_ROOT = Path(__file__).resolve().parents[1]
+_QUERIES = _ROOT / "data/eval/queries.jsonl"
+_QRELS = _ROOT / "data/eval/qrels.jsonl"
+_DEFAULT_RESULT_PATH = str(_ROOT / "data/eval/results/router_domains_baseline.json")
+_DEFAULT_CACHE = str(_ROOT / DEFAULT_CACHE_PATH)
 
 
 def _record_from_diag(g: GoldenQuery, diag, meta, commit: str, now: str) -> PredictionRecord:
@@ -217,7 +225,7 @@ def _build_result(golden: list[GoldenQuery], by_qid: dict[str, dict]) -> dict | 
     raw_m, eff_d = blocks
     meta = current_meta(_REQUESTED_MODEL, get_settings())
     ans = [g for g in golden if g.is_answerable]
-    with open("data/eval/queries.jsonl", "rb") as f:
+    with open(_QUERIES, "rb") as f:
         golden_sha = hashlib.sha256(f.read()).hexdigest()[:12]
     return {
         "eval_datetime": datetime.now(UTC).isoformat(),
@@ -253,7 +261,9 @@ def _build_result(golden: list[GoldenQuery], by_qid: dict[str, dict]) -> dict | 
 
 def _write_result(result: dict, path: str) -> None:
     """baseline 결과를 원자적으로 JSON 저장(.tmp→os.replace)."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    d = os.path.dirname(path)
+    if d:  # 디렉터리 없는 경로(예: "baseline.json")면 makedirs("")가 FileNotFoundError → 생략
+        os.makedirs(d, exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
@@ -308,7 +318,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="멀티도메인 라우터 평가 (예측 캐시 + 지표)")
     parser.add_argument("--build-cache", action="store_true", help="예측 캐시만 생성/갱신(LLM 호출), 지표 리포트 생략")
     parser.add_argument("--report", action="store_true", help="LLM 호출 없이 신선 캐시만으로 지표 리포트")
-    parser.add_argument("--cache", default=str(DEFAULT_CACHE_PATH), help="예측 캐시 경로")
+    parser.add_argument("--cache", default=_DEFAULT_CACHE, help="예측 캐시 경로")
     parser.add_argument(
         "--write-result",
         nargs="?",
@@ -323,7 +333,7 @@ def main() -> None:
     if args.build_cache and args.write_result:
         parser.error("--build-cache 는 리포트를 생략하므로 --write-result 와 함께 쓸 수 없습니다")
 
-    golden = load_golden_set()
+    golden = load_golden_set(_QUERIES, _QRELS)
     # --report: LLM 없이 캐시만. --build-cache: LLM로 캐시 생성(리포트 생략). 기본: 생성+리포트.
     by_qid = asyncio.run(_build_cache(golden, args.cache, from_cache=args.report))
 
