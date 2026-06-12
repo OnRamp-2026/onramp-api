@@ -1,8 +1,8 @@
 {
-  "eval_datetime": "2026-06-12T00:15:08.127487+00:00",
+  "eval_datetime": "2026-06-12T00:26:45.278255+00:00",
   "reproduction": {
     "golden_sha": "e735845a668e",
-    "code_commit_sha": "5a0ec06087e25e246504db4a9e9cf5dfbc9917fb",
+    "code_commit_sha": "c2d81c43b7a286791cce740280ab4d641f367d47",
     "requested_model": "",
     "effective_provider": "openai",
     "llm_provider": "",
@@ -10,7 +10,7 @@
     "prompt_sha": "f2e161ca7562",
     "schema_version": "1",
     "confidence_threshold": 0.5,
-    "note": "캐시는 gitignore(.cache/onramp-eval/)·LLM 비결정. 완전 재현은 같은 조건으로 --build-cache 재생성 필요."
+    "note": "지표는 캐시로부터 재현 가능(결정론적). eval_datetime·code_commit_sha는 실행 메타라 매 실행 갱신된다 — 이 파일은 '재현 가능한 스냅샷'이다. 캐시는 gitignore(.cache/onramp-eval/)·LLM 비결정이라 완전 재생성은 같은 조건으로 --build-cache 필요."
   },
   "counts": {
     "golden_total": 114,
