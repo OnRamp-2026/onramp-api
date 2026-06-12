@@ -125,6 +125,17 @@ def _success_criteria(agg: dict) -> dict:
     }
 
 
+def _corpus_fingerprint(settings) -> dict:
+    """색인 코퍼스 지문(컬렉션명·청크수) — 결과가 어느 코퍼스에서 측정됐는지 추적(코퍼스가 변수)."""
+    from app.db.qdrant import get_qdrant
+
+    try:
+        info = get_qdrant().get_collection(settings.qdrant_collection)
+        return {"collection": settings.qdrant_collection, "points_count": info.points_count}
+    except Exception:
+        return {"collection": settings.qdrant_collection, "points_count": None}
+
+
 def _missing_predictions(answerable: list[GoldenQuery], cache: dict[str, dict], meta) -> list[str]:
     """예측 캐시가 없거나 stale한 answerable qid (A/B는 전체 신선해야 공정)."""
     return sorted(
@@ -185,6 +196,7 @@ async def _run(cache_path: str) -> dict:
             "embedding_model": settings.embedding_model,
             "reranker_model": settings.reranker_model,
             "filter_mode": "soft",
+            "corpus": _corpus_fingerprint(settings),
             "note": "A/B는 동일 예측 캐시·동일 base(검색·리랭크 1회)로 secondary만 격리. baseline.json(=g.domain 회귀게이트)과 다름.",
         },
         "counts": {
