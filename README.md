@@ -172,7 +172,7 @@ Response:
     CONFLUENCE_BASE_URL=https://your-domain.atlassian.net
     CONFLUENCE_API_TOKEN=...
     CONFLUENCE_USER_EMAIL=your@email.com
-    CONFLUENCE_SPACE_KEY=TRUSTRAG
+    CONFLUENCE_SPACE_KEY=OnRamp
     CONFLUENCE_TIMEZONE=Asia/Seoul
 
 ## Confluence 수집
