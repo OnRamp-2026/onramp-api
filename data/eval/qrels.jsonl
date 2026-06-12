@@ -25,7 +25,7 @@
 {"qid": "d011", "relevant_chunk_ids": ["108744_126"]}
 {"qid": "d012", "relevant_chunk_ids": ["74784_007"]}
 {"qid": "d013", "relevant_chunk_ids": ["107943_007"]}
-{"qid": "d014", "relevant_chunk_ids": ["seed1_000"]}
+{"qid": "d014", "relevant_chunk_ids": ["77317_010"]}
 {"qid": "d015", "relevant_chunk_ids": ["175349_001"]}
 {"qid": "d043", "relevant_chunk_ids": ["74784_003"]}
 {"qid": "d044", "relevant_chunk_ids": ["108744_127"]}
@@ -36,7 +36,7 @@
 {"qid": "d049", "relevant_chunk_ids": ["108744_122"]}
 {"qid": "m001", "relevant_chunk_ids": ["74784_003", "74784_004", "74784_001"]}
 {"qid": "m002", "relevant_chunk_ids": ["74451_004", "74451_005", "74451_006", "74451_001"]}
-{"qid": "m003", "relevant_chunk_ids": ["seed1_000", "74451_002", "74451_009"]}
+{"qid": "m003", "relevant_chunk_ids": ["77317_010", "74451_009"]}
 {"qid": "m004", "relevant_chunk_ids": ["77131_000", "77131_002", "77131_005"]}
 {"qid": "m005", "relevant_chunk_ids": ["337679_000", "337679_002", "337679_013"]}
 {"qid": "m006", "relevant_chunk_ids": ["175349_001", "175349_000", "341672_000"]}
