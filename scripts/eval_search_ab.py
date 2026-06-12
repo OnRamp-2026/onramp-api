@@ -6,6 +6,9 @@
     각각 적용·정렬·평가 → **secondary 사용 여부만** 달라진다(검색/리랭크 2배·환경변동 제거).
   - 공식 그룹 = len(router_domains) 1/2. gold_domains는 보조 분석.
 
+범위(중요): 검색에 **골든 질의 원문**을 쓴다(운영 라우터의 refined_query 아님). 따라서 secondary 도메인
+  가산 효과를 격리한 유효 실험이지만 "운영 라우터 전체 효과"는 아니다. 운영 경로 A/B는 후속(캐시에 refined_query 저장).
+
 전제: Qdrant + 임베딩(질문당 1회) 필요(라이브 검색). 예측 캐시는 전체가 신선해야 한다(아니면 비정상 종료).
 사용:
     python scripts/eval_search_ab.py                       # 측정 → 콘솔
@@ -40,6 +43,22 @@ TOP_N = 10  # 평가 반환 (@5·@10 둘 다 산출하려면 ≥10)
 _METRIC_KEYS = ("hit@5", "recall@5", "mrr@10", "ndcg@10")
 
 
+def _golden_sha() -> str:
+    """골든셋 지문 = queries + qrels 동시 해시. 정답 청크(qrels)가 바뀌어도 SHA가 바뀌어야 재현 메타가 정확.
+
+    각 파일을 이름·길이로 구분(경계 프리픽스)해 해시 → 단순 바이트 연결의 모호성(다른 분할이 같은
+    연결열을 만들면 동일 SHA) 제거.
+    """
+    h = hashlib.sha256()
+    for p in (_QUERIES, _QRELS):  # 고정 순서 + 경계(이름·길이) 정보
+        data = p.read_bytes()
+        h.update(p.name.encode("utf-8"))
+        h.update(b"\0")
+        h.update(len(data).to_bytes(8, "big"))
+        h.update(data)
+    return h.hexdigest()[:12]
+
+
 def _qmetrics(ranked: list[str], relevant: set[str]) -> dict[str, float]:
     """질의 1건의 검색 지표 (top_n까지 받은 ranked vs 정답 set)."""
     return {
@@ -64,13 +83,24 @@ def _groups(g: GoldenQuery, pred: list[str]) -> list[str]:
 
 
 def _group_metrics(rows: list[dict]) -> dict:
-    """행 묶음의 A·B 평균 지표와 Δ(B−A)."""
+    """행 묶음의 A·B 평균 지표와 Δ(B−A). **raw float** — 성공기준은 raw로 판정하고 출력만 반올림(_round_floats)."""
     if not rows:
         return {"n": 0, "A": dict.fromkeys(_METRIC_KEYS), "B": dict.fromkeys(_METRIC_KEYS), "delta_B_minus_A": {}}
-    a = {k: round(sum(r["a"][k] for r in rows) / len(rows), 4) for k in _METRIC_KEYS}
-    b = {k: round(sum(r["b"][k] for r in rows) / len(rows), 4) for k in _METRIC_KEYS}
-    delta = {k: round(b[k] - a[k], 4) for k in _METRIC_KEYS}
+    a = {k: sum(r["a"][k] for r in rows) / len(rows) for k in _METRIC_KEYS}
+    b = {k: sum(r["b"][k] for r in rows) / len(rows) for k in _METRIC_KEYS}
+    delta = {k: b[k] - a[k] for k in _METRIC_KEYS}
     return {"n": len(rows), "A": a, "B": b, "delta_B_minus_A": delta}
+
+
+def _round_floats(obj, ndigits: int = 4):
+    """JSON 출력용: 모든 float 리프를 ndigits로 반올림(판정 후 적용 — 경계값 뒤집힘 방지)."""
+    if isinstance(obj, float):
+        return round(obj, ndigits)
+    if isinstance(obj, dict):
+        return {k: _round_floats(v, ndigits) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_round_floats(v, ndigits) for v in obj]
+    return obj
 
 
 _ALL_TAGS = (
@@ -113,24 +143,41 @@ def _aggregate(rows: list[dict]) -> dict:
 
 
 def _success_criteria(agg: dict) -> dict:
-    """#86 §4.5 사전 성공기준 판정 (B vs A). secondary 노이즈는 보조지표로 표기."""
+    """#86 §4.5 사전 성공기준 5개 판정 (B vs A).
+
+    판정은 **raw float**(반올림 전 평균/Δ)로 하고, 표시값만 4자리로 반올림한다 → 경계값에서 통과/실패 안 뒤집힘.
+    """
     ov = agg["overall"]
     multi = agg["by_group"].get("router_multi")
     single = agg["by_group"].get("router_single")
+    # 과다예측 노이즈 코호트 = 라우터가 router_domains 정답에 **없는** secondary를 더한 질의(spurious).
+    noise = agg["by_group"].get("secondary_not_in_router_gold")
 
     def d(group, key):
         return group["delta_B_minus_A"][key] if group and group["n"] else None
+
+    def crit(passed: bool, raw):  # [통과여부, 표시용 Δ(반올림)]
+        return [passed, round(raw, 4) if raw is not None else None]
+
+    def crit_cohort(raw, ok):  # 코호트 0건 → "N/A"(통과로 위장 X), 있으면 [통과여부, Δ]
+        return ["N/A", None] if raw is None else [ok(raw), round(raw, 4)]
 
     overall_recall_d = d(ov, "recall@5")
     overall_ndcg_d = d(ov, "ndcg@10")
     multi_recall_d = d(multi, "recall@5")
     single_recall_d = d(single, "recall@5")
+    noise_recall_d = d(noise, "recall@5")
+    noise_ndcg_d = d(noise, "ndcg@10")
     return {
-        "overall_recall@5_no_drop": (overall_recall_d is not None and overall_recall_d >= 0, overall_recall_d),
-        "overall_ndcg@10_drop_within_2pp": (overall_ndcg_d is not None and overall_ndcg_d >= -0.02, overall_ndcg_d),
-        "multi_recall@5_improved": (multi_recall_d is not None and multi_recall_d > 0, multi_recall_d),
-        "single_recall@5_no_worsen": (single_recall_d is None or single_recall_d >= 0, single_recall_d),
-        "_note": "secondary 과다예측 노이즈는 by_group.secondary_not_in_*의 Δ로 별도 확인",
+        "overall_recall@5_no_drop": crit(overall_recall_d is not None and overall_recall_d >= 0, overall_recall_d),
+        "overall_ndcg@10_drop_within_2pp": crit(overall_ndcg_d is not None and overall_ndcg_d >= -0.02, overall_ndcg_d),
+        "multi_recall@5_improved": crit(multi_recall_d is not None and multi_recall_d > 0, multi_recall_d),
+        "single_recall@5_no_worsen": crit(single_recall_d is None or single_recall_d >= 0, single_recall_d),
+        # #5 secondary 과다예측 노이즈 제한: spurious secondary 코호트(secondary∉router_domains)에서
+        #    Recall@5 무하락 + NDCG@10 하락 ≤2%p. 코호트 0건이면 N/A(통과 아님).
+        "secondary_overpred_noise_recall@5_no_drop": crit_cohort(noise_recall_d, lambda x: x >= 0),
+        "secondary_overpred_noise_ndcg@10_within_2pp": crit_cohort(noise_ndcg_d, lambda x: x >= -0.02),
+        "_note": "노이즈 코호트=secondary_not_in_router_gold(라우터 과다예측). 추가 진단은 by_group.secondary_not_in_*의 Δ.",
     }
 
 
@@ -188,14 +235,14 @@ async def _run(cache_path: str) -> dict:
             }
         )
 
-    agg = _aggregate(rows)
-    with open(_QUERIES, "rb") as f:
-        golden_sha = hashlib.sha256(f.read()).hexdigest()[:12]
+    agg = _aggregate(rows)  # raw float
+    criteria = _success_criteria(agg)  # 판정은 raw로
+    agg_out = _round_floats(agg)  # JSON 출력만 반올림
     return {
         "eval_datetime": datetime.now(UTC).isoformat(),
         "arms": {"A": "predicted_domains[:1]", "B": "predicted_domains[:2]"},
         "reproduction": {
-            "golden_sha": golden_sha,
+            "golden_sha": _golden_sha(),
             "code_commit_sha": git_commit_sha(),
             "requested_model": meta.requested_model,
             "effective_provider": meta.effective_provider,
@@ -209,7 +256,13 @@ async def _run(cache_path: str) -> dict:
             "reranker_model": settings.reranker_model,
             "filter_mode": "soft",
             "corpus": _corpus_fingerprint(settings),
-            "note": "A/B는 동일 예측 캐시·동일 base(검색·리랭크 1회)로 secondary만 격리. baseline.json(=g.domain 회귀게이트)과 다름.",
+            "search_query_source": "golden_query_raw",  # ⚠ 운영 라우터의 refined_query 아님 — 아래 scope 참조
+            "note": "A/B는 동일 예측 캐시·동일 base(검색·리랭크 1회)로 secondary 도메인 가산만 격리. baseline.json(=g.domain 회귀게이트)과 다름.",
+            "scope": (
+                "검색에 골든 질의 원문(g.query)을 사용 — secondary 도메인 가산 효과만 격리한 유효 실험이나, "
+                "운영은 라우터의 refined_query로 검색하므로 '운영 라우터 전체 효과'가 아니다. "
+                "운영 경로 A/B는 캐시에 refined_query를 저장해 별도 측정(후속)."
+            ),
         },
         "counts": {
             "answerable_evaluated": len(rows),
@@ -217,8 +270,8 @@ async def _run(cache_path: str) -> dict:
             "router_single": sum(1 for r in rows if "router_single" in r["groups"]),
             "pred_with_secondary": sum(1 for r in rows if "pred_has_secondary" in r["groups"]),
         },
-        "success_criteria_B_vs_A": _success_criteria(agg),
-        **agg,
+        "success_criteria_B_vs_A": criteria,
+        **agg_out,
     }
 
 

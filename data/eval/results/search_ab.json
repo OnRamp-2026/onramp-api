@@ -1,12 +1,12 @@
 {
-  "eval_datetime": "2026-06-12T04:28:54.064245+00:00",
+  "eval_datetime": "2026-06-12T05:29:42.591165+00:00",
   "arms": {
     "A": "predicted_domains[:1]",
     "B": "predicted_domains[:2]"
   },
   "reproduction": {
-    "golden_sha": "25b5fd9464d0",
-    "code_commit_sha": "4f0fea433134433ea878379b1f0f689a779e5e30",
+    "golden_sha": "07d078a0ba1c",
+    "code_commit_sha": "7a67abdf66072c9ca041f1c9ab9a5e2ea70281e1",
     "requested_model": "",
     "effective_provider": "openai",
     "llm_provider": "",
@@ -22,7 +22,9 @@
       "collection": "onramp",
       "points_count": 6232
     },
-    "note": "A/B는 동일 예측 캐시·동일 base(검색·리랭크 1회)로 secondary만 격리. baseline.json(=g.domain 회귀게이트)과 다름."
+    "search_query_source": "golden_query_raw",
+    "note": "A/B는 동일 예측 캐시·동일 base(검색·리랭크 1회)로 secondary 도메인 가산만 격리. baseline.json(=g.domain 회귀게이트)과 다름.",
+    "scope": "검색에 골든 질의 원문(g.query)을 사용 — secondary 도메인 가산 효과만 격리한 유효 실험이나, 운영은 라우터의 refined_query로 검색하므로 '운영 라우터 전체 효과'가 아니다. 운영 경로 A/B는 캐시에 refined_query를 저장해 별도 측정(후속)."
   },
   "counts": {
     "answerable_evaluated": 81,
@@ -47,7 +49,15 @@
       true,
       0.0
     ],
-    "_note": "secondary 과다예측 노이즈는 by_group.secondary_not_in_*의 Δ로 별도 확인"
+    "secondary_overpred_noise_recall@5_no_drop": [
+      true,
+      0.0
+    ],
+    "secondary_overpred_noise_ndcg@10_within_2pp": [
+      true,
+      0.0668
+    ],
+    "_note": "노이즈 코호트=secondary_not_in_router_gold(라우터 과다예측). 추가 진단은 by_group.secondary_not_in_*의 Δ."
   },
   "overall": {
     "n": 81,
@@ -89,7 +99,7 @@
         "hit@5": 0.0,
         "recall@5": 0.0133,
         "mrr@10": 0.02,
-        "ndcg@10": 0.0176
+        "ndcg@10": 0.0175
       }
     },
     "router_single": {
@@ -193,7 +203,7 @@
       "delta_B_minus_A": {
         "hit@5": 0.0,
         "recall@5": 0.0088,
-        "mrr@10": 0.0131,
+        "mrr@10": 0.0132,
         "ndcg@10": 0.0077
       }
     },
