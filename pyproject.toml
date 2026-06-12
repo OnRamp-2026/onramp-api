@@ -45,6 +45,9 @@ rerank = [
 # #60: ONNX(int8) 리랭커 백엔드 — CPU 파드 경량화(opt-in). reranker_backend="onnx"일 때만 필요.
 onnx = [
     "optimum[onnxruntime]>=1.20",
+    # onnxruntime 1.21+는 io_binding_helper가 torch.int4를 참조 → CPU torch 2.5.1에 없어
+    # build_reranker_onnx.py가 AttributeError로 실패. 1.20.x로 고정 (#101)
+    "onnxruntime<1.21",
     "onnx>=1.17",
 ]
 
