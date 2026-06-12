@@ -66,4 +66,6 @@ def _to_source(doc: SourceDocument) -> SourceDoc:
         space_key=doc.space_key,
         content_snippet=doc.content_snippet,
         score=doc.score,
+        site=doc.site,
+        product_version=doc.product_version,
     )

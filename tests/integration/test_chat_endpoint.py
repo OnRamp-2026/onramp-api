@@ -57,6 +57,9 @@ def _hit():
         "space_key": "OnRamp",
         "domain": "incident",
         "last_modified": "",
+        "site": "kubernetes",
+        "product_version": "v1.33",
+        "doc_key": "kubernetes:장애-대응-가이드",
     }
     return type("SP", (), {"payload": payload, "score": 0.9})()
 
@@ -97,6 +100,9 @@ async def test_chat_success(client, stub_pipeline):
     assert data["answer"]["situation"] != ""
     assert data["domain"] != ""
     assert len(data["sources"]) > 0
+    # 버전 계보 메타 노출 (#108) — 비교 질의에서 출처 버전 구분용
+    assert data["sources"][0]["site"] == "kubernetes"
+    assert data["sources"][0]["product_version"] == "v1.33"
 
 
 @pytest.mark.asyncio

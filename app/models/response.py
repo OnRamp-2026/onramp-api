@@ -13,6 +13,9 @@ class SourceDoc(BaseModel):
     space_key: str = ""
     content_snippet: str = ""
     score: float = 0.0
+    # 버전 계보 메타 (#108) — 비교 질의에서 두 출처가 어느 버전인지 제목 suffix 없이 구분 가능하게
+    site: str = ""  # 문서 출처 사이트 (apache/kubernetes/... , 라벨 없는 문서는 "")
+    product_version: str = ""  # 문서 버전 (v1.33/2.4/latest, 버전 무관 문서는 "")
 
 
 class FiveElementsResponse(BaseModel):
