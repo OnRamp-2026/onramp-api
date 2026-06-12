@@ -44,10 +44,18 @@ _METRIC_KEYS = ("hit@5", "recall@5", "mrr@10", "ndcg@10")
 
 
 def _golden_sha() -> str:
-    """골든셋 지문 = queries + qrels 동시 해시. 정답 청크(qrels)가 바뀌어도 SHA가 바뀌어야 재현 메타가 정확."""
+    """골든셋 지문 = queries + qrels 동시 해시. 정답 청크(qrels)가 바뀌어도 SHA가 바뀌어야 재현 메타가 정확.
+
+    각 파일을 이름·길이로 구분(경계 프리픽스)해 해시 → 단순 바이트 연결의 모호성(다른 분할이 같은
+    연결열을 만들면 동일 SHA) 제거.
+    """
     h = hashlib.sha256()
-    for p in (_QUERIES, _QRELS):  # 고정 순서로 재현성 보장
-        h.update(p.read_bytes())
+    for p in (_QUERIES, _QRELS):  # 고정 순서 + 경계(이름·길이) 정보
+        data = p.read_bytes()
+        h.update(p.name.encode("utf-8"))
+        h.update(b"\0")
+        h.update(len(data).to_bytes(8, "big"))
+        h.update(data)
     return h.hexdigest()[:12]
 
 
