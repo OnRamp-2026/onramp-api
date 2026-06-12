@@ -56,9 +56,6 @@ Thumbs.db
 models/
 uv.lock
 
-# #49 문서 도메인 분류 dry-run 산출물(검수용)
-data/eval/doc_domain_dryrun*.jsonl
-
 # #61 라우터 예측 캐시 — 오프라인 평가 전용(운영 런타임 미사용), 실행 환경·모델별 산출물(LLM 비결정).
 # A/B 재현은 재현 메타(commit/model/prompt_sha)로 보장. 검수표(data/eval/reviews/)는 추적함.
 .cache/onramp-eval/
