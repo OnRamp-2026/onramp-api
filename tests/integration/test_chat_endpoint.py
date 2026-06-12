@@ -82,11 +82,17 @@ def stub_pipeline(monkeypatch):
     async def _search(qvec, top_k, *, domain=None, **kwargs):
         return [_hit()]
 
+    def _lineages(keys, **kwargs):
+        # 계보 facet은 라이브 Qdrant 의존 — CI(서비스 없음)에서도 돌도록 스텁 (#108)
+        return {k: frozenset({"v1.33"}) if k else frozenset() for k in keys}
+
     monkeypatch.setattr("app.agents.router.node.call_llm", _mk(_router_resp()))
     monkeypatch.setattr("app.agents.answer.node.call_llm", _mk(_answer_resp()))
     monkeypatch.setattr("app.agents.retriever.node.get_embedder", lambda *a, **k: _Embedder())
     monkeypatch.setattr("app.agents.retriever.search.dense_search", _search)
     monkeypatch.setattr("app.agents.retriever.node.get_reranker", lambda *a, **k: _Reranker())
+    monkeypatch.setattr("app.agents.retriever.node.get_lineages", _lineages)
+    monkeypatch.setattr("app.agents.trust.node.get_lineages", _lineages)
     return monkeypatch
 
 
