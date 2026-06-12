@@ -42,6 +42,45 @@ def _soft_ranked(
     return scored
 
 
+async def _rerank_base(query: str, results: list[tuple[float, dict]], settings: Settings) -> list[tuple[float, dict]]:
+    """rerank + 최신성 가중까지(**도메인 가산 전**) base (score, payload). 리랭커 실패 시 vector score 그대로.
+
+    도메인 가산 전이라 도메인 무관 — 같은 base에 도메인만 달리 가산하면 paired A/B를 만들 수 있다.
+    """
+    candidates = [(payload.get("content", ""), payload) for _, payload in results]
+    try:
+        reranked = await anyio.to_thread.run_sync(get_reranker().rerank, query, candidates)
+        return [(apply_metadata_weight(score, payload, settings), payload) for score, payload in reranked]
+    except Exception as exc:  # 리랭커 실패 → vector score 폴백 (retrieve_node._vector_fallback 동일)
+        logger.warning("리랭커 실패로 dense 폴백: %s", exc, exc_info=True)
+        return list(results)
+
+
+async def base_soft_candidates(query: str, *, top_k: int, settings: Settings | None = None) -> list[tuple[float, dict]]:
+    """soft A/B용 — 도메인 가산 **전** base (score, payload)를 1회 확보(검색+리랭크+최신성 가중).
+
+    soft라 도메인 필터 없음(domain=None → 후보 도메인 독립). 같은 base에 도메인만 달리 가산해
+    paired A/B를 만든다(검색·리랭크를 A/B 각각 2번 하지 않음 → secondary 외 변동 제거).
+    """
+    settings = settings or get_settings()
+    if top_k <= 0:
+        raise ValueError(f"top_k 는 1 이상이어야 합니다: {top_k}")
+    qvec = await get_embedder().embed_query(query)
+    hits = await search_with_mode(qvec, top_k, domain=None, mode="soft", settings=settings)
+    results = [(point.score, point.payload or {}) for point in hits]
+    return await _rerank_base(query, results, settings)
+
+
+def rank_chunk_ids_from_base(
+    base: list[tuple[float, dict]], domains: list[str] | None, settings: Settings, top_n: int
+) -> list[str]:
+    """base 후보에 **도메인 가산만** 적용·정렬·top_n → chunk_id (paired A/B arm, Qdrant 불필요·결정론)."""
+    if top_n <= 0:
+        raise ValueError(f"top_n 는 1 이상이어야 합니다: {top_n}")
+    ranked = _soft_ranked(base, domains, settings)[:top_n]
+    return [payload.get("chunk_id", "") for _, payload in ranked if payload.get("chunk_id")]
+
+
 @dataclass(frozen=True)
 class RetrievalResult:
     """평가용 검색 결과."""
@@ -79,23 +118,9 @@ async def retrieve_for_eval(
 
     results = [(point.score, point.payload or {}) for point in hits]
 
-    if mode == "dense":
-        ranked = _soft_ranked(results, domains, settings)
-    else:  # rerank — 운영 retrieve_node와 동일하게 최신성 + 도메인 일치 가산
-        candidates = [(payload.get("content", ""), payload) for _, payload in results]
-        try:
-            reranked = await anyio.to_thread.run_sync(get_reranker().rerank, query, candidates)
-            ranked = [
-                (
-                    apply_domain_weight(apply_metadata_weight(score, payload, settings), payload, domains, settings),
-                    payload,
-                )
-                for score, payload in reranked
-            ]
-            ranked.sort(key=lambda item: item[0], reverse=True)
-        except Exception as exc:  # 리랭커 실패 → vector score + 도메인 가산 폴백 (retrieve_node._vector_fallback 동일)
-            logger.warning("리랭커 실패로 dense 폴백: %s", exc, exc_info=True)
-            ranked = _soft_ranked(results, domains, settings)
+    # rerank 모드는 도메인 가산 전 base(rerank+최신성)를 만든 뒤 도메인 가산. dense는 vector score가 base.
+    base = results if mode == "dense" else await _rerank_base(query, results, settings)
+    ranked = _soft_ranked(base, domains, settings)
 
     top = ranked[:top_n]
     chunk_ids = [payload.get("chunk_id", "") for _, payload in top if payload.get("chunk_id")]
