@@ -15,8 +15,8 @@ from functools import partial
 import anyio
 
 from app.agents.retriever.rerank import apply_ranking_boosts, get_reranker
-from app.agents.retriever.search import search_with_mode
-from app.agents.state import AgentState, Domain, SourceDocument
+from app.agents.retriever.search import SearchFilters, search_with_mode
+from app.agents.state import AgentState, Domain, RetryAction, SourceDocument
 from app.config import Settings, get_settings
 from app.rag.embedder import get_embedder
 from app.rag.lineage import get_lineages
@@ -38,16 +38,28 @@ async def retrieve_node(state: AgentState) -> dict:
         single = state.get("domain")
         domains_state = [single] if single else []
     domains = _domain_values(domains_state)
-    # Router가 질의에서 추출한 target 버전 (Trust 재설계 본체에서 채움 — 그 전까지 빈 리스트)
+    # Router가 질의에서 추출한 target 버전 (#108 — match 모드 부스트에 사용)
     target_versions = [str(v) for v in state.get("target_versions", [])]
+
+    # 재검색 사다리 상태 소비 (#108 — trust가 채움. 1차 검색에서는 전부 기본값)
+    retry_action = state.get("retry_action")
+    filters = SearchFilters(
+        version=state.get("version_filter") or None,
+        pinned_doc_keys=tuple(state.get("pinned_doc_keys", [])),
+        excluded_doc_keys=tuple(state.get("excluded_doc_keys", [])),
+    )
+    top_k = settings.retriever_top_k
+    if retry_action == RetryAction.EXPAND_TOPICS:
+        top_k *= 2  # 주제 확장: 후보 풀 확대 (설계 6장)
 
     qvec = await get_embedder().embed_query(refined)
     # 필터용 domain은 대표(domains[0])만 — soft에선 무시되고 hard/hybrid에서만 쓰인다.
     hits = await search_with_mode(
         qvec,
-        settings.retriever_top_k,
+        top_k,
         domain=(domains[0] if domains else None),
         mode=settings.retriever_domain_filter_mode,
+        filters=None if filters.is_empty() else filters,
         settings=settings,
     )
 

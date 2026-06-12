@@ -13,7 +13,8 @@ async 노드이므로 그래프는 ainvoke로 실행한다 (retriever와 동일)
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 
 from pydantic import ValidationError
 
@@ -26,6 +27,13 @@ logger = logging.getLogger(__name__)
 
 _CONFIDENCE_THRESHOLD = 0.5  # 이 미만이면 도메인 미신뢰 → 빈 리스트(가산 미적용)
 _UNANSWERABLE_REASON = "사내 지식 범위를 벗어난 질문입니다."
+# target_versions 방어 필터 (#108) — LLM이 "latest" 류 비숫자 토큰을 넣으면 제거.
+# '최신' 질의는 match가 아니라 currency 모드가 정답이라 target으로 인정하지 않는다.
+_VERSION_TOKEN_RE = re.compile(r"^v?\d+(\.\d+)*$")
+
+
+def _valid_versions(values: list[str]) -> list[str]:
+    return [v.strip() for v in values if _VERSION_TOKEN_RE.match(v.strip())]
 
 
 @dataclass(frozen=True)
@@ -45,6 +53,7 @@ class RouterDiagnostics:
     fallback_reason: str | None  # None | "llm_error" | "parse_error"
     refined_query: str
     error: str | None = None  # llm_error 시 예외 메시지 (route_node의 error 키 패리티)
+    target_versions: list[str] = field(default_factory=list)  # 질의 명시 구체 버전 (#108)
 
 
 async def classify_query(query: str, model: str = "") -> RouterDiagnostics:
@@ -97,6 +106,7 @@ async def classify_query(query: str, model: str = "") -> RouterDiagnostics:
         fallback_reason=None,
         refined_query=output.refined_query,
         error=None,
+        target_versions=_valid_versions(output.target_versions),
     )
 
 
@@ -107,6 +117,7 @@ def _fallback(query: str, error: str = "") -> dict:
         "domains": [],
         "domain": None,  # 하위호환: domains[0] 파생 (빈 리스트 → None)
         "refined_query": query,
+        "target_versions": [],
         "agent_trace": ["router"],
     }
     if error:
@@ -134,10 +145,12 @@ async def route_node(state: AgentState) -> dict:
         "domains": domains,
         "domain": domains[0] if domains else None,  # 하위호환: 항상 domains[0] 파생(불일치 금지)
         "refined_query": diag.refined_query,
+        "target_versions": diag.target_versions,  # 1차 추출값 — 재작성 재검색에도 고정(모드 보존)
         "agent_trace": ["router"],
     }
     # UNANSWERABLE이면 LLM 출력과 무관하게 refined_query를 비우고 안내 사유를 채운다 (노드 계약 보장)
     if diag.use_case == UseCase.UNANSWERABLE:
         result["refined_query"] = ""
+        result["target_versions"] = []
         result["answerability_reason"] = _UNANSWERABLE_REASON
     return result

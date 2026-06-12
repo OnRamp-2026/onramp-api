@@ -31,6 +31,9 @@ class RouterOutput(BaseModel):
     domains: list[Domain] = Field(default_factory=list, max_length=2)
     refined_query: str
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    # 질의가 명시한 구체 버전 번호 (#108). default_factory — LLM이 키를 빠뜨려도 파싱 실패 금지.
+    # '최신/latest' 표현은 추출 금지(프롬프트 규칙) — match 모드가 아니라 currency 모드가 정답.
+    target_versions: list[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod

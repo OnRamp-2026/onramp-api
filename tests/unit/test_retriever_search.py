@@ -46,7 +46,7 @@ async def test_dense_search_builds_domain_filter():
 async def test_search_with_mode_hard_no_expansion(monkeypatch):
     calls = []
 
-    async def fake(qv, top_k, *, domain=None, settings=None):
+    async def fake(qv, top_k, *, domain=None, settings=None, **kw):
         calls.append(domain)
         return [_pt("a", 0.2)]  # 저품질이어도 hard는 확장 안 함
 
@@ -60,7 +60,7 @@ async def test_search_with_mode_hard_no_expansion(monkeypatch):
 async def test_search_with_mode_soft_ignores_domain(monkeypatch):
     calls = []
 
-    async def fake(qv, top_k, *, domain=None, settings=None):
+    async def fake(qv, top_k, *, domain=None, settings=None, **kw):
         calls.append(domain)
         return [_pt("a", 0.9)]
 
@@ -73,7 +73,7 @@ async def test_search_with_mode_soft_ignores_domain(monkeypatch):
 async def test_search_with_mode_hybrid_expands_on_low_quality(monkeypatch):
     calls = []
 
-    async def fake(qv, top_k, *, domain=None, settings=None):
+    async def fake(qv, top_k, *, domain=None, settings=None, **kw):
         calls.append(domain)
         return [_pt("a", 0.2)] if domain else [_pt("a", 0.2), _pt("b", 0.9)]
 
@@ -87,10 +87,50 @@ async def test_search_with_mode_hybrid_expands_on_low_quality(monkeypatch):
 async def test_search_with_mode_hybrid_no_expand_when_high_quality(monkeypatch):
     calls = []
 
-    async def fake(qv, top_k, *, domain=None, settings=None):
+    async def fake(qv, top_k, *, domain=None, settings=None, **kw):
         calls.append(domain)
         return [_pt("a", 0.9)]
 
     monkeypatch.setattr(search_mod, "dense_search", fake)
     await search_with_mode([0.1], 5, domain="manual", mode="hybrid", settings=Settings())
     assert calls == ["manual"]  # 고품질 → 확장 없음
+
+
+# ── 재검색 사다리 필터 (#108) ────────────────────────────────────────
+
+
+def test_build_filter_composes_ladder_conditions():
+    from app.agents.retriever.search import SearchFilters, _build_filter
+
+    f = _build_filter(
+        "manual",
+        SearchFilters(version="2.4", pinned_doc_keys=("apache:mpm",), excluded_doc_keys=("apache:done",)),
+    )
+    musts = {c.key for c in f.must}
+    assert musts == {"domain", "product_version", "doc_key"}
+    assert [c.key for c in f.must_not] == ["doc_key"]
+
+
+def test_build_filter_none_when_empty():
+    from app.agents.retriever.search import SearchFilters, _build_filter
+
+    assert _build_filter(None, None) is None
+    assert _build_filter(None, SearchFilters()) is None
+
+
+async def test_soft_mode_still_applies_ladder_filters(monkeypatch):
+    """domain은 soft(무필터)여도 사다리 필터는 항상 적용된다 — 사다리 전략의 본질."""
+    from app.agents.retriever.search import SearchFilters
+
+    seen = {}
+
+    async def fake(qv, top_k, *, domain=None, settings=None, filters=None, **kw):
+        seen["domain"] = domain
+        seen["filters"] = filters
+        return []
+
+    monkeypatch.setattr(search_mod, "dense_search", fake)
+    filters = SearchFilters(version="2.4")
+    await search_with_mode([0.1], 5, domain="manual", mode="soft", filters=filters, settings=Settings())
+    assert seen["domain"] is None  # soft → 도메인 무필터
+    assert seen["filters"] is filters  # 사다리 필터는 유지

@@ -189,3 +189,68 @@ def test_decide_floor_no_docs_overrides_llm():
     assert (
         decide_answerability([], llm_status=AnswerabilityStatus.ANSWERABLE) == AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
     )
+
+
+# ── Trust evidence_score 연결 + 미회수 버전 사유 (#108) ──────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("overall", "expected"),
+    [
+        (0.85, AnswerabilityStatus.ANSWERABLE),
+        (0.65, AnswerabilityStatus.PARTIALLY_ANSWERABLE),
+        (0.30, AnswerabilityStatus.NOT_ENOUGH_EVIDENCE),
+    ],
+)
+async def test_answer_uses_trust_overall_as_evidence_score(monkeypatch, overall, expected):
+    """재설계 overall([0,1] 보장)이 answerability 점수 분기에 연결된다 — LLM 자기판정보다 우선."""
+    from app.agents.state import TrustScore
+
+    monkeypatch.setattr(node_mod, "call_llm", _mock_llm(_ans_json("answerable", (0,))))
+    out = await answer_node({"refined_query": "q", "documents": [_doc()], "trust_score": TrustScore(overall=overall)})
+    assert out["answerability_status"] == expected
+
+
+@pytest.mark.asyncio
+async def test_answer_gate_takes_priority_over_evidence_score(monkeypatch):
+    from app.agents.state import TrustScore
+
+    monkeypatch.setattr(node_mod, "call_llm", _mock_llm(_ans_json("answerable", (0,))))
+    out = await answer_node(
+        {
+            "refined_query": "q",
+            "documents": [_doc()],
+            "trust_score": TrustScore(overall=0.95),
+            "gate_flags": GateFlags(deprecated_only=True),
+        }
+    )
+    assert out["answerability_status"] == AnswerabilityStatus.OUTDATED_EVIDENCE  # 게이트 우선
+
+
+@pytest.mark.asyncio
+async def test_answer_partially_mentions_missing_versions(monkeypatch):
+    """비교 질의에서 미회수 버전이 있으면 PARTIALLY 사유에 명시한다 (#108 회수율 고지)."""
+    from app.agents.state import TrustScore
+
+    monkeypatch.setattr(node_mod, "call_llm", _mock_llm(_ans_json("answerable", (0,))))
+    out = await answer_node(
+        {
+            "refined_query": "q",
+            "documents": [_doc()],
+            "trust_score": TrustScore(overall=0.65),  # PARTIALLY 구간
+            "missing_versions": ["1.25"],
+        }
+    )
+    assert out["answerability_status"] == AnswerabilityStatus.PARTIALLY_ANSWERABLE
+    assert "1.25" in out["answerability_reason"]
+
+
+@pytest.mark.asyncio
+async def test_answer_sources_sorted_by_per_doc_evidence(monkeypatch):
+    """인용 출처는 Trust per-doc evidence 내림차순 — 강한 근거가 앞선다."""
+    weak = SourceDocument(title="약한", content_snippet="w", per_doc_evidence=0.3)
+    strong = SourceDocument(title="강한", content_snippet="s", per_doc_evidence=0.9)
+    monkeypatch.setattr(node_mod, "call_llm", _mock_llm(_ans_json("answerable", (0, 1))))
+    out = await answer_node({"refined_query": "q", "documents": [weak, strong]})
+    assert [s.title for s in out["sources"]] == ["강한", "약한"]

@@ -75,18 +75,30 @@ async def answer_node(state: AgentState) -> dict:
         logger.warning("Answer 응답 파싱 실패 — NOT_ENOUGH fallback")
         return _result(FiveElements(), [], AnswerabilityStatus.NOT_ENOUGH_EVIDENCE, "답변 생성 실패 (파싱 오류)")
 
-    # P1: Trust 게이트(충돌/만료/민감차단)를 먼저 적용하고, 그 외엔 P0 LLM 자기판정.
-    #   evidence_score는 v1에서 의도적으로 미사용 — trust.overall(가중평균 ~0.x 스케일)이
-    #   answerability 임계값(0.80/0.60)과 스케일이 달라 별도 보정 전까지 연결하지 않는다(track-B).
-    #   게이트 신호(gate_flags)는 스케일 무관 불리언이라 안전하게 우선 적용한다.
+    # 인용 우선순위 (#108): Trust per-doc evidence가 높은 근거를 앞세운다 (안정 정렬 — 동률은 원 순서)
+    sources = sorted(sources, key=lambda d: d.per_doc_evidence, reverse=True)
+
+    # Trust 게이트(충돌/만료/민감차단) 우선 → evidence_score(#108 — 재설계 overall은 [0,1] 보장,
+    # 죽은 축 제거로 스케일이 정직해져 점수 분기 연결) → LLM 자기판정 순.
     gate = state.get("gate_flags")
-    status = decide_answerability(documents, gate=gate, llm_status=llm_status)
+    trust = state.get("trust_score")
+    status = decide_answerability(
+        documents,
+        evidence_score=(trust.overall if trust else None),
+        gate=gate,
+        llm_status=llm_status,
+    )
 
     # 인용 guard: ANSWERABLE인데 인용 출처 0건 → PARTIALLY로 강등
     if status == AnswerabilityStatus.ANSWERABLE and not sources:
         status, reason = AnswerabilityStatus.PARTIALLY_ANSWERABLE, NO_SOURCE_REASON
     else:
         reason = reason_for(status)
+
+    # 비교 질의에서 미회수 target 버전이 있으면 사유에 명시 (#108 — 회수율 coverage의 정직한 고지)
+    missing = state.get("missing_versions", [])
+    if missing and status == AnswerabilityStatus.PARTIALLY_ANSWERABLE:
+        reason = f"{', '.join(missing)} 버전 문서를 찾지 못해 검색된 버전 기준으로만 답변합니다."
 
     # 상태별 응답 처리: 보류 상태는 5요소 비움.
     # 단 CONFLICTING/OUTDATED는 "왜 보류됐는지" 근거 문서를 보여줘야 하므로 sources는 유지(P1).

@@ -30,7 +30,7 @@ class _FakeEmbedder:
 
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
-    """router LLM·retriever 임베더/검색을 stub해 네트워크 없이 결정론적으로 동작시킨다."""
+    """router LLM·retriever 임베더/검색·trust 재작성 LLM을 stub해 네트워크 없이 결정론적으로 동작시킨다."""
 
     async def _fake_router_llm(system_prompt, user_prompt, **kwargs):
         # 검색 경로로 분류, 질문을 그대로 refined_query로 echo
@@ -39,9 +39,14 @@ def _no_network(monkeypatch):
     async def _empty_search(*args, **kwargs):
         return []
 
+    async def _fake_rewrite_llm(system_prompt, user_prompt, **kwargs):
+        # trust 재검색 사다리(REWRITE_QUERY)의 쿼리 재작성 — llm_selector 경유 호출을 차단
+        return f"재작성: {user_prompt}"
+
     monkeypatch.setattr("app.agents.router.node.call_llm", _fake_router_llm)
     monkeypatch.setattr("app.agents.retriever.node.get_embedder", lambda *a, **k: _FakeEmbedder())
     monkeypatch.setattr("app.agents.retriever.search.dense_search", _empty_search)
+    monkeypatch.setattr("app.services.llm_selector.call_llm", _fake_rewrite_llm)
 
 
 class TestGraphSearchFlow:
@@ -66,10 +71,11 @@ class TestGraphSearchFlow:
 
         assert result["query"] == "EKS Pod 장애 해결법"
         assert result["use_case"] == UseCase.SEARCH
-        # Router는 domains=[manual]로 분류하나, 0건 → Trust 재검색이 domains/domain을 모두 초기화
-        assert result["domains"] == []
-        assert result["domain"] is None
-        assert result["refined_query"] == "EKS Pod 장애 해결법"
+        # 0건 → 사다리 1행(REWRITE_QUERY, #108): 도메인은 보존하고 쿼리만 재작성한다
+        # (구형 "도메인 해제"는 EXPAND_TOPICS 행 전용으로 이동)
+        assert result["domains"] == [Domain.MANUAL]
+        assert result["domain"] == Domain.MANUAL
+        assert result["refined_query"] == "재작성: EKS Pod 장애 해결법"
 
     async def test_router_multidomain_reaches_retriever(self, monkeypatch) -> None:
         """Router 멀티도메인이 Retriever까지 전달되는지 검증 (재검색 없으면 domains 보존)."""
