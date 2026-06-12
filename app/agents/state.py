@@ -82,11 +82,19 @@ class SourceDocument:
     space_key: str = ""
     content_snippet: str = ""
     score: float = 0.0  # 벡터 검색 유사도
-    rerank_score: float = 0.0  # Cross-Encoder 리랭킹 점수
+    # 점수 분리 (#103, 설계 7.3): 정렬은 블렌드(rerank_score), 진단은 원점수(raw_rerank_score)
+    rerank_score: float = 0.0  # ranking 점수 — 부스트(최신성·도메인·버전·권위) 합산, 정렬 전용
+    raw_rerank_score: float = 0.0  # Cross-Encoder 원점수 [0,1] — τ 진단 전용 (리랭커 비활성 시 0.0)
     # Trust Agent(Evidence Confidence) 채점 입력 (응답에는 노출 안 함)
     page_id: str = ""  # 중복/충돌 판단 (서로 다른 page 간)
     last_modified: str = ""  # 최신성(recency)
     hash: str = ""  # 중복 content 탐지
+    # 버전 계보 메타 (#94 payload → #103 전달)
+    chunk_id: str = ""  # 재검색 병합 dedupe 키
+    site: str = ""
+    product_version: str = ""
+    doc_key: str = ""  # 버전 형제 묶음 키 (빈 값 = 계보 없음)
+    is_eol: bool = False
 
 
 @dataclass
@@ -151,6 +159,9 @@ class AgentState(TypedDict, total=False):
     domains: list[Domain]  # 질의 도메인(순서=우선순위, 최대 2). 빈 리스트면 가산 미적용
     domain: Domain | None  # 하위호환 파생값 = domains[0] (없으면 None). 별도 판단 아님
     refined_query: str  # 검색용 정제 쿼리
+    # 질의가 명시한 target 버전 (#103에서 계약 선언 — Router 추출은 Trust 재설계 본체에서.
+    # 그 전까지 항상 빈 리스트 = retriever 버전 부스트가 currency 모드로만 동작)
+    target_versions: list[str]
 
     # ── Retriever Agent 출력 ──
     documents: list[SourceDocument]

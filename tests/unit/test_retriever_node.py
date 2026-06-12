@@ -7,7 +7,7 @@ from app.agents.state import SourceDocument
 from app.config import Settings
 
 
-def _hit(chunk_id, content, score, domain="장애대응"):
+def _hit(chunk_id, content, score, domain="장애대응", site="", product_version="", doc_key="", is_eol=False):
     payload = {
         "chunk_id": chunk_id,
         "content": content,
@@ -16,6 +16,10 @@ def _hit(chunk_id, content, score, domain="장애대응"):
         "space_key": "OnRamp",
         "domain": domain,
         "last_modified": "",
+        "site": site,
+        "product_version": product_version,
+        "doc_key": doc_key,
+        "is_eol": is_eol,
     }
     return type("SP", (), {"id": chunk_id, "payload": payload, "score": score})()
 
@@ -25,11 +29,14 @@ class _FakeEmbedder:
         return [0.1, 0.2, 0.3]
 
 
-def _patch(monkeypatch, search_fn, rerank_obj):
+def _patch(monkeypatch, search_fn, rerank_obj, lineages=None):
     monkeypatch.setattr(node_mod, "get_embedder", lambda *a, **k: _FakeEmbedder())
     # node는 search_with_mode를 거쳐 dense_search를 호출 → search 모듈의 dense_search를 패치
     monkeypatch.setattr(search_mod, "dense_search", search_fn)
     monkeypatch.setattr(node_mod, "get_reranker", lambda *a, **k: rerank_obj)
+    # 계보 조회는 Qdrant facet → 스텁으로 차단 (기본: 전부 계보 없음 = version_fit 중립)
+    stub = lineages or {}
+    monkeypatch.setattr(node_mod, "get_lineages", lambda keys, **kw: {k: stub.get(k, frozenset()) for k in keys})
 
 
 @pytest.mark.asyncio
@@ -233,6 +240,87 @@ async def test_node_legacy_single_domain_fallback(monkeypatch):
     _patch(monkeypatch, fake_search, _R())
     out = await retrieve_node({"refined_query": "q", "domain": "manual"})  # domains 키 없음
     assert out["documents"][0].content_snippet == "b"  # 단수 폴백 → manual 가산
+
+
+# ── 점수 분리 + 버전·권위 부스트 (#103) ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_node_separates_raw_and_ranking_scores(monkeypatch):
+    """raw(τ 진단)와 ranking(부스트 정렬)이 분리 저장된다 — raw는 [0,1], ranking ≥ raw."""
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return [_hit("c1", "a", 0.9, domain="manual", site="apache")]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.8, p) for _, p in cands]
+
+    _patch(monkeypatch, fake_search, _R())
+    out = await retrieve_node({"refined_query": "q", "domains": ["manual"]})
+    doc = out["documents"][0]
+    assert doc.raw_rerank_score == 0.8  # cross-encoder 원점수 그대로
+    assert doc.rerank_score > doc.raw_rerank_score  # 부스트(domain+version+authority) 합산
+
+
+@pytest.mark.asyncio
+async def test_node_version_boost_reorders_eol_sibling(monkeypatch):
+    """raw 동률인 버전 형제 중 EOL(2.2)이 최신(2.4)보다 뒤로 밀린다 — 설계 7.4."""
+    lineages = {"apache:cn": frozenset({"2.2", "2.4"})}
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return [
+            _hit("c-old", "old", 0.9, site="apache", product_version="2.2", doc_key="apache:cn", is_eol=True),
+            _hit("c-new", "new", 0.9, site="apache", product_version="2.4", doc_key="apache:cn"),
+        ]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.7, p) for _, p in cands]  # raw 동률
+
+    _patch(monkeypatch, fake_search, _R(), lineages=lineages)
+    out = await retrieve_node({"refined_query": "q", "domains": []})
+    assert out["documents"][0].content_snippet == "new"  # version_fit 1.0 vs EOL 캡 0.3
+    assert out["documents"][0].raw_rerank_score == out["documents"][1].raw_rerank_score == 0.7
+
+
+@pytest.mark.asyncio
+async def test_node_fallback_zeroes_both_scores(monkeypatch):
+    """리랭커 폴백은 raw/ranking 둘 다 0.0 (리랭킹 미수행 신호 — τ 진단도 폴백 인지)."""
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return [_hit("c1", "a", 0.9)]
+
+    class _R:
+        def rerank(self, q, cands):
+            raise RuntimeError("OOM")
+
+    _patch(monkeypatch, fake_search, _R())
+    out = await retrieve_node({"refined_query": "q", "domains": []})
+    doc = out["documents"][0]
+    assert doc.rerank_score == 0.0
+    assert doc.raw_rerank_score == 0.0
+
+
+@pytest.mark.asyncio
+async def test_node_maps_lineage_meta_fields(monkeypatch):
+    """payload의 버전 계보 메타(#94)가 SourceDocument로 매핑된다."""
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return [_hit("c1", "a", 0.9, site="apache", product_version="2.2", doc_key="apache:cn", is_eol=True)]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.5, p) for _, p in cands]
+
+    _patch(monkeypatch, fake_search, _R())
+    out = await retrieve_node({"refined_query": "q", "domains": []})
+    doc = out["documents"][0]
+    assert doc.chunk_id == "c1"
+    assert doc.site == "apache"
+    assert doc.product_version == "2.2"
+    assert doc.doc_key == "apache:cn"
+    assert doc.is_eol is True
 
 
 @pytest.mark.asyncio

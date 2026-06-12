@@ -106,10 +106,12 @@ class Settings(BaseSettings):
 
     # ── Trust Agent (Evidence Confidence, P1) ──
     trust_max_retries: int = Field(default=1, ge=0)  # 재검색 최대 횟수 (무한루프 방지)
-    # 재검색 트리거 τ (#A calibrate_answerability 보정값; top rerank<floor → 재검색)
-    # 118문항 재보정값(#81) — eval_retrieval.ANSWERABILITY_FLOOR 와 동일 유지.
-    # near-miss 티어 도입으로 0.4641→1.0018 상승: 경계선 검색 품질에서 재검색이 더 자주 발동한다.
-    trust_rerank_floor: float = Field(default=1.0018, ge=0.0)
+    # 재검색 트리거 τ (calibrate_answerability 보정값; top raw rerank<floor → 재검색)
+    # #103 점수 분리: τ 비교가 부스트 합산 점수 → **raw 점수 [0,1]** 기준으로 바뀌면서 재보정.
+    # (구 1.0018은 부스트가 섞인 스케일 — sigmoid [0,1]에서 1 초과는 부스트 합산으로만 가능했다.)
+    # 114문항·재색인 코퍼스 보정: Youden 최대, precision 1.000 / recall 0.704.
+    # eval_retrieval.ANSWERABILITY_FLOOR 와 동일 유지. 골든셋·코퍼스·리랭커 갱신 시 재보정.
+    trust_rerank_floor: float = Field(default=0.8681, ge=0.0)
     trust_min_docs: int = Field(default=1, ge=0)
     # Evidence Confidence 5축 가중치 (기본 합 1.0).
     #   env로 덮어써 합이 1.0이 아니어도 score_trust()가 wsum으로 나눠 자동 정규화하므로 동작은 정상이다.
@@ -135,10 +137,26 @@ class Settings(BaseSettings):
     )
     lineage_cache_ttl_seconds: int = Field(default=300, ge=0)  # 0이면 계보 캐시 비활성
 
-    @field_validator("eol_versions", mode="before")
+    # ── 랭킹 부스트 (#103, 설계 7장 — per-doc 신뢰 신호의 랭킹 흡수) ──
+    # 가산식(기존 recency·domain 부스트와 동일 계약) — 정렬 키(ranking)에만 더하고
+    # raw 점수(τ 진단)는 오염시키지 않는다.
+    rank_version_weight: float = Field(default=0.1, ge=0.0)  # version_fit 가산 계수
+    rank_authority_weight: float = Field(default=0.05, ge=0.0)  # site tier 가산 계수
+    # site 권위 등급 — 현 코퍼스는 전부 공식 문서라 변별력 없음(어댑터 자리, 설계 4.3).
+    # 사내 Confluence 전환 시 space 등급·verified 라벨이 이 자리를 채운다.
+    site_tier: dict[str, float] = Field(
+        default_factory=lambda: {"apache": 1.0, "kubernetes": 1.0, "prometheus": 1.0, "datadog": 1.0}
+    )
+    site_tier_default: float = Field(default=1.0, ge=0.0, le=1.0)  # 미등록 site(내부 문서 등) 중립
+    # 다버전 site 목록 — 단일 계보로 보이면 doc_key 정규화 실패 의심 → 보수 캡 적용 대상
+    multi_version_sites: list[str] = Field(default_factory=lambda: ["apache", "kubernetes"])
+    trust_eol_cap: float = Field(default=0.3, ge=0.0, le=1.0)  # EOL 버전 version_fit 상한
+    trust_single_lineage_cap: float = Field(default=0.7, ge=0.0, le=1.0)  # 다버전 site 단일계보 보수 캡
+
+    @field_validator("eol_versions", "site_tier", "multi_version_sites", mode="before")
     @classmethod
     def _parse_json_env(cls, v: object) -> object:
-        # env var는 문자열로 들어오므로 JSON 파싱 (dict 기본값/직접 주입은 그대로 통과)
+        # env var는 문자열로 들어오므로 JSON 파싱 (dict/list 기본값·직접 주입은 그대로 통과)
         return json.loads(v) if isinstance(v, str) else v
 
     model_config = {

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-12T02:56:53.217071+00:00",
+  "generated_at": "2026-06-12T09:16:22.288556+00:00",
   "n": 81,
   "config": {
     "top_k": 20,
@@ -8,7 +8,7 @@
     "reranker_model": "BAAI/bge-reranker-v2-m3",
     "corpus": {
       "collection": "onramp",
-      "points_count": 6232
+      "points_count": 6235
     }
   },
   "dense": {
@@ -18,15 +18,15 @@
     "ndcg@10": 0.4484
   },
   "rerank": {
-    "hit_rate@5": 0.6296,
-    "mrr@10": 0.5292,
-    "recall@5": 0.5874,
-    "ndcg@10": 0.5334
+    "hit_rate@5": 0.6173,
+    "mrr@10": 0.5422,
+    "recall@5": 0.5813,
+    "ndcg@10": 0.5273
   },
   "answerability": {
-    "accuracy": 0.7982,
-    "precision": 0.9833,
-    "recall": 0.7284,
-    "f1": 0.8369
+    "accuracy": 0.7895,
+    "precision": 1.0,
+    "recall": 0.7037,
+    "f1": 0.8261
   }
 }

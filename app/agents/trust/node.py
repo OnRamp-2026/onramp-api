@@ -43,7 +43,7 @@ def _conflicting(documents: list[SourceDocument], gap: float, floor: float) -> b
     by_page: dict[str, float] = {}
     for d in documents:
         if d.page_id:
-            by_page[d.page_id] = max(by_page.get(d.page_id, d.rerank_score), d.rerank_score)
+            by_page[d.page_id] = max(by_page.get(d.page_id, d.raw_rerank_score), d.raw_rerank_score)
     tops = sorted(by_page.values(), reverse=True)
     return len(tops) >= 2 and tops[1] >= floor and (tops[0] - tops[1]) < gap
 
@@ -99,14 +99,16 @@ def score_trust(documents: list[SourceDocument], settings: Settings) -> TrustOut
 def should_re_retrieve(documents: list[SourceDocument], settings: Settings, retry_count: int, max_retries: int) -> bool:
     """관련성/커버리지 기준 재검색 여부. retry 한도 초과 시 False(무한루프 방지).
 
-    주의: 리랭커 비활성(rerank_score=0.0) 환경에선 top<τ로 판정돼 1회 재검색이 유발될 수 있다
+    τ 비교는 raw 점수 기준 (#103 점수 분리) — 부스트 섞인 ranking 점수로 비교하면
+    "오래됐지만 정확한 문서"가 부스트를 못 받아 floor 미달로 오판된다.
+    주의: 리랭커 비활성(raw_rerank_score=0.0) 환경에선 top<τ로 판정돼 1회 재검색이 유발될 수 있다
     (max_retries로 상한). 운영 경로는 리랭커 활성 가정.
     """
     if retry_count >= max_retries:
         return False
     if not documents:
         return True
-    if max(d.rerank_score for d in documents) < settings.trust_rerank_floor:
+    if max(d.raw_rerank_score for d in documents) < settings.trust_rerank_floor:
         return True
     return len(documents) < settings.trust_min_docs
 

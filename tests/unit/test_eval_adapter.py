@@ -26,6 +26,8 @@ class _Embedder:
 @pytest.fixture
 def patch_embedder(monkeypatch):
     monkeypatch.setattr(adapter, "get_embedder", lambda *a, **k: _Embedder())
+    # rerank 모드의 계보 조회(Qdrant facet) 차단 — 전부 계보 없음(version_fit 중립)
+    monkeypatch.setattr(adapter, "get_lineages", lambda keys, **kw: {k: frozenset() for k in keys})
 
 
 async def test_dense_mode_orders_by_vector_score(monkeypatch, patch_embedder):
@@ -73,7 +75,10 @@ async def test_rerank_mode_reorders(monkeypatch, patch_embedder):
 
     result = await adapter.retrieve_for_eval("q", mode="rerank", top_n=2, settings=Settings())
     assert result.chunk_ids == ["c2", "c3"]  # rerank 점수 내림차순
-    assert result.top_score == pytest.approx(0.9)
+    # 점수 분리(#103): top_score는 부스트 합산(ranking), tau_score는 top_n 내 최대 raw
+    assert result.tau_score == pytest.approx(0.9)
+    assert result.raw_scores == pytest.approx((0.9, 0.5))
+    assert result.top_score >= 0.9  # ranking ≥ raw (가산식 부스트)
     assert result.n == 2
 
 
@@ -114,8 +119,9 @@ async def test_non_positive_top_raises(patch_embedder) -> None:
 
 
 def test_predicted_answerable() -> None:
-    r = RetrievalResult(chunk_ids=["c1"], top_score=0.5, n=1)
+    # τ 비교는 tau_score(rerank 모드=raw) 기준 (#103) — top_score(부스트 합산)가 아니라
+    r = RetrievalResult(chunk_ids=["c1"], top_score=0.7, n=1, tau_score=0.5)
     assert predicted_answerable(r, floor=0.4, min_docs=1) is True
-    assert predicted_answerable(r, floor=0.6, min_docs=1) is False  # 점수 미달
-    empty = RetrievalResult(chunk_ids=[], top_score=0.0, n=0)
+    assert predicted_answerable(r, floor=0.6, min_docs=1) is False  # raw 미달 (top_score 0.7이어도)
+    empty = RetrievalResult(chunk_ids=[], top_score=0.0, n=0, tau_score=0.0)
     assert predicted_answerable(empty, floor=0.0, min_docs=1) is False  # 문서 0

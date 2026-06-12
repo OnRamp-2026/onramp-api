@@ -14,15 +14,22 @@ filter_mode (도메인 필터 전략, None이면 config 기본=운영과 동일)
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import partial
 from typing import Literal
 
 import anyio
 
-from app.agents.retriever.rerank import apply_domain_weight, apply_metadata_weight, get_reranker
+from app.agents.retriever.rerank import (
+    apply_domain_weight,
+    apply_metadata_weight,
+    apply_ranking_boosts,
+    get_reranker,
+)
 from app.agents.retriever.search import FilterMode, search_with_mode
 from app.config import Settings, get_settings
 from app.rag.embedder import get_embedder
+from app.rag.lineage import get_lineages
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +93,11 @@ class RetrievalResult:
     """평가용 검색 결과."""
 
     chunk_ids: list[str]  # top_n, 순위 순
-    top_score: float  # 1위 점수 (rerank 모드=가중 rerank 점수 / dense 모드=vector score)
+    top_score: float  # 1위 정렬 점수 (rerank 모드=부스트 합산 ranking / dense 모드=vector+도메인 가산)
     n: int  # 반환된 문서 수
+    # 점수 분리 (#103): τ 진단은 raw 기준. dense 모드는 raw 부재 → tau_score=top_score(vector).
+    tau_score: float = 0.0  # answerability/재검색 τ와 비교할 점수 (rerank 모드=top_n 내 최대 raw)
+    raw_scores: tuple[float, ...] = field(default_factory=tuple)  # top_n raw, 순위(ranking) 순 — τ_strong/gap 보정용
 
 
 async def retrieve_for_eval(
@@ -100,8 +110,10 @@ async def retrieve_for_eval(
     top_n: int | None = None,
     settings: Settings | None = None,
 ) -> RetrievalResult:
-    """query를 검색해 ranked chunk_id와 1위 점수를 반환한다 (retrieve_node와 동일 코어).
+    """query를 검색해 ranked chunk_id와 점수를 반환한다 (retrieve_node와 동일 코어).
 
+    rerank 모드는 운영 경로와 동일한 부스트 체인(최신성·도메인·버전·권위, #103)으로 정렬하되
+    raw 점수를 분리 보존한다. dense 모드는 진단용 baseline — vector+도메인 가산만(역사적 비교 유지).
     domains: 질의 도메인 집합(순서 우선). soft 가산이 문서 단일 domain을 이 집합과 비교한다.
     """
     settings = settings or get_settings()
@@ -118,14 +130,40 @@ async def retrieve_for_eval(
 
     results = [(point.score, point.payload or {}) for point in hits]
 
-    # rerank 모드는 도메인 가산 전 base(rerank+최신성)를 만든 뒤 도메인 가산. dense는 vector score가 base.
-    base = results if mode == "dense" else await _rerank_base(query, results, settings)
-    ranked = _soft_ranked(base, domains, settings)
+    if mode == "dense":
+        ranked = _soft_ranked(results, domains, settings)[:top_n]
+        chunk_ids = [payload.get("chunk_id", "") for _, payload in ranked if payload.get("chunk_id")]
+        top_score = ranked[0][0] if ranked else 0.0
+        return RetrievalResult(chunk_ids=chunk_ids, top_score=top_score, n=len(chunk_ids), tau_score=top_score)
 
-    top = ranked[:top_n]
-    chunk_ids = [payload.get("chunk_id", "") for _, payload in top if payload.get("chunk_id")]
-    top_score = top[0][0] if top else 0.0
-    return RetrievalResult(chunk_ids=chunk_ids, top_score=top_score, n=len(chunk_ids))
+    # rerank 모드 — 운영(retrieve_node)과 동일: raw 리랭킹 → 계보 조회 → 부스트 체인 정렬
+    doc_keys = [payload.get("doc_key", "") or "" for _, payload in results]
+    lineages = await anyio.to_thread.run_sync(partial(get_lineages, doc_keys, settings=settings))
+    candidates = [(payload.get("content", ""), payload) for _, payload in results]
+    try:
+        reranked = await anyio.to_thread.run_sync(get_reranker().rerank, query, candidates)
+        rows = [
+            (apply_ranking_boosts(raw, payload, domains, lineages, [], settings), raw, payload)
+            for raw, payload in reranked
+        ]
+    except Exception as exc:  # 리랭커 실패 → vector 폴백 (운영 _vector_fallback 동일: raw=0.0)
+        logger.warning("리랭커 실패로 dense 폴백: %s", exc, exc_info=True)
+        rows = [
+            (apply_ranking_boosts(vec, payload, domains, lineages, [], settings), 0.0, payload)
+            for vec, payload in results
+        ]
+    rows.sort(key=lambda item: item[0], reverse=True)
+
+    top = rows[:top_n]
+    chunk_ids = [payload.get("chunk_id", "") for _, _, payload in top if payload.get("chunk_id")]
+    raw_scores = tuple(raw for _, raw, _ in top)
+    return RetrievalResult(
+        chunk_ids=chunk_ids,
+        top_score=top[0][0] if top else 0.0,
+        n=len(chunk_ids),
+        tau_score=max(raw_scores, default=0.0),  # Trust should_re_retrieve와 동일: top_n 내 최대 raw
+        raw_scores=raw_scores,
+    )
 
 
 async def ranked_chunk_ids(
@@ -146,9 +184,9 @@ async def ranked_chunk_ids(
 
 
 def predicted_answerable(result: RetrievalResult, *, floor: float, min_docs: int) -> bool:
-    """결정론 answerable 예측 — 1위 점수가 floor 이상이고 문서 수가 min_docs 이상.
+    """결정론 answerable 예측 — τ 비교 점수(tau_score)가 floor 이상이고 문서 수가 min_docs 이상.
 
-    floor(τ)는 reranker 점수 분포에 의존 → 베이스라인 측정 후 보정한다.
-    이 신호를 #B Trust 재검색 트리거가 재사용한다.
+    tau_score는 rerank 모드에선 raw 점수(#103 점수 분리 — Trust should_re_retrieve와 동일 신호),
+    dense 모드에선 vector top 점수. floor(τ)는 점수 분포에 의존 → calibrate_answerability.py로 보정.
     """
-    return result.n >= min_docs and result.top_score >= floor
+    return result.n >= min_docs and result.tau_score >= floor

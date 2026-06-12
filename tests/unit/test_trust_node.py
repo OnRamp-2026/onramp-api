@@ -13,8 +13,16 @@ _OLD = (datetime.now(UTC) - timedelta(days=3000)).isoformat()
 
 
 def _doc(rerank=0.5, page_id="p1", last_modified=_RECENT, h="h1", content="내용") -> SourceDocument:
+    # τ 진단은 raw 기준(#103 점수 분리) — 테스트 의도는 "리랭커 점수"이므로 raw에 싣고,
+    # ranking(rerank_score)은 운영처럼 부스트가 섞였다고 가정해 약간 크게 둔다.
     return SourceDocument(
-        title="t", content_snippet=content, rerank_score=rerank, page_id=page_id, last_modified=last_modified, hash=h
+        title="t",
+        content_snippet=content,
+        rerank_score=rerank + 0.1,
+        raw_rerank_score=rerank,
+        page_id=page_id,
+        last_modified=last_modified,
+        hash=h,
     )
 
 

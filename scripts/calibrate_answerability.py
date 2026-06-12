@@ -29,24 +29,32 @@ logger = logging.getLogger(__name__)
 SweepRow = tuple[float, AnswerabilitySummary, float]  # (τ, 지표, Youden)
 
 
-async def _collect(golden, top_k, top_n) -> list[tuple[float, bool, int]]:
-    """(top_score, is_answerable, n_docs) 수집 (rerank 모드)."""
-    rows: list[tuple[float, bool, int]] = []
+async def _collect(golden, top_k, top_n) -> list[tuple[float, bool, int, tuple[float, ...]]]:
+    """(tau_score, is_answerable, n_docs, raw_scores) 수집 (rerank 모드).
+
+    tau_score = top_n 내 최대 raw 점수 (#103 점수 분리 — Trust should_re_retrieve와 동일 신호).
+    raw_scores는 τ_strong/gap_strong(waiver, 설계 4.4) 후보 산출용.
+    """
+    rows: list[tuple[float, bool, int, tuple[float, ...]]] = []
     for g in golden:
-        r = await retrieve_for_eval(g.query, mode="rerank", domains=[g.domain] if g.domain else None, top_k=top_k, top_n=top_n)
-        rows.append((r.top_score, g.is_answerable, r.n))
+        r = await retrieve_for_eval(
+            g.query, mode="rerank", domains=[g.domain] if g.domain else None, top_k=top_k, top_n=top_n
+        )
+        rows.append((r.tau_score, g.is_answerable, r.n, r.raw_scores))
     return rows
 
 
-def _sweep(rows: list[tuple[float, bool, int]], min_docs: int) -> tuple[list[SweepRow], tuple | None]:
-    labels = [ans for _, ans, _ in rows]
-    scores = sorted({s for s, _, _ in rows})
+def _sweep(
+    rows: list[tuple[float, bool, int, tuple[float, ...]]], min_docs: int
+) -> tuple[list[SweepRow], tuple | None]:
+    labels = [ans for _, ans, _, _ in rows]
+    scores = sorted({s for s, _, _, _ in rows})
     # 후보 τ: 관측 점수들 사이 midpoint + 양 끝
     cands = [scores[0] - 1e-6] + [(scores[i] + scores[i + 1]) / 2 for i in range(len(scores) - 1)]
     best = None
     table = []
     for tau in cands:
-        preds = [(s >= tau and n >= min_docs) for s, _, n in rows]
+        preds = [(s >= tau and n >= min_docs) for s, _, n, _ in rows]
         m = answerability_accuracy(preds, labels)
         fpr = m.fp / (m.fp + m.tn) if (m.fp + m.tn) else 0.0
         youden = m.recall - fpr  # TPR - FPR
@@ -57,18 +65,45 @@ def _sweep(rows: list[tuple[float, bool, int]], min_docs: int) -> tuple[list[Swe
     return table, best
 
 
+def _percentile(sorted_values: list[float], p: float) -> float:
+    """단순 percentile (선형 보간 없음 — 후보 제시용이라 충분)."""
+    if not sorted_values:
+        return 0.0
+    idx = min(len(sorted_values) - 1, int(round(p * (len(sorted_values) - 1))))
+    return sorted_values[idx]
+
+
+def _print_strong_candidates(rows: list[tuple[float, bool, int, tuple[float, ...]]]) -> None:
+    """strong-single-topic waiver(설계 4.4)의 τ_strong/gap_strong 후보 산출.
+
+    τ_strong 하한 = unanswerable의 최대 raw top1 (이를 넘어야 오답 waiver 통과가 없다).
+    gap_strong 후보 = answerable 질의의 (raw top1 − raw top2) 분포 percentile.
+    """
+    neg_top1 = [max(raws) for _, ans, _, raws in rows if not ans and raws]
+    pos_gaps = sorted(max(raws) - sorted(raws, reverse=True)[1] for _, ans, _, raws in rows if ans and len(raws) >= 2)
+    print("\n[strong-single-topic waiver 후보 — trust_tau_strong / trust_gap_strong]")
+    if neg_top1:
+        print(f"  unanswerable raw top1 최대 = {max(neg_top1):.4f} → τ_strong은 이보다 커야 안전")
+    if pos_gaps:
+        print(
+            f"  answerable (top1−top2) raw 격차: p25={_percentile(pos_gaps, 0.25):.4f}  "
+            f"p50={_percentile(pos_gaps, 0.50):.4f}  p75={_percentile(pos_gaps, 0.75):.4f}"
+        )
+    print("  → waiver는 미발동 시 비효율(재검색 1회)로 퇴행할 뿐 오답이 아님 — 보수적으로(높게) 시작")
+
+
 async def run(args) -> None:
     golden = load_golden_set(args.queries, args.qrels)
     ans = sum(1 for g in golden if g.is_answerable)
     logger.info("골든셋 %d (answerable %d / unanswerable %d)", len(golden), ans, len(golden) - ans)
 
     rows = await _collect(golden, args.top_k, args.top_n)
-    pos = [s for s, a, _ in rows if a]
-    neg = [s for s, a, _ in rows if not a]
+    pos = [s for s, a, _, _ in rows if a]
+    neg = [s for s, a, _, _ in rows if not a]
     if not pos:
         logger.error("골든셋에 answerable 쿼리가 없습니다 — 보정 불가")
         return
-    print("\n[top_score 분포]")
+    print("\n[tau_score(raw) 분포]")
     print(f"  answerable   n={len(pos)}  min={min(pos):.3f}  mean={sum(pos) / len(pos):.3f}  max={max(pos):.3f}")
     if neg:
         print(f"  unanswerable n={len(neg)}  min={min(neg):.3f}  mean={sum(neg) / len(neg):.3f}  max={max(neg):.3f}")
@@ -84,6 +119,9 @@ async def run(args) -> None:
         f"\n권장 τ = {tau:.4f}  (Youden={y:+.3f}, acc={m.accuracy:.3f}, prec={m.precision:.3f}, recall={m.recall:.3f})"
     )
     print(f"  → eval_retrieval.py --ans-floor {tau:.4f}  (또는 ANSWERABILITY_FLOOR 기본값으로 반영)")
+    print("  → config.trust_rerank_floor 도 동일 값으로 갱신 (raw [0,1] 스케일, #103 점수 분리)")
+
+    _print_strong_candidates(rows)
 
 
 def main() -> None:
