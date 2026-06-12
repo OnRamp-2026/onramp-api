@@ -79,7 +79,38 @@ async def test_fetch_recent_pages_reads_storage_body() -> None:
     assert pages[0].version == 7
     assert pages[0].url == "https://example.atlassian.net/wiki/spaces/TRUSTRAG/pages/123/API+Runbook"
     assert fake_client.requests[0]["url"] == "https://example.atlassian.net/wiki/rest/api/content/search"
-    assert fake_client.requests[0]["params"]["expand"] == "body.storage,version,space"
+    assert fake_client.requests[0]["params"]["expand"] == "body.storage,version,space,metadata.labels"
+    assert pages[0].labels == ()  # metadata 부재 → 빈 튜플 (방어)
+
+
+async def test_fetch_pages_extracts_labels() -> None:
+    payload = {
+        "results": [
+            {
+                "id": "124",
+                "title": "Content Negotiation [a78792-639072]",
+                "space": {"key": "TRUSTRAG"},
+                "body": {"storage": {"value": "<p>doc</p>"}},
+                "version": {"when": "2026-05-25T10:00:00.000+0900", "number": 1},
+                "metadata": {
+                    "labels": {
+                        "results": [
+                            {"name": "auto-imported"},
+                            {"name": "site-apache"},
+                            {"name": "version-2-4"},
+                            {"name": ""},  # 빈 이름은 제외
+                        ]
+                    }
+                },
+                "_links": {"webui": "/spaces/TRUSTRAG/pages/124/CN"},
+            }
+        ]
+    }
+    client = ConfluenceClient(settings=_settings(), client=FakeAsyncClient(payload))  # type: ignore[arg-type]
+
+    pages = await client.fetch_recent_pages(hours=1, limit=10)
+
+    assert pages[0].labels == ("auto-imported", "site-apache", "version-2-4")
 
 
 async def test_update_page_writes_next_version() -> None:

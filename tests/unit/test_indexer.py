@@ -22,6 +22,10 @@ def _child(chunk_id: str, content: str = "내용") -> ChildChunk:
         last_modified="2026-06-01T00:00:00Z",
         hash="h",
         domain="장애대응",
+        site="apache",
+        product_version="2.2",
+        doc_key="apache:content-negotiation",
+        is_eol=True,
     )
 
 
@@ -73,6 +77,11 @@ async def test_index_children_upserts_with_clean_payload():
     payload = client.upserted[0].payload
     assert payload["content"] == "내용"
     assert payload["domain"] == "장애대응"
+    # 버전 계보 메타 (#94) — asdict 흐름으로 payload에 포함
+    assert payload["site"] == "apache"
+    assert payload["product_version"] == "2.2"
+    assert payload["doc_key"] == "apache:content-negotiation"
+    assert payload["is_eol"] is True
     assert "content_vector" not in payload
     assert "embedding_text" not in payload
     assert len(client.upserted[0].vector) == 3

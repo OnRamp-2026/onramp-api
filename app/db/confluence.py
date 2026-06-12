@@ -27,6 +27,7 @@ class ConfluencePage:
     last_modified: str
     version: int | None
     url: str
+    labels: tuple[str, ...] = ()  # 크롤러 업로더가 남긴 라벨 (site-*, version-* 등)
 
 
 class ConfluenceClient:
@@ -118,7 +119,7 @@ class ConfluenceClient:
         seen_page_ids: set[str] = set()
         params: dict[str, Any] = {
             "cql": cql,
-            "expand": "body.storage,version,space",
+            "expand": "body.storage,version,space,metadata.labels",
             "limit": min(limit, 50),
         }
 
@@ -198,6 +199,7 @@ class ConfluenceClient:
         storage = body.get("storage", {})
         version = content.get("version", {})
         space = content.get("space", {})
+        label_results = (content.get("metadata") or {}).get("labels", {}).get("results", [])
         return ConfluencePage(
             page_id=str(content.get("id", "")),
             title=content.get("title", ""),
@@ -206,6 +208,7 @@ class ConfluenceClient:
             last_modified=version.get("when", ""),
             version=version.get("number"),
             url=self._build_page_url(content, result),
+            labels=tuple(r.get("name", "") for r in label_results if r.get("name")),
         )
 
     def _build_page_url(self, content: dict[str, Any], result: dict[str, Any]) -> str:

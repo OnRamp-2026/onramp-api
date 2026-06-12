@@ -53,3 +53,17 @@ def test_reranker_backend_literal_and_onnx_requires_dir(tmp_path):
         )  # 파일 미존재 → 거부
     with pytest.raises(ValidationError):
         Settings(reranker_backend="onnnx")  # 오타 → Literal 거부
+
+
+def test_eol_versions_defaults_and_json_env_parsing():
+    """eol_versions는 dict 기본값을 갖고, env(JSON 문자열) 주입도 파싱된다 (#94)."""
+    s = Settings()
+    assert "2.2" in s.eol_versions["apache"]
+    assert "v1.18" in s.eol_versions["kubernetes"]
+
+    overridden = Settings(eol_versions='{"apache": ["2.0"]}')
+    assert overridden.eol_versions == {"apache": ["2.0"]}
+
+    assert Settings(lineage_cache_ttl_seconds=0).lineage_cache_ttl_seconds == 0
+    with pytest.raises(ValidationError):
+        Settings(lineage_cache_ttl_seconds=-1)

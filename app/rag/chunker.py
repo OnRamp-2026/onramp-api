@@ -74,6 +74,11 @@ class MarkdownPage:
     source_url: str = ""
     space_key: str = "OnRamp"
     last_modified: str = ""
+    # 버전 계보 메타 (#94 — Confluence 라벨 파생, app/rag/labels.py)
+    site: str = ""
+    product_version: str = ""
+    doc_key: str = ""
+    is_eol: bool = False
 
 
 @dataclass(frozen=True)
@@ -135,6 +140,11 @@ class ChildChunk:
     has_table: bool = False
     has_list: bool = False
     code_languages: list[str] | None = None
+    # 버전 계보 메타 (#94) — Qdrant payload로 그대로 흘러간다 (indexer._payload는 asdict)
+    site: str = ""
+    product_version: str = ""
+    doc_key: str = ""  # 버전 형제 묶음 키 (빈 값 = 계보 없음)
+    is_eol: bool = False
     content_vector: list[float] | None = None
 
 
@@ -401,6 +411,10 @@ class SemanticChunker:
                     has_table="table" in block_types,
                     has_list="list" in block_types,
                     code_languages=code_languages,
+                    site=page.site,
+                    product_version=page.product_version,
+                    doc_key=page.doc_key,
+                    is_eol=page.is_eol,
                 )
             )
             previous_tail = content

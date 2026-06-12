@@ -27,8 +27,18 @@ async def check_qdrant() -> bool:
         return False
 
 
+# 필터/facet 검색용 keyword payload index 대상 (#94: 버전 계보 메타 추가)
+_KEYWORD_INDEX_FIELDS = ("domain", "doc_key", "product_version", "site")
+
+
+def _ensure_payload_indexes(client: QdrantClient, name: str) -> None:
+    """keyword payload index 멱등 생성 — 기존 컬렉션에도 안전하게 재적용 가능."""
+    for field in _KEYWORD_INDEX_FIELDS:
+        client.create_payload_index(name, field_name=field, field_schema=PayloadSchemaType.KEYWORD)
+
+
 def ensure_collection(client: QdrantClient | None = None, settings: Settings | None = None) -> None:
-    """컬렉션 멱등 생성 + domain payload index. 차원 불일치 시 에러."""
+    """컬렉션 멱등 생성 + payload index. 차원 불일치 시 에러."""
     client = client or get_qdrant()
     settings = settings or get_settings()
     name = settings.qdrant_collection
@@ -44,14 +54,14 @@ def ensure_collection(client: QdrantClient | None = None, settings: Settings | N
                 f"컬렉션 '{name}' 차원 불일치: 기존 {vectors.size} != 설정 {settings.embedding_dim} "
                 "(임베딩 모델 변경 시 재색인 필요)"
             )
+        _ensure_payload_indexes(client, name)  # 기존 컬렉션에 신규 index 소급 적용 (멱등)
         return
 
     client.create_collection(
         collection_name=name,
         vectors_config=VectorParams(size=settings.embedding_dim, distance=Distance.COSINE),
     )
-    # domain 필터 검색용 keyword index
-    client.create_payload_index(name, field_name="domain", field_schema=PayloadSchemaType.KEYWORD)
+    _ensure_payload_indexes(client, name)
 
 
 def close_qdrant() -> None:

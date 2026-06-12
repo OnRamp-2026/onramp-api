@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from app.config import Settings, get_settings
 from app.db.confluence import ConfluenceClient, ConfluencePage
 from app.rag.chunker import ChildChunk, ControlDocChunker, MarkdownPage, ParentChunk, SemanticChunker
 from app.rag.classifier import ChunkMetadataClassifier, DocumentProfileClassifier
 from app.rag.cleaner import TextCleaner
+from app.rag.labels import is_eol, make_doc_key, parse_product_version, parse_site
 from app.rag.masker import MarkdownMasker
 
 
@@ -23,6 +25,11 @@ class CleanedConfluencePage:
     last_modified: str
     version: int | None
     url: str
+    # 버전 계보 메타 (#94 — 라벨 파생, ChildChunk까지 관통해 Qdrant payload가 된다)
+    site: str = ""
+    product_version: str = ""
+    doc_key: str = ""
+    is_eol: bool = False
 
 
 @dataclass(frozen=True)
@@ -46,6 +53,7 @@ class IngestService:
         control_chunker: ControlDocChunker | None = None,
         profile_classifier: DocumentProfileClassifier | None = None,
         metadata_classifier: ChunkMetadataClassifier | None = None,
+        settings: Settings | None = None,
     ) -> None:
         self.confluence = confluence or ConfluenceClient()
         self.cleaner = cleaner or TextCleaner()
@@ -54,6 +62,7 @@ class IngestService:
         self.control_chunker = control_chunker or ControlDocChunker()
         self.profile_classifier = profile_classifier or DocumentProfileClassifier()
         self.metadata_classifier = metadata_classifier or ChunkMetadataClassifier()
+        self.settings = settings or get_settings()
 
     # ── recent (증분, lastmodified 기준) ──────────────────────────────────
     async def clean_recent_pages(self, hours: int = 24, limit: int = 50) -> list[CleanedConfluencePage]:
@@ -98,19 +107,26 @@ class IngestService:
 
     # ── recent/all 공통 변환부 (fetch만 다르고 이하 동일) ─────────────────
     def _clean(self, pages: list[ConfluencePage]) -> list[CleanedConfluencePage]:
-        return [
-            CleanedConfluencePage(
-                page_id=page.page_id,
-                title=page.title,
-                space_key=page.space_key,
-                markdown=self.cleaner.clean(page.html),
-                html=page.html,
-                last_modified=page.last_modified,
-                version=page.version,
-                url=page.url,
-            )
-            for page in pages
-        ]
+        return [self._clean_page(page) for page in pages]
+
+    def _clean_page(self, page: ConfluencePage) -> CleanedConfluencePage:
+        # 라벨 → 버전 계보 메타 파생 (페이지당 1회). 라벨 없는 페이지는 전부 빈 값 → 중립 동작.
+        site = parse_site(page.labels)
+        product_version = parse_product_version(page.labels)
+        return CleanedConfluencePage(
+            page_id=page.page_id,
+            title=page.title,
+            space_key=page.space_key,
+            markdown=self.cleaner.clean(page.html),
+            html=page.html,
+            last_modified=page.last_modified,
+            version=page.version,
+            url=page.url,
+            site=site,
+            product_version=product_version,
+            doc_key=make_doc_key(site, page.title),
+            is_eol=is_eol(site, product_version, self.settings.eol_versions),
+        )
 
     def _chunk(self, cleaned_pages: list[CleanedConfluencePage]) -> list[ChunkedConfluencePage]:
         return [self._chunk_cleaned_page(self._mask_page(page)) for page in cleaned_pages]
@@ -136,16 +152,7 @@ class IngestService:
         return prepared_pages
 
     def _mask_page(self, page: CleanedConfluencePage) -> CleanedConfluencePage:
-        return CleanedConfluencePage(
-            page_id=page.page_id,
-            title=page.title,
-            space_key=page.space_key,
-            markdown=self.masker.mask(page.markdown),
-            html=page.html,
-            last_modified=page.last_modified,
-            version=page.version,
-            url=page.url,
-        )
+        return replace(page, markdown=self.masker.mask(page.markdown))
 
     def _chunk_cleaned_page(
         self, page: CleanedConfluencePage, chunking_profile: str = "runbook_like"
@@ -157,6 +164,10 @@ class IngestService:
             source_url=page.url,
             space_key=page.space_key,
             last_modified=page.last_modified,
+            site=page.site,
+            product_version=page.product_version,
+            doc_key=page.doc_key,
+            is_eol=page.is_eol,
         )
         chunker = self.control_chunker if chunking_profile == "control_like" else self.chunker
         parents, children = chunker.chunk(markdown_page)

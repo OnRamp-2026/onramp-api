@@ -171,3 +171,64 @@ async def test_prepare_all_pages_for_embedding_masks_and_classifies_chunks() -> 
     assert "abc.def.ghi1234567890" not in embedding_text
     assert "[MASKED_TOKEN]" in embedding_text
     assert all(child.tags for child in pages[0].children)
+
+
+# ── 버전 계보 메타 관통 (#94) ────────────────────────────────────────
+
+
+class FakeLabeledConfluenceClient:
+    async def fetch_all_pages(self, limit: int) -> list[ConfluencePage]:
+        return [
+            ConfluencePage(
+                page_id="777",
+                title="Content Negotiation [a78792-639072]",
+                space_key="OnRamp",
+                html="<main><h1>Content Negotiation</h1><p>Apache negotiates content.</p></main>",
+                last_modified="2026-05-25T10:00:00.000+0900",
+                version=1,
+                url="https://example.atlassian.net/wiki/spaces/OnRamp/pages/777/CN",
+                labels=("auto-imported", "site-apache", "version-2-2", "category-root", "source-web"),
+            )
+        ]
+
+    async def fetch_recent_pages(self, hours: int, limit: int) -> list[ConfluencePage]:
+        return await self.fetch_all_pages(limit=limit)
+
+
+async def test_clean_derives_lineage_meta_from_labels() -> None:
+    # eol_versions 기본값에 apache 2.2가 포함 — is_eol까지 파생되는지 본다
+    service = IngestService(confluence=FakeLabeledConfluenceClient())  # type: ignore[arg-type]
+
+    pages = await service.clean_all_pages(limit=10)
+
+    page = pages[0]
+    assert page.site == "apache"
+    assert page.product_version == "2.2"
+    assert page.doc_key == "apache:content-negotiation"
+    assert page.is_eol is True
+
+
+async def test_lineage_meta_flows_to_child_chunks() -> None:
+    service = IngestService(confluence=FakeLabeledConfluenceClient())  # type: ignore[arg-type]
+
+    pages = await service.prepare_all_pages_for_embedding(limit=10)
+
+    children = pages[0].children
+    assert children
+    assert all(child.site == "apache" for child in children)
+    assert all(child.product_version == "2.2" for child in children)
+    assert all(child.doc_key == "apache:content-negotiation" for child in children)
+    assert all(child.is_eol is True for child in children)
+
+
+async def test_unlabeled_pages_get_neutral_lineage_meta() -> None:
+    # 라벨 없는 페이지(내부 시드 문서 등) → 전부 빈 값/False — 중립 동작 보장
+    service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
+
+    pages = await service.prepare_all_pages_for_embedding(limit=10)
+
+    children = pages[0].children
+    assert all(child.site == "" for child in children)
+    assert all(child.product_version == "" for child in children)
+    assert all(child.doc_key == "" for child in children)
+    assert all(child.is_eol is False for child in children)
