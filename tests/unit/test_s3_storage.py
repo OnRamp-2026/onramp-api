@@ -43,6 +43,7 @@ async def test_s3_storage_presigns_exact_key_and_content_type() -> None:
     )
 
     assert upload.method == "PUT"
+    assert upload.url == "https://storage.test/signed"
     assert upload.headers == {"Content-Type": "audio/mp4"}
     assert client.presign_call == (
         "put_object",

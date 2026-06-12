@@ -103,7 +103,9 @@ async def create_workflow(
 ) -> tuple[WorkflowCreation, bool]:
     if re.fullmatch(r"[0-9A-Za-z_-]+", tenant_id) is None:
         raise OnRampError("유효하지 않은 tenant 식별자입니다.", status_code=400)
-    normalized_key = (idempotency_key or "").strip() or None
+    normalized_key = idempotency_key.strip() if idempotency_key is not None else None
+    if idempotency_key is not None and not normalized_key:
+        raise OnRampError("Idempotency-Key는 공백일 수 없습니다.", status_code=400)
     if normalized_key:
         existing = await session.scalar(
             select(TranscriptionWorkflow).where(
@@ -277,9 +279,13 @@ def status_response(workflow: TranscriptionWorkflow) -> TranscriptionStatusRespo
     processed = workflow.completed_chunks + workflow.failed_chunks
     percent = round((processed / workflow.total_chunks) * 100, 2) if workflow.total_chunks else 0.0
     report_status = "not_started"
-    if workflow.status in {WorkflowStatus.report_queued, WorkflowStatus.report_processing}:
-        report_status = workflow.status.removeprefix("report_")
-    elif workflow.status in {WorkflowStatus.draft, WorkflowStatus.published, WorkflowStatus.report_failed}:
+    if workflow.status in {
+        WorkflowStatus.report_queued,
+        WorkflowStatus.report_processing,
+        WorkflowStatus.report_failed,
+    }:
+        report_status = workflow.status.value.removeprefix("report_")
+    elif workflow.status in {WorkflowStatus.draft, WorkflowStatus.published}:
         report_status = workflow.status.value
     return TranscriptionStatusResponse(
         transcription_id=workflow.transcription_id,

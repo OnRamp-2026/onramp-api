@@ -17,6 +17,7 @@ from app.services.transcription_service import (
     complete_upload,
     create_workflow,
     get_workflow,
+    status_response,
 )
 from app.storage.base import ObjectMetadata, PresignedUpload
 
@@ -330,3 +331,24 @@ async def test_get_workflow_enforces_tenant_ownership(
                 tenant_id="tenant-b",
                 transcription_id=UUID(str(created.workflow.transcription_id)),
             )
+
+
+def test_report_failed_status_is_normalized() -> None:
+    workflow = TranscriptionWorkflow(
+        transcription_id=UUID("00000000-0000-0000-0000-000000000001"),
+        tenant_id="tenant-a",
+        source_object_key="source",
+        source_filename="meeting.m4a",
+        source_content_type="audio/mp4",
+        source_size_bytes=1024,
+        title="장애 대응 회의",
+        language="ko-KR",
+        category="장애대응",
+        status=WorkflowStatus.report_failed,
+        total_chunks=0,
+        completed_chunks=0,
+        failed_chunks=0,
+        updated_at=datetime.now(UTC),
+    )
+
+    assert status_response(workflow).report.status == "failed"

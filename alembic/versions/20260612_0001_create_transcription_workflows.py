@@ -93,9 +93,16 @@ def upgrade() -> None:
     )
     op.create_index("ix_event_outbox_aggregate_id", "event_outbox", ["aggregate_id"])
     op.create_index("ix_event_outbox_available_at", "event_outbox", ["available_at"])
+    op.create_index(
+        "ix_event_outbox_pending",
+        "event_outbox",
+        ["available_at", "created_at"],
+        postgresql_where=sa.text("published_at IS NULL"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_index("ix_event_outbox_pending", table_name="event_outbox")
     op.drop_index("ix_event_outbox_available_at", table_name="event_outbox")
     op.drop_index("ix_event_outbox_aggregate_id", table_name="event_outbox")
     op.drop_table("event_outbox")

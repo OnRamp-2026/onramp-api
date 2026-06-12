@@ -103,6 +103,21 @@ async def test_create_transcription_returns_201_then_200_for_same_idempotency_ke
 
 
 @pytest.mark.asyncio
+async def test_create_transcription_rejects_blank_idempotency_key(
+    transcription_client: tuple[AsyncClient, FakeObjectStorage],
+) -> None:
+    client, _ = transcription_client
+
+    response = await client.post(
+        "/v1/transcriptions",
+        headers={"Idempotency-Key": "   "},
+        json=request_body(),
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_upload_complete_and_status_lookup(
     transcription_client: tuple[AsyncClient, FakeObjectStorage],
 ) -> None:
@@ -127,6 +142,32 @@ async def test_upload_complete_and_status_lookup(
     assert completed.json()["status"] == "queued"
     assert status.status_code == 200
     assert status.json()["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_upload_complete_rejects_metadata_mismatch_without_state_transition(
+    transcription_client: tuple[AsyncClient, FakeObjectStorage],
+) -> None:
+    client, storage = transcription_client
+    created = (await client.post("/v1/transcriptions", json=request_body())).json()
+    transcription_id = created["transcription_id"]
+    object_key = created["upload"]["url"].removeprefix("https://storage.test/")
+    storage.objects[object_key] = ObjectMetadata(
+        object_key=object_key,
+        size_bytes=1024,
+        content_type="audio/mp4",
+        etag='"etag-1"',
+    )
+
+    completed = await client.post(
+        f"/v1/transcriptions/{transcription_id}/upload-complete",
+        json={"etag": '"wrong-etag"', "size_bytes": 1024},
+    )
+    status = await client.get(f"/v1/transcriptions/{transcription_id}")
+
+    assert completed.status_code == 409
+    assert status.status_code == 200
+    assert status.json()["status"] == "awaiting_upload"
 
 
 @pytest.mark.asyncio

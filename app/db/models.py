@@ -10,6 +10,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     Enum,
+    Index,
     Integer,
     String,
     Text,
@@ -94,3 +95,12 @@ class EventOutbox(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        Index(
+            "ix_event_outbox_pending",
+            "available_at",
+            "created_at",
+            postgresql_where=published_at.is_(None),
+        ),
+    )
