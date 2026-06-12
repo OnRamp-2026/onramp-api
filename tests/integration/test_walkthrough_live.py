@@ -53,7 +53,9 @@ async def test_walkthrough_a_single_fact_version_query() -> None:
 
 async def test_walkthrough_b_comparison_keeps_both_versions() -> None:
     """B. 버전 비교 질의 — collapse 면제로 양 버전 잔류 + 회수율 coverage."""
-    r = await compiled_graph.ainvoke({"query": "Kubernetes 1.25와 1.33 각각에서 초기화 컨테이너 디버그하는 방법 알려줘"})
+    r = await compiled_graph.ainvoke(
+        {"query": "Kubernetes 1.25와 1.33 각각에서 초기화 컨테이너 디버그하는 방법 알려줘"}
+    )
 
     targets = r.get("target_versions", [])
     assert len(targets) == 2  # 비교 질의 추출
