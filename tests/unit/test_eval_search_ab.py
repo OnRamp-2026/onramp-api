@@ -92,6 +92,30 @@ def test_success_criteria_flags_multi_no_improvement():
     assert sc["multi_recall@5_improved"][0] is False
 
 
+# ── #5 과다예측 노이즈 기준 (Fix 4: Recall 무하락 + NDCG ≤2%p, 코호트 0건은 N/A) ──
+def test_noise_criterion_fails_when_spurious_secondary_worsens():
+    # 라우터가 router_domains에 없는 secondary를 더한 코호트에서 B가 Recall·NDCG 악화 → 두 기준 모두 실패
+    rows = [_row("d1", ["secondary_not_in_router_gold"], _m(1, 0.8, 0.6, 0.6), _m(1, 0.5, 0.5, 0.5))]
+    sc = _success_criteria(_aggregate(rows))
+    assert sc["secondary_overpred_noise_recall@5_no_drop"][0] is False
+    assert sc["secondary_overpred_noise_ndcg@10_within_2pp"][0] is False  # 0.5-0.6=-0.1 < -0.02
+
+
+def test_noise_criterion_is_na_when_no_overprediction():
+    rows = [_row("m1", ["router_multi"], _m(1, 0.6, 0.6, 0.6), _m(1, 0.6, 0.6, 0.6))]  # 노이즈 코호트 0건
+    sc = _success_criteria(_aggregate(rows))
+    assert sc["secondary_overpred_noise_recall@5_no_drop"] == ["N/A", None]  # 통과 아님, N/A
+    assert sc["secondary_overpred_noise_ndcg@10_within_2pp"] == ["N/A", None]
+
+
+# ── 판정은 raw float (Fix 2): 반올림하면 0이 되는 미세 하락도 실패로 잡힌다 ──
+def test_success_criteria_judges_on_raw_not_rounded():
+    # Δ = -0.00004 → 표시값 round(,4)=0.0 이지만 raw<0 → no_drop 실패여야 한다(경계값 뒤집힘 방지)
+    rows = [_row("d1", ["router_single"], _m(1, 0.10004, 0.6, 0.6), _m(1, 0.10000, 0.6, 0.6))]
+    sc = _success_criteria(_aggregate(rows))
+    assert sc["overall_recall@5_no_drop"][0] is False
+
+
 # ── 캐시 완전성 가드 ──
 def test_missing_predictions_detects_empty_cache():
     meta = CacheMeta("", "openai", "", "gpt-4o-mini", "abc", "1")
