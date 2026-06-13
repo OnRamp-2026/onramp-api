@@ -41,7 +41,7 @@ def _settings() -> Settings:
         confluence_base_url="https://example.atlassian.net",
         confluence_user_email="user@example.com",
         confluence_api_token="token",
-        confluence_space_key="TRUSTRAG",
+        confluence_space_key="OnRamp",
         confluence_timezone="Asia/Seoul",
     )
 
@@ -51,7 +51,7 @@ def test_build_recent_pages_cql_uses_space_and_since_time() -> None:
 
     cql = client._build_recent_pages_cql(datetime(2026, 5, 28, 12, 30))
 
-    assert cql == 'type = page AND space = "TRUSTRAG" AND lastmodified >= "2026-05-28 12:30" ORDER BY lastmodified DESC'
+    assert cql == 'type = page AND space = "OnRamp" AND lastmodified >= "2026-05-28 12:30" ORDER BY lastmodified DESC'
 
 
 async def test_fetch_recent_pages_reads_storage_body() -> None:
@@ -60,10 +60,10 @@ async def test_fetch_recent_pages_reads_storage_body() -> None:
             {
                 "id": "123",
                 "title": "API Runbook",
-                "space": {"key": "TRUSTRAG"},
+                "space": {"key": "OnRamp"},
                 "body": {"storage": {"value": "<main><h1>API Runbook</h1></main>"}},
                 "version": {"when": "2026-05-28T12:35:00.000+0900", "number": 7},
-                "_links": {"webui": "/spaces/TRUSTRAG/pages/123/API+Runbook"},
+                "_links": {"webui": "/spaces/OnRamp/pages/123/API+Runbook"},
             }
         ]
     }
@@ -77,7 +77,7 @@ async def test_fetch_recent_pages_reads_storage_body() -> None:
     assert pages[0].title == "API Runbook"
     assert pages[0].html == "<main><h1>API Runbook</h1></main>"
     assert pages[0].version == 7
-    assert pages[0].url == "https://example.atlassian.net/wiki/spaces/TRUSTRAG/pages/123/API+Runbook"
+    assert pages[0].url == "https://example.atlassian.net/wiki/spaces/OnRamp/pages/123/API+Runbook"
     assert fake_client.requests[0]["url"] == "https://example.atlassian.net/wiki/rest/api/content/search"
     assert fake_client.requests[0]["params"]["expand"] == "body.storage,version,space,metadata.labels"
     assert pages[0].labels == ()  # metadata 부재 → 빈 튜플 (방어)
@@ -89,7 +89,7 @@ async def test_fetch_pages_extracts_labels() -> None:
             {
                 "id": "124",
                 "title": "Content Negotiation [a78792-639072]",
-                "space": {"key": "TRUSTRAG"},
+                "space": {"key": "OnRamp"},
                 "body": {"storage": {"value": "<p>doc</p>"}},
                 "version": {"when": "2026-05-25T10:00:00.000+0900", "number": 1},
                 "metadata": {
@@ -102,7 +102,7 @@ async def test_fetch_pages_extracts_labels() -> None:
                         ]
                     }
                 },
-                "_links": {"webui": "/spaces/TRUSTRAG/pages/124/CN"},
+                "_links": {"webui": "/spaces/OnRamp/pages/124/CN"},
             }
         ]
     }
@@ -119,7 +119,7 @@ async def test_update_page_writes_next_version() -> None:
     page = ConfluencePage(
         page_id="123",
         title="API Runbook",
-        space_key="TRUSTRAG",
+        space_key="OnRamp",
         html="<h1>Old</h1>",
         last_modified="2026-05-28T12:35:00.000+0900",
         version=7,
@@ -142,7 +142,7 @@ async def test_fetch_candidate_pages_uses_title_order_not_recent_order() -> None
     await client.fetch_candidate_pages(limit=10)
 
     cql = fake_client.requests[0]["params"]["cql"]
-    assert cql == 'type = page AND space = "TRUSTRAG" ORDER BY title ASC, id ASC'
+    assert cql == 'type = page AND space = "OnRamp" ORDER BY title ASC, id ASC'
 
 
 async def test_fetch_all_pages_omits_lastmodified() -> None:
@@ -152,7 +152,7 @@ async def test_fetch_all_pages_omits_lastmodified() -> None:
     await client.fetch_all_pages(limit=10)
 
     cql = fake_client.requests[0]["params"]["cql"]
-    assert cql == 'type = page AND space = "TRUSTRAG" ORDER BY title ASC, id ASC'
+    assert cql == 'type = page AND space = "OnRamp" ORDER BY title ASC, id ASC'
     assert "lastmodified" not in cql
 
 
@@ -160,10 +160,10 @@ def _search_result(page_id: str) -> dict[str, Any]:
     return {
         "id": page_id,
         "title": f"Page {page_id}",
-        "space": {"key": "TRUSTRAG"},
+        "space": {"key": "OnRamp"},
         "body": {"storage": {"value": f"<p>{page_id}</p>"}},
         "version": {"when": "2026-06-10T00:00:00.000+0900", "number": 1},
-        "_links": {"webui": f"/spaces/TRUSTRAG/pages/{page_id}"},
+        "_links": {"webui": f"/spaces/OnRamp/pages/{page_id}"},
     }
 
 
@@ -236,7 +236,7 @@ async def test_search_breaks_when_cursor_stops_progressing() -> None:
 
 
 async def test_create_page_posts_storage_payload() -> None:
-    fake_client = FakeAsyncClient({"id": "999", "title": "보고서", "_links": {"webui": "/spaces/TRUSTRAG/pages/999"}})
+    fake_client = FakeAsyncClient({"id": "999", "title": "보고서", "_links": {"webui": "/spaces/OnRamp/pages/999"}})
     client = ConfluenceClient(settings=_settings(), client=fake_client)  # type: ignore[arg-type]
 
     page = await client.create_page(title="보고서", html="<h2>현재 상황</h2><p>내용</p>")
@@ -247,7 +247,7 @@ async def test_create_page_posts_storage_payload() -> None:
     body = request["json"]
     assert body["type"] == "page"
     assert body["title"] == "보고서"
-    assert body["space"]["key"] == "TRUSTRAG"
+    assert body["space"]["key"] == "OnRamp"
     assert body["body"]["storage"]["value"] == "<h2>현재 상황</h2><p>내용</p>"
     assert body["body"]["storage"]["representation"] == "storage"
     assert page.page_id == "999"

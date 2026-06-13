@@ -56,7 +56,7 @@ def test_parse_site_first_match() -> None:
 
 
 def test_parse_site_missing_returns_empty() -> None:
-    assert parse_site(["auto-imported", "trustrag"]) == ""
+    assert parse_site(["auto-imported", "onramp"]) == ""
 
 
 @pytest.mark.parametrize(
