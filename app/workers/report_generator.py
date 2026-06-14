@@ -25,6 +25,7 @@ async def run() -> None:
         WindowedReportGenerator(
             max_chars=settings.report_window_max_chars,
             overlap_chars=settings.report_window_overlap_chars,
+            merge_batch_size=settings.report_merge_batch_size,
         ),
         processing_timeout_seconds=settings.report_worker_processing_timeout_seconds,
         max_retries=settings.report_worker_max_retries,

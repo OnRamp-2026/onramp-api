@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     report_worker_max_retries: int = Field(default=3, ge=0)
     report_window_max_chars: int = Field(default=12000, ge=1000)
     report_window_overlap_chars: int = Field(default=500, ge=0)
+    report_merge_batch_size: int = Field(default=4, ge=2)
 
     @model_validator(mode="after")
     def _check_report_window(self) -> "Settings":

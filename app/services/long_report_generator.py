@@ -26,7 +26,7 @@ def split_transcript(transcript: str, *, max_chars: int, overlap_chars: int) -> 
         windows.append(transcript[start:end])
         if end == len(transcript):
             break
-        start = end - overlap_chars
+        start = max(end - overlap_chars, start + 1)
     return windows
 
 
@@ -36,10 +36,14 @@ class WindowedReportGenerator:
         *,
         max_chars: int,
         overlap_chars: int,
+        merge_batch_size: int = 4,
         generate_content: GenerateContent = generate_report_content,
     ) -> None:
+        if merge_batch_size < 2:
+            raise ValueError("merge_batch_size must be at least 2")
         self.max_chars = max_chars
         self.overlap_chars = overlap_chars
+        self.merge_batch_size = merge_batch_size
         self.generate_content = generate_content
 
     async def __call__(self, transcript: str, category: str, title: str) -> GeneratedReport:
@@ -52,14 +56,28 @@ class WindowedReportGenerator:
             return await self.generate_content(transcript, category, title, "")
 
         partials = [await self.generate_content(window, category, "", "") for window in windows]
-        merged_input = "\n\n".join(_render_partial(index, partial) for index, partial in enumerate(partials, start=1))
-        return await self.generate_content(
-            "다음은 긴 녹취를 구간별로 구조화한 부분 보고서다. 중복을 제거하고 하나의 보고서로 병합하라.\n\n"
-            + merged_input,
-            category,
-            title,
-            "",
-        )
+        while len(partials) > 1:
+            next_level: list[GeneratedReport] = []
+            for offset in range(0, len(partials), self.merge_batch_size):
+                batch = partials[offset : offset + self.merge_batch_size]
+                if len(batch) == 1:
+                    next_level.append(batch[0])
+                    continue
+                merged_input = "\n\n".join(
+                    _render_partial(index, partial) for index, partial in enumerate(batch, start=1)
+                )
+                final_merge = len(partials) <= self.merge_batch_size
+                next_level.append(
+                    await self.generate_content(
+                        "다음은 긴 녹취를 구간별로 구조화한 부분 보고서다. "
+                        "중복을 제거하고 하나의 보고서로 병합하라.\n\n" + merged_input,
+                        category,
+                        title if final_merge else "",
+                        "",
+                    )
+                )
+            partials = next_level
+        return partials[0]
 
 
 def _render_partial(index: int, partial: GeneratedReport) -> str:
