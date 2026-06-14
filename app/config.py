@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     app_name: str = "OnRamp API"
     app_version: str = "0.1.0"
     debug: bool = False
+
+    # Authentication
+    auth_jwt_secret: SecretStr = SecretStr("")
+    auth_jwt_issuer: str = ""
+    auth_jwt_audience: str = "onramp-api"
 
     # LLM Provider: "openai" | "azure" | "self_hosted"
     llm_provider: str = ""
@@ -40,6 +45,16 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
+    redis_outbox_batch_size: int = Field(default=100, ge=1)
+    redis_outbox_poll_interval_ms: int = Field(default=500, ge=1)
+
+    # Object Storage
+    storage_bucket: str = "onramp-stt"
+    storage_endpoint_url: str = ""
+    storage_region: str = "ap-northeast-2"
+    storage_access_key: SecretStr = SecretStr("")
+    storage_secret_key: SecretStr = SecretStr("")
+    storage_upload_expires_seconds: int = Field(default=900, ge=60, le=900)
 
     # Confluence
     confluence_base_url: str = ""
