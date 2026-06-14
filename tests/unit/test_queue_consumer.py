@@ -66,3 +66,31 @@ async def test_read_new_messages_from_mapping_response() -> None:
             {"event_id": "evt-2", "event_type": "transcription.progressed"},
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_unrecoverable_message_is_acknowledged() -> None:
+    from app.workers.stt_event_consumer import process_message
+
+    class AckRedis:
+        def __init__(self) -> None:
+            self.acked: list[tuple[str, str, str]] = []
+
+        async def xack(self, stream: str, group: str, message_id: str) -> None:
+            self.acked.append((stream, group, message_id))
+
+    class InvalidService:
+        async def process(self, envelope: object) -> None:
+            raise AssertionError("decode should fail first")
+
+    redis = AckRedis()
+    await process_message(
+        cast(Redis, redis),
+        InvalidService(),  # type: ignore[arg-type]
+        stream="onramp:stt:progress:v1",
+        group="onramp-workflow-updaters",
+        message_id="1-0",
+        fields={"event_type": "missing-required-fields"},
+    )
+
+    assert redis.acked == [("onramp:stt:progress:v1", "onramp-workflow-updaters", "1-0")]

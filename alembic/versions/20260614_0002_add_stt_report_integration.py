@@ -53,6 +53,11 @@ def upgrade() -> None:
         sa.Column("last_error", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["source_transcription_id"],
+            ["transcription_workflows.transcription_id"],
+            ondelete="CASCADE",
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint(
             "tenant_id",
@@ -62,6 +67,11 @@ def upgrade() -> None:
     )
     op.create_index("ix_report_jobs_tenant_id", "report_jobs", ["tenant_id"])
     op.create_index("ix_report_jobs_source_transcription_id", "report_jobs", ["source_transcription_id"])
+    op.create_index(
+        "ix_report_jobs_status_created_at",
+        "report_jobs",
+        ["status", "created_at"],
+    )
     op.create_table(
         "reports",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -83,6 +93,11 @@ def upgrade() -> None:
         sa.Column("confluence_url", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["source_transcription_id"],
+            ["transcription_workflows.transcription_id"],
+            ondelete="CASCADE",
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("tenant_id", "source_transcription_id", name="uq_report_source_transcription"),
     )
@@ -94,6 +109,7 @@ def downgrade() -> None:
     op.drop_index("ix_reports_source_transcription_id", table_name="reports")
     op.drop_index("ix_reports_tenant_id", table_name="reports")
     op.drop_table("reports")
+    op.drop_index("ix_report_jobs_status_created_at", table_name="report_jobs")
     op.drop_index("ix_report_jobs_source_transcription_id", table_name="report_jobs")
     op.drop_index("ix_report_jobs_tenant_id", table_name="report_jobs")
     op.drop_table("report_jobs")

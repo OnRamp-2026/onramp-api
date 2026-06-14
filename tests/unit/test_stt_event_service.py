@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.db.base import Base
 from app.db.models import ReportJob, TranscriptionWorkflow, WorkflowStatus
-from app.queue.events import ProgressUpdated, StreamEnvelope, TranscriptionCompleted
+from app.queue.events import ProgressUpdated, StreamEnvelope, TranscriptCompleted, TranscriptionCompleted
 from app.services.stt_event_service import SttEventService
 
 
@@ -202,3 +202,46 @@ async def test_duplicate_completion_event_does_not_regress_completed_report(
         persisted = await session.get(TranscriptionWorkflow, workflow.id)
     assert persisted is not None
     assert persisted.status == WorkflowStatus.draft
+
+
+@pytest.mark.asyncio
+async def test_different_stream_groups_can_process_same_event_id(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    workflow = await create_workflow(session_factory)
+    service = SttEventService(session_factory)
+    event_id = "evt-shared-across-streams"
+
+    await service.process(
+        StreamEnvelope(
+            event_id=event_id,
+            event_type="transcription.progressed",
+            payload=ProgressUpdated(
+                transcription_id=workflow.transcription_id,
+                tenant_id="tenant-a",
+                status="merging",
+                completed_chunks=10,
+                total_chunks=10,
+                failed_chunks=0,
+                progress_ratio=1,
+                occurred_at=datetime.now(UTC),
+            ).model_dump(mode="json"),
+        )
+    )
+    await service.process(
+        StreamEnvelope(
+            event_id=event_id,
+            event_type="transcription.transcript.completed",
+            payload=TranscriptCompleted(
+                transcription_id=workflow.transcription_id,
+                tenant_id="tenant-a",
+                result_object_key="tenants/tenant-a/transcript.json",
+            ).model_dump(mode="json"),
+        )
+    )
+
+    async with session_factory() as session:
+        persisted = await session.get(TranscriptionWorkflow, workflow.id)
+    assert persisted is not None
+    assert persisted.status == WorkflowStatus.transcript_completed
+    assert persisted.transcript_completed_received_at is not None

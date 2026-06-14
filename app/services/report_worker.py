@@ -7,6 +7,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import (
@@ -133,8 +134,20 @@ class ReportWorker:
                 result_object_key=job.result_object_key,
             )
             if existing is None:
-                session.add(report)
-                await session.flush()
+                try:
+                    async with session.begin_nested():
+                        session.add(report)
+                        await session.flush()
+                except IntegrityError:
+                    persisted_report = await session.scalar(
+                        select(Report).where(
+                            Report.tenant_id == job.tenant_id,
+                            Report.source_transcription_id == job.source_transcription_id,
+                        )
+                    )
+                    if persisted_report is None:
+                        raise
+                    report = persisted_report
             if persisted_job is not None:
                 persisted_job.status = ReportJobStatus.completed
                 persisted_job.last_error = None

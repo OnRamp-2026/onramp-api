@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
+from json import JSONDecodeError
 
 import structlog
+from pydantic import ValidationError
+from redis.asyncio import Redis
 
 from app.config import get_settings
 from app.db.postgres import get_session_factory
@@ -19,9 +22,34 @@ from app.queue.constants import (
 )
 from app.queue.consumer import ensure_consumer_group, read_new_or_reclaimed
 from app.queue.events import decode_envelope
-from app.services.stt_event_service import SttEventService
+from app.services.stt_event_service import SttEventService, UnrecoverableSttEventError
 
 logger = structlog.get_logger(__name__)
+
+
+async def process_message(
+    redis: Redis,
+    service: SttEventService,
+    *,
+    stream: str,
+    group: str,
+    message_id: str,
+    fields: dict[str, str],
+) -> None:
+    try:
+        await service.process(decode_envelope(fields))
+    except (JSONDecodeError, KeyError, ValidationError, UnrecoverableSttEventError):
+        await logger.aexception(
+            "stt_event_processing_unrecoverable",
+            stream=stream,
+            message_id=message_id,
+        )
+        await redis.xack(stream, group, message_id)
+        return
+    except Exception:
+        await logger.aexception("stt_event_processing_failed", stream=stream, message_id=message_id)
+        return
+    await redis.xack(stream, group, message_id)
 
 
 async def consume_stream(stream: str, group: str) -> None:
@@ -41,12 +69,14 @@ async def consume_stream(stream: str, group: str) -> None:
             reclaim_idle_ms=settings.redis_stream_reclaim_idle_ms,
         )
         for message_id, fields in messages:
-            try:
-                await service.process(decode_envelope(fields))
-            except Exception:
-                await logger.aexception("stt_event_processing_failed", stream=stream, message_id=message_id)
-                continue
-            await redis.xack(stream, group, message_id)
+            await process_message(
+                redis,
+                service,
+                stream=stream,
+                group=group,
+                message_id=message_id,
+                fields=fields,
+            )
 
 
 async def run() -> None:

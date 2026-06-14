@@ -16,6 +16,7 @@ from app.queue.constants import (
     PROGRESS_EVENT_TYPE,
     REPORT_EVENT_GROUP,
     TRANSCRIPT_COMPLETED_EVENT_TYPE,
+    TRANSCRIPT_OBSERVER_GROUP,
     WORKFLOW_UPDATER_GROUP,
 )
 from app.queue.events import ProgressUpdated, StreamEnvelope, TranscriptCompleted, TranscriptionCompleted
@@ -33,12 +34,12 @@ class SttEventService:
         elif envelope.event_type == COMPLETED_EVENT_TYPE:
             await self._process_completed(envelope)
         else:
-            raise ValueError(f"unsupported STT event type: {envelope.event_type}")
+            raise UnrecoverableSttEventError(f"unsupported STT event type: {envelope.event_type}")
 
     async def _process_progress(self, envelope: StreamEnvelope) -> None:
         payload = ProgressUpdated.model_validate(envelope.payload)
         async with self.session_factory() as session, session.begin():
-            if await self._is_processed(session, WORKFLOW_UPDATER_GROUP, envelope.event_id):
+            if await self._is_processed(session, TRANSCRIPT_OBSERVER_GROUP, envelope.event_id):
                 return
             workflow = await self._workflow(session, payload.transcription_id)
             self._verify_tenant(workflow, payload.tenant_id)
@@ -48,7 +49,7 @@ class SttEventService:
             if not self._report_stage_started(workflow):
                 workflow.status = self._workflow_status(payload.status, workflow)
                 workflow.updated_at = payload.occurred_at
-            self._mark_processed(session, WORKFLOW_UPDATER_GROUP, envelope.event_id, str(workflow.id))
+            self._mark_processed(session, TRANSCRIPT_OBSERVER_GROUP, envelope.event_id, str(workflow.id))
 
     async def _process_transcript_completed(self, envelope: StreamEnvelope) -> None:
         payload = TranscriptCompleted.model_validate(envelope.payload)
@@ -107,7 +108,7 @@ class SttEventService:
     @staticmethod
     def _verify_tenant(workflow: TranscriptionWorkflow, tenant_id: str) -> None:
         if workflow.tenant_id != tenant_id:
-            raise ValueError("tenant mismatch")
+            raise UnrecoverableSttEventError("tenant mismatch")
 
     @staticmethod
     async def _is_processed(session: AsyncSession, consumer_group: str, event_id: str) -> bool:
@@ -151,3 +152,7 @@ class SttEventService:
             WorkflowStatus.report_failed,
             WorkflowStatus.cancelled,
         }
+
+
+class UnrecoverableSttEventError(ValueError):
+    pass

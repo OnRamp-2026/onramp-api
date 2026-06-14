@@ -10,6 +10,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     Enum,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -133,7 +134,10 @@ class ReportJob(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(128), index=True)
-    source_transcription_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    source_transcription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("transcription_workflows.transcription_id", ondelete="CASCADE"),
+        index=True,
+    )
     status: Mapped[ReportJobStatus] = mapped_column(
         Enum(
             ReportJobStatus,
@@ -152,6 +156,7 @@ class ReportJob(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     __table_args__ = (
+        Index("ix_report_jobs_status_created_at", "status", "created_at"),
         UniqueConstraint(
             "tenant_id",
             "source_transcription_id",
@@ -165,7 +170,10 @@ class Report(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(128), index=True)
-    source_transcription_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    source_transcription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("transcription_workflows.transcription_id", ondelete="CASCADE"),
+        index=True,
+    )
     title: Mapped[str] = mapped_column(String(512))
     category: Mapped[str] = mapped_column(String(64))
     situation: Mapped[str] = mapped_column(Text, default="")
