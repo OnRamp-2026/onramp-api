@@ -6,6 +6,7 @@ import structlog
 
 from app.config import get_settings
 from app.db.postgres import get_session_factory
+from app.services.long_report_generator import WindowedReportGenerator
 from app.services.report_worker import ReportWorker
 from app.services.stt_result_client import SttResultClient
 
@@ -20,6 +21,11 @@ async def run() -> None:
             settings.stt_service_base_url,
             settings.stt_service_token.get_secret_value(),
             settings.stt_result_timeout_seconds,
+        ),
+        WindowedReportGenerator(
+            max_chars=settings.report_window_max_chars,
+            overlap_chars=settings.report_window_overlap_chars,
+            merge_batch_size=settings.report_merge_batch_size,
         ),
         processing_timeout_seconds=settings.report_worker_processing_timeout_seconds,
         max_retries=settings.report_worker_max_retries,

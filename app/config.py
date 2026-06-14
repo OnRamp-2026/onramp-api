@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     report_worker_poll_interval_ms: int = Field(default=1000, ge=100)
     report_worker_processing_timeout_seconds: int = Field(default=300, ge=30)
     report_worker_max_retries: int = Field(default=3, ge=0)
+    report_window_max_chars: int = Field(default=12000, ge=1000)
+    report_window_overlap_chars: int = Field(default=500, ge=0)
+    report_merge_batch_size: int = Field(default=4, ge=2)
+
+    @model_validator(mode="after")
+    def _check_report_window(self) -> "Settings":
+        if self.report_window_overlap_chars >= self.report_window_max_chars:
+            raise ValueError("report_window_overlap_chars must be smaller than report_window_max_chars")
+        return self
 
     # Object Storage
     storage_bucket: str = "onramp-stt"

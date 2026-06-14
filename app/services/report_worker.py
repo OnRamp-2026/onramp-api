@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID
 
@@ -19,17 +18,10 @@ from app.db.models import (
     WorkflowStatus,
     utcnow,
 )
-from app.models.response import FiveElementsResponse
-from app.services.asset_service import generate_report_content
+from app.services.asset_service import GeneratedReport, generate_report_content
 from app.services.stt_result_client import SttResult, SttResultClient
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class GeneratedReport:
-    title: str
-    report: FiveElementsResponse
 
 
 ReportGenerator = Callable[[str, str, str], Awaitable[GeneratedReport]]
