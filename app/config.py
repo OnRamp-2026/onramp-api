@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     redis_outbox_batch_size: int = Field(default=100, ge=1)
     redis_outbox_poll_interval_ms: int = Field(default=500, ge=1)
+    redis_stream_block_ms: int = Field(default=5000, ge=1)
+    redis_stream_read_count: int = Field(default=10, ge=1)
+    redis_stream_reclaim_idle_ms: int = Field(default=300000, ge=1000)
+
+    # STT internal API / report worker
+    stt_service_base_url: str = "http://onramp-stt-api:8000"
+    stt_service_token: SecretStr = SecretStr("")
+    stt_result_timeout_seconds: float = Field(default=30.0, gt=0)
+    report_worker_poll_interval_ms: int = Field(default=1000, ge=100)
 
     # Object Storage
     storage_bucket: str = "onramp-stt"
