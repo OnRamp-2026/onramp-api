@@ -45,8 +45,9 @@ class SttEventService:
             workflow.total_chunks = payload.total_chunks
             workflow.completed_chunks = payload.completed_chunks
             workflow.failed_chunks = payload.failed_chunks
-            workflow.status = self._workflow_status(payload.status, workflow)
-            workflow.updated_at = payload.occurred_at
+            if not self._report_stage_started(workflow):
+                workflow.status = self._workflow_status(payload.status, workflow)
+                workflow.updated_at = payload.occurred_at
             self._mark_processed(session, WORKFLOW_UPDATER_GROUP, envelope.event_id, str(workflow.id))
 
     async def _process_transcript_completed(self, envelope: StreamEnvelope) -> None:
@@ -56,9 +57,10 @@ class SttEventService:
                 return
             workflow = await self._workflow(session, payload.transcription_id)
             self._verify_tenant(workflow, payload.tenant_id)
-            workflow.status = WorkflowStatus.transcript_completed
-            workflow.transcript_completed_received_at = utcnow()
-            workflow.updated_at = utcnow()
+            if not self._report_stage_started(workflow):
+                workflow.status = WorkflowStatus.transcript_completed
+                workflow.transcript_completed_received_at = utcnow()
+                workflow.updated_at = utcnow()
             self._mark_processed(session, WORKFLOW_UPDATER_GROUP, envelope.event_id, str(workflow.id))
 
     async def _process_completed(self, envelope: StreamEnvelope) -> None:
@@ -86,8 +88,9 @@ class SttEventService:
                 )
                 session.add(existing)
                 await session.flush()
-            workflow.status = WorkflowStatus.report_queued
-            workflow.updated_at = utcnow()
+            if not self._report_stage_started(workflow):
+                workflow.status = WorkflowStatus.report_queued
+                workflow.updated_at = utcnow()
             self._mark_processed(session, REPORT_EVENT_GROUP, envelope.event_id, str(existing.id))
 
     @staticmethod
@@ -137,3 +140,14 @@ class SttEventService:
             return WorkflowStatus(status)
         except ValueError:
             return workflow.status
+
+    @staticmethod
+    def _report_stage_started(workflow: TranscriptionWorkflow) -> bool:
+        return workflow.status in {
+            WorkflowStatus.report_queued,
+            WorkflowStatus.report_processing,
+            WorkflowStatus.draft,
+            WorkflowStatus.published,
+            WorkflowStatus.report_failed,
+            WorkflowStatus.cancelled,
+        }

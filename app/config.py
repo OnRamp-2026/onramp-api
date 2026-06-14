@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     stt_service_token: SecretStr = SecretStr("")
     stt_result_timeout_seconds: float = Field(default=30.0, gt=0)
     report_worker_poll_interval_ms: int = Field(default=1000, ge=100)
+    report_worker_processing_timeout_seconds: int = Field(default=300, ge=30)
+    report_worker_max_retries: int = Field(default=3, ge=0)
 
     # Object Storage
     storage_bucket: str = "onramp-stt"

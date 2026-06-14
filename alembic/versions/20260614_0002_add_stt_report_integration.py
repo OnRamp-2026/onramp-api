@@ -25,7 +25,7 @@ report_job_status = postgresql.ENUM(
     name="report_job_status",
     create_type=False,
 )
-report_status = postgresql.ENUM("draft", "published", name="report_status", create_type=False)
+report_status = postgresql.ENUM("draft", "publishing", "published", name="report_status", create_type=False)
 
 
 def upgrade() -> None:
@@ -79,6 +79,7 @@ def upgrade() -> None:
         sa.Column("corrected_text_sha256", sa.String(length=64), nullable=False),
         sa.Column("dictionary_version", sa.String(length=32), nullable=False),
         sa.Column("result_object_key", sa.Text(), nullable=False),
+        sa.Column("confluence_page_id", sa.String(length=128), nullable=False),
         sa.Column("confluence_url", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),

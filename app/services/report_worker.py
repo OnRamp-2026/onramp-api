@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import (
@@ -48,16 +49,27 @@ class ReportWorker:
         session_factory: async_sessionmaker[AsyncSession],
         stt_client: SttResultClient,
         generator: ReportGenerator = default_report_generator,
+        *,
+        processing_timeout_seconds: int = 300,
+        max_retries: int = 3,
     ) -> None:
         self.session_factory = session_factory
         self.stt_client = stt_client
         self.generator = generator
+        self.processing_timeout = timedelta(seconds=processing_timeout_seconds)
+        self.max_retries = max_retries
 
     async def process_next(self) -> bool:
         async with self.session_factory() as session:
+            stale_before = utcnow() - self.processing_timeout
             job = await session.scalar(
                 select(ReportJob)
-                .where(ReportJob.status == ReportJobStatus.queued)
+                .where(
+                    or_(
+                        ReportJob.status == ReportJobStatus.queued,
+                        ((ReportJob.status == ReportJobStatus.processing) & (ReportJob.updated_at <= stale_before)),
+                    )
+                )
                 .order_by(ReportJob.created_at)
                 .limit(1)
                 .with_for_update(skip_locked=True)
@@ -65,7 +77,16 @@ class ReportWorker:
             if job is None:
                 return False
             workflow = await self._workflow(session, job.source_transcription_id)
+            if job.status == ReportJobStatus.processing:
+                job.retry_count += 1
+                if job.retry_count > self.max_retries:
+                    job.status = ReportJobStatus.failed
+                    job.last_error = "report worker processing lease expired"
+                    workflow.status = WorkflowStatus.report_failed
+                    await session.commit()
+                    return True
             job.status = ReportJobStatus.processing
+            job.updated_at = utcnow()
             workflow.status = WorkflowStatus.report_processing
             await session.commit()
 

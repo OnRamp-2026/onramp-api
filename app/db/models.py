@@ -53,6 +53,7 @@ class ReportJobStatus(StrEnum):
 
 class ReportStatus(StrEnum):
     draft = "draft"
+    publishing = "publishing"
     published = "published"
 
 
@@ -184,6 +185,7 @@ class Report(Base):
     corrected_text_sha256: Mapped[str] = mapped_column(String(64))
     dictionary_version: Mapped[str] = mapped_column(String(32))
     result_object_key: Mapped[str] = mapped_column(Text)
+    confluence_page_id: Mapped[str] = mapped_column(String(128), default="")
     confluence_url: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

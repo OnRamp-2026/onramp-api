@@ -21,6 +21,8 @@ async def run() -> None:
             settings.stt_service_token.get_secret_value(),
             settings.stt_result_timeout_seconds,
         ),
+        processing_timeout_seconds=settings.report_worker_processing_timeout_seconds,
+        max_retries=settings.report_worker_max_retries,
     )
     poll_interval = settings.report_worker_poll_interval_ms / 1000
     while True:

@@ -130,3 +130,75 @@ async def test_completion_event_rejects_tenant_mismatch(
 
     with pytest.raises(ValueError, match="tenant"):
         await service.process(envelope)
+
+
+@pytest.mark.asyncio
+async def test_late_progress_event_does_not_regress_report_workflow(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    workflow = await create_workflow(session_factory)
+    async with session_factory() as session:
+        persisted = await session.get(TranscriptionWorkflow, workflow.id)
+        assert persisted is not None
+        persisted.status = WorkflowStatus.draft
+        await session.commit()
+
+    service = SttEventService(session_factory)
+    envelope = StreamEnvelope(
+        event_id="evt-late-progress",
+        event_type="transcription.progressed",
+        payload=ProgressUpdated(
+            transcription_id=workflow.transcription_id,
+            tenant_id="tenant-a",
+            status="transcribing",
+            completed_chunks=9,
+            total_chunks=10,
+            failed_chunks=0,
+            progress_ratio=0.9,
+            occurred_at=datetime.now(UTC),
+        ).model_dump(mode="json"),
+    )
+
+    await service.process(envelope)
+
+    async with session_factory() as session:
+        persisted = await session.get(TranscriptionWorkflow, workflow.id)
+    assert persisted is not None
+    assert persisted.status == WorkflowStatus.draft
+
+
+@pytest.mark.asyncio
+async def test_duplicate_completion_event_does_not_regress_completed_report(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    workflow = await create_workflow(session_factory)
+    service = SttEventService(session_factory)
+
+    def completion(event_id: str) -> StreamEnvelope:
+        return StreamEnvelope(
+            event_id=event_id,
+            event_type="transcription.completed",
+            payload=TranscriptionCompleted(
+                transcription_id=workflow.transcription_id,
+                tenant_id="tenant-a",
+                raw_text_sha256="a" * 64,
+                corrected_text_sha256="b" * 64,
+                dictionary_version="2026-06-14",
+                result_object_key="tenants/tenant-a/result.json",
+                completed_at=datetime.now(UTC),
+            ).model_dump(mode="json"),
+        )
+
+    await service.process(completion("evt-initial-completion"))
+    async with session_factory() as session:
+        persisted = await session.get(TranscriptionWorkflow, workflow.id)
+        assert persisted is not None
+        persisted.status = WorkflowStatus.draft
+        await session.commit()
+
+    await service.process(completion("evt-duplicate-completion"))
+
+    async with session_factory() as session:
+        persisted = await session.get(TranscriptionWorkflow, workflow.id)
+    assert persisted is not None
+    assert persisted.status == WorkflowStatus.draft
