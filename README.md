@@ -157,6 +157,8 @@ Response:
 
 생성된 보고서는 `GET/PATCH /v1/reports/{report_id}`와
 `POST /v1/reports/{report_id}/approve`에서 조회, 수정, 승인한다.
+긴 전사문은 `REPORT_WINDOW_MAX_CHARS`와 `REPORT_WINDOW_OVERLAP_CHARS` 기준으로
+구간별 추출 후 최종 보고서로 병합한다.
 
 ### GET /v1/health
 
