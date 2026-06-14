@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html as html_lib
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -64,15 +65,26 @@ class _AssetDraft(BaseModel):
         return str(value)
 
 
+@dataclass(frozen=True)
+class GeneratedReport:
+    title: str
+    report: FiveElementsResponse
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-async def create_report(request: AssetRequest) -> AssetResponse:
-    """녹취 텍스트에서 5요소 보고서 초안을 생성한다 (status=draft)."""
-    user_prompt = f"카테고리: {request.category}\n녹취록:\n{request.transcript}"
+async def generate_report_content(
+    transcript: str,
+    category: str,
+    title: str = "",
+    model: str = "",
+) -> GeneratedReport:
+    """저장 방식과 무관하게 녹취 텍스트를 5요소 보고서로 구조화한다."""
+    user_prompt = f"카테고리: {category}\n녹취록:\n{transcript}"
     try:
-        raw = await call_llm(ASSET_SYSTEM_PROMPT, user_prompt, model=request.model, json_mode=True)
+        raw = await call_llm(ASSET_SYSTEM_PROMPT, user_prompt, model=model, json_mode=True)
         draft = _AssetDraft.model_validate_json(raw)
     except ValidationError as exc:
         logger.warning("ASSET 응답 파싱 실패", exc_info=True)
@@ -88,10 +100,8 @@ async def create_report(request: AssetRequest) -> AssetResponse:
         logger.warning("ASSET 보고서 내용이 비어 있음")
         raise OnRampError("보고서 생성에 실패했습니다 (빈 응답)", status_code=502)
 
-    now = _now()
-    report = AssetResponse(
-        report_id=str(uuid4()),
-        title=request.title or draft.title or "제목 없는 보고서",
+    return GeneratedReport(
+        title=title or draft.title or "제목 없는 보고서",
         report=FiveElementsResponse(
             situation=draft.situation,
             cause=draft.cause,
@@ -99,6 +109,22 @@ async def create_report(request: AssetRequest) -> AssetResponse:
             solution=draft.solution,
             infra_context=draft.infra_context,
         ),
+    )
+
+
+async def create_report(request: AssetRequest) -> AssetResponse:
+    """녹취 텍스트에서 5요소 보고서 초안을 생성한다 (status=draft)."""
+    generated = await generate_report_content(
+        request.transcript,
+        request.category,
+        request.title,
+        request.model,
+    )
+    now = _now()
+    report = AssetResponse(
+        report_id=str(uuid4()),
+        title=generated.title,
+        report=generated.report,
         category=request.category,
         status="draft",
         confluence_url="",

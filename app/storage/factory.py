@@ -19,4 +19,13 @@ def get_storage() -> ObjectStorage:
         aws_access_key_id=access_key or None,
         aws_secret_access_key=secret_key or None,
     )
-    return S3ObjectStorage(client, settings.storage_bucket)
+    presign_client = None
+    if settings.storage_public_endpoint_url:
+        presign_client = boto3.client(
+            "s3",
+            endpoint_url=settings.storage_public_endpoint_url,
+            region_name=settings.storage_region,
+            aws_access_key_id=access_key or None,
+            aws_secret_access_key=secret_key or None,
+        )
+    return S3ObjectStorage(client, settings.storage_bucket, presign_client=presign_client)

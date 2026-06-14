@@ -10,6 +10,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     Enum,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -42,6 +43,19 @@ class WorkflowStatus(StrEnum):
     correction_failed = "correction_failed"
     report_failed = "report_failed"
     cancelled = "cancelled"
+
+
+class ReportJobStatus(StrEnum):
+    queued = "queued"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+
+
+class ReportStatus(StrEnum):
+    draft = "draft"
+    publishing = "publishing"
+    published = "published"
 
 
 class TranscriptionWorkflow(Base):
@@ -102,5 +116,92 @@ class EventOutbox(Base):
             "available_at",
             "created_at",
             postgresql_where=published_at.is_(None),
+        ),
+    )
+
+
+class EventInbox(Base):
+    __tablename__ = "event_inbox"
+
+    consumer_group: Mapped[str] = mapped_column(String(128), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    result_reference: Mapped[str | None] = mapped_column(String(128))
+    processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ReportJob(Base):
+    __tablename__ = "report_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    source_transcription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("transcription_workflows.transcription_id", ondelete="CASCADE"),
+        index=True,
+    )
+    status: Mapped[ReportJobStatus] = mapped_column(
+        Enum(
+            ReportJobStatus,
+            name="report_job_status",
+            values_callable=lambda enum: [item.value for item in enum],
+        ),
+        default=ReportJobStatus.queued,
+    )
+    raw_text_sha256: Mapped[str] = mapped_column(String(64))
+    corrected_text_sha256: Mapped[str] = mapped_column(String(64))
+    dictionary_version: Mapped[str] = mapped_column(String(32))
+    result_object_key: Mapped[str] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        Index("ix_report_jobs_status_created_at", "status", "created_at"),
+        UniqueConstraint(
+            "tenant_id",
+            "source_transcription_id",
+            name="uq_report_job_source_transcription",
+        ),
+    )
+
+
+class Report(Base):
+    __tablename__ = "reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    source_transcription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("transcription_workflows.transcription_id", ondelete="CASCADE"),
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(512))
+    category: Mapped[str] = mapped_column(String(64))
+    situation: Mapped[str] = mapped_column(Text, default="")
+    cause: Mapped[str] = mapped_column(Text, default="")
+    evidence: Mapped[str] = mapped_column(Text, default="")
+    solution: Mapped[str] = mapped_column(Text, default="")
+    infra_context: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[ReportStatus] = mapped_column(
+        Enum(
+            ReportStatus,
+            name="report_status",
+            values_callable=lambda enum: [item.value for item in enum],
+        ),
+        default=ReportStatus.draft,
+    )
+    raw_text_sha256: Mapped[str] = mapped_column(String(64))
+    corrected_text_sha256: Mapped[str] = mapped_column(String(64))
+    dictionary_version: Mapped[str] = mapped_column(String(32))
+    result_object_key: Mapped[str] = mapped_column(Text)
+    confluence_page_id: Mapped[str] = mapped_column(String(128), default="")
+    confluence_url: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "source_transcription_id",
+            name="uq_report_source_transcription",
         ),
     )

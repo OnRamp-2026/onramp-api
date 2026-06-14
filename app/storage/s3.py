@@ -8,8 +8,9 @@ from app.storage.base import ObjectMetadata, ObjectNotFoundError, ObjectStorageE
 
 
 class S3ObjectStorage:
-    def __init__(self, client: Any, bucket: str) -> None:
+    def __init__(self, client: Any, bucket: str, *, presign_client: Any | None = None) -> None:
         self.client = client
+        self.presign_client = presign_client or client
         self.bucket = bucket
 
     async def create_presigned_upload(
@@ -21,7 +22,7 @@ class S3ObjectStorage:
     ) -> PresignedUpload:
         try:
             url = await asyncio.to_thread(
-                self.client.generate_presigned_url,
+                self.presign_client.generate_presigned_url,
                 "put_object",
                 Params={
                     "Bucket": self.bucket,
