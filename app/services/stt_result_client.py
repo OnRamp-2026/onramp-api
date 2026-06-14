@@ -46,7 +46,7 @@ class SttResultClient:
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.get(
-                f"{self.base_url}/api/v1/internal/transcriptions/{transcription_id}/result",
+                f"{self.base_url}/v1/internal/transcriptions/{transcription_id}/result",
                 headers=headers,
             )
         response.raise_for_status()

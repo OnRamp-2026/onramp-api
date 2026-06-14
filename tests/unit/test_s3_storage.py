@@ -6,8 +6,9 @@ from app.storage.s3 import S3ObjectStorage
 
 
 class FakeS3Client:
-    def __init__(self) -> None:
+    def __init__(self, signed_url: str = "https://storage.test/signed") -> None:
         self.presign_call: tuple[str, dict[str, object], int] | None = None
+        self.signed_url = signed_url
 
     def generate_presigned_url(
         self,
@@ -19,7 +20,7 @@ class FakeS3Client:
         assert isinstance(params, dict)
         assert isinstance(expires_in, int)
         self.presign_call = (operation, params, expires_in)
-        return "https://storage.test/signed"
+        return self.signed_url
 
     def head_object(self, **kwargs: object) -> dict[str, object]:
         assert kwargs["Bucket"] == "onramp-stt"
@@ -54,6 +55,27 @@ async def test_s3_storage_presigns_exact_key_and_content_type() -> None:
         },
         900,
     )
+
+
+@pytest.mark.asyncio
+async def test_s3_storage_uses_public_client_for_presigned_upload() -> None:
+    internal_client = FakeS3Client("http://minio:9000/internal")
+    public_client = FakeS3Client("http://localhost:9000/public")
+    storage = S3ObjectStorage(
+        internal_client,
+        "onramp-stt",
+        presign_client=public_client,
+    )
+
+    upload = await storage.create_presigned_upload(
+        "tenants/tenant-a/source.m4a",
+        content_type="audio/mp4",
+        expires_in_seconds=900,
+    )
+
+    assert upload.url == "http://localhost:9000/public"
+    assert internal_client.presign_call is None
+    assert public_client.presign_call is not None
 
 
 @pytest.mark.asyncio

@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     # Object Storage
     storage_bucket: str = "onramp-stt"
     storage_endpoint_url: str = ""
+    storage_public_endpoint_url: str = ""
     storage_region: str = "ap-northeast-2"
     storage_access_key: SecretStr = SecretStr("")
     storage_secret_key: SecretStr = SecretStr("")
