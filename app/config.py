@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     auth_base_url: str = ""  # 공개 base URL (redirect_uri 생성), 예: https://skala-cloud-team3-dev.skala-ai.com
     frontend_post_login_redirect: str = "/"  # 로그인 성공 후 프론트 복귀 경로
 
+    # Slack 봇 (#146) — Events API + chat.postMessage (로그인 OIDC와 별개)
+    slack_bot_enabled: bool = False  # kill-switch (false/미구성이면 /slack/events 404)
+    slack_signing_secret: SecretStr = SecretStr("")  # 이벤트 요청 서명 검증
+    slack_bot_token: SecretStr = SecretStr("")  # xoxb- (chat.postMessage)
+
     @model_validator(mode="after")
     def _check_auth_cookie(self) -> "Settings":
         # SameSite=None은 Secure=True가 아니면 브라우저가 세션 쿠키를 폐기한다.
