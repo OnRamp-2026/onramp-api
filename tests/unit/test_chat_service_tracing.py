@@ -93,3 +93,50 @@ async def test_chat_wraps_invoke_in_root_span_when_enabled(monkeypatch):
     assert kinds[0] == "start" and kinds[1] == "enter" and kinds[-1] == "exit"
     assert events[0][1]["as_type"] == "span"
     assert "update" in kinds  # output 기록
+
+
+@pytest.mark.asyncio
+async def test_chat_records_trust_score_overall(monkeypatch):
+    """state['trust_score'](TrustScore 객체)의 overall이 trust_score score로 부착된다 (#137)."""
+    import app.observability.langfuse as lf
+    import app.services.chat_service as cs
+
+    class _TS:
+        overall = 0.83
+
+    async def fake_ainvoke(state, config=None):
+        return {"trust_score": _TS()}
+
+    monkeypatch.setattr(cs.compiled_graph, "ainvoke", fake_ainvoke)
+
+    scored: dict = {}
+
+    class FakeRoot:
+        def update(self, **kw):
+            pass
+
+    class FakeCM:
+        def __enter__(self):
+            return FakeRoot()
+
+        def __exit__(self, *a):
+            return False
+
+    class FakeClient:
+        def start_as_current_observation(self, **kw):
+            return FakeCM()
+
+        def score_current_trace(self, **kw):
+            scored.update(kw)
+
+        def get_current_trace_id(self):
+            return "tid-1"
+
+    monkeypatch.setattr(lf, "get_langfuse_client", lambda: FakeClient())
+    monkeypatch.setattr(lf, "get_callback_handler", lambda: None)
+
+    resp = await cs.chat(ChatRequest(query="안녕"))
+
+    assert scored.get("name") == "trust_score"
+    assert scored.get("value") == 0.83
+    assert resp.trace_id == "tid-1"

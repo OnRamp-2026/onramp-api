@@ -44,9 +44,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
         if root is not None:
             root.update(output={"answerability_status": response.answerability_status, "domain": response.domain})
             # trust_score를 online score로 부착 + trace_id를 응답에 노출(피드백 참조용)
-            trust_score = state.get("trust_score")
-            if isinstance(trust_score, int | float):
-                score_current_trace(name="trust_score", value=float(trust_score))
+            # state["trust_score"]는 TrustScore 객체 → overall([0,1] float)을 꺼낸다.
+            overall = getattr(state.get("trust_score"), "overall", None)
+            if isinstance(overall, int | float):
+                score_current_trace(name="trust_score", value=float(overall))
             response.trace_id = current_trace_id() or ""
         return response
 
