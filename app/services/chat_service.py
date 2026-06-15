@@ -8,8 +8,10 @@ from app.agents.graph import compiled_graph
 from app.agents.state import AnswerabilityStatus, Domain, FiveElements, SourceDocument
 from app.config import get_settings
 from app.middleware.error_handler import OnRampError
+from app.middleware.request_id import request_id_var
 from app.models.request import ChatRequest
 from app.models.response import ChatResponse, FiveElementsResponse, SourceDoc
+from app.observability import langfuse_run_config
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +27,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
         "retry_count": 0,
         "max_retries": get_settings().trust_max_retries,
     }
+    # Langfuse 트레이스 연결 — 비활성이면 {} → config=None (기존 동작과 동일).
+    # tenant(langfuse_user_id)는 /chat 인증 연동(#98) 후 주입한다.
+    run_config = langfuse_run_config(request_id=request_id_var.get(), model=request.model)
     try:
-        state = await compiled_graph.ainvoke(initial_state)
+        state = await compiled_graph.ainvoke(initial_state, config=run_config or None)
     except OnRampError:
         raise  # 노드가 올린 도메인 에러(LLMError 502 등)는 그대로
     except Exception as exc:  # 그래프 실행 실패 → 500
