@@ -106,10 +106,14 @@ class Settings(BaseSettings):
         if self.reranker_backend == "remote":
             url = self.reranker_service_url.strip()
             if not url:
-                raise ValueError("reranker_backend='remote'면 reranker_service_url 필요 (예: http://onramp-reranker:8080)")
+                raise ValueError(
+                    "reranker_backend='remote'면 reranker_service_url 필요 (예: http://onramp-reranker:8080)"
+                )
             parsed = urlparse(url)
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise ValueError("reranker_service_url은 http/https URL 형식이어야 함 (예: http://onramp-reranker:8080)")
+                raise ValueError(
+                    "reranker_service_url은 http/https URL 형식이어야 함 (예: http://onramp-reranker:8080)"
+                )
         return self
 
     @model_validator(mode="after")
