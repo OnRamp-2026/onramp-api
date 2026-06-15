@@ -6,6 +6,19 @@ from pydantic import ValidationError
 from app.config import Settings
 
 
+def test_storage_and_auth_secrets_are_masked() -> None:
+    settings = Settings(
+        auth_jwt_secret="auth-secret-with-at-least-32-bytes",
+        storage_access_key="storage-access-key",
+        storage_secret_key="storage-secret-key",
+    )
+
+    rendered = repr(settings)
+    assert "auth-secret-with-at-least-32-bytes" not in rendered
+    assert "storage-access-key" not in rendered
+    assert "storage-secret-key" not in rendered
+
+
 def test_domain_min_score_in_range():
     """retriever_domain_min_score는 [0, 1] 범위를 벗어나면 거부된다."""
     assert Settings(retriever_domain_min_score=0.0).retriever_domain_min_score == 0.0

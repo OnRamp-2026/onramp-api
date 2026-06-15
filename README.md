@@ -147,6 +147,19 @@ Response:
       "category": "장애대응"
     }
 
+### STT 자동 보고서 worker
+
+업로드 workflow 이후 STT 이벤트 소비와 보고서 생성을 별도 프로세스로 실행한다.
+
+    python -m app.workers.outbox_publisher
+    python -m app.workers.stt_event_consumer
+    python -m app.workers.report_generator
+
+생성된 보고서는 `GET/PATCH /v1/reports/{report_id}`와
+`POST /v1/reports/{report_id}/approve`에서 조회, 수정, 승인한다.
+긴 전사문은 `REPORT_WINDOW_MAX_CHARS`와 `REPORT_WINDOW_OVERLAP_CHARS` 기준으로
+구간별 추출 후 최종 보고서로 병합한다.
+
 ### GET /v1/health
 
 서비스 상태 확인

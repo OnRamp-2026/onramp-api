@@ -1,0 +1,172 @@
+from __future__ import annotations
+
+import logging
+from collections.abc import Awaitable, Callable
+from datetime import timedelta
+from uuid import UUID
+
+from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.db.models import (
+    Report,
+    ReportJob,
+    ReportJobStatus,
+    ReportStatus,
+    TranscriptionWorkflow,
+    WorkflowStatus,
+    utcnow,
+)
+from app.services.asset_service import GeneratedReport, generate_report_content
+from app.services.stt_result_client import SttResult, SttResultClient
+
+logger = logging.getLogger(__name__)
+
+
+ReportGenerator = Callable[[str, str, str], Awaitable[GeneratedReport]]
+
+
+async def default_report_generator(transcript: str, category: str, title: str) -> GeneratedReport:
+    generated = await generate_report_content(transcript, category, title)
+    return GeneratedReport(title=generated.title, report=generated.report)
+
+
+class ReportIntegrityError(ValueError):
+    pass
+
+
+class ReportWorker:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        stt_client: SttResultClient,
+        generator: ReportGenerator = default_report_generator,
+        *,
+        processing_timeout_seconds: int = 300,
+        max_retries: int = 3,
+    ) -> None:
+        self.session_factory = session_factory
+        self.stt_client = stt_client
+        self.generator = generator
+        self.processing_timeout = timedelta(seconds=processing_timeout_seconds)
+        self.max_retries = max_retries
+
+    async def process_next(self) -> bool:
+        async with self.session_factory() as session:
+            stale_before = utcnow() - self.processing_timeout
+            job = await session.scalar(
+                select(ReportJob)
+                .where(
+                    or_(
+                        ReportJob.status == ReportJobStatus.queued,
+                        ((ReportJob.status == ReportJobStatus.processing) & (ReportJob.updated_at <= stale_before)),
+                    )
+                )
+                .order_by(ReportJob.created_at)
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            )
+            if job is None:
+                return False
+            workflow = await self._workflow(session, job.source_transcription_id)
+            if job.status == ReportJobStatus.processing:
+                job.retry_count += 1
+                if job.retry_count > self.max_retries:
+                    job.status = ReportJobStatus.failed
+                    job.last_error = "report worker processing lease expired"
+                    workflow.status = WorkflowStatus.report_failed
+                    await session.commit()
+                    return True
+            job.status = ReportJobStatus.processing
+            job.updated_at = utcnow()
+            workflow.status = WorkflowStatus.report_processing
+            await session.commit()
+
+        try:
+            result = await self.stt_client.get_result(job.source_transcription_id)
+            self._validate_result(job, result)
+            generated = await self.generator(result.corrected.text, workflow.category, workflow.title)
+        except Exception as exc:
+            logger.exception("report generation failed", extra={"report_job_id": str(job.id)})
+            async with self.session_factory() as session, session.begin():
+                persisted_job = await session.get(ReportJob, job.id)
+                persisted_workflow = await self._workflow(session, job.source_transcription_id)
+                if persisted_job is not None:
+                    persisted_job.status = ReportJobStatus.failed
+                    persisted_job.last_error = str(exc)[:2000]
+                    persisted_job.updated_at = utcnow()
+                persisted_workflow.status = WorkflowStatus.report_failed
+                persisted_workflow.updated_at = utcnow()
+            return True
+
+        async with self.session_factory() as session, session.begin():
+            persisted_job = await session.get(ReportJob, job.id)
+            persisted_workflow = await self._workflow(session, job.source_transcription_id)
+            existing = await session.scalar(
+                select(Report).where(
+                    Report.tenant_id == job.tenant_id,
+                    Report.source_transcription_id == job.source_transcription_id,
+                )
+            )
+            report = existing or Report(
+                tenant_id=job.tenant_id,
+                source_transcription_id=job.source_transcription_id,
+                title=generated.title,
+                category=persisted_workflow.category,
+                situation=generated.report.situation,
+                cause=generated.report.cause,
+                evidence=generated.report.evidence,
+                solution=generated.report.solution,
+                infra_context=generated.report.infra_context,
+                status=ReportStatus.draft,
+                raw_text_sha256=job.raw_text_sha256,
+                corrected_text_sha256=job.corrected_text_sha256,
+                dictionary_version=job.dictionary_version,
+                result_object_key=job.result_object_key,
+            )
+            if existing is None:
+                try:
+                    async with session.begin_nested():
+                        session.add(report)
+                        await session.flush()
+                except IntegrityError:
+                    persisted_report = await session.scalar(
+                        select(Report).where(
+                            Report.tenant_id == job.tenant_id,
+                            Report.source_transcription_id == job.source_transcription_id,
+                        )
+                    )
+                    if persisted_report is None:
+                        raise
+                    report = persisted_report
+            if persisted_job is not None:
+                persisted_job.status = ReportJobStatus.completed
+                persisted_job.last_error = None
+                persisted_job.updated_at = utcnow()
+            persisted_workflow.status = WorkflowStatus.draft
+            persisted_workflow.report_id = report.id
+            persisted_workflow.updated_at = utcnow()
+        return True
+
+    @staticmethod
+    async def _workflow(session: AsyncSession, transcription_id: UUID) -> TranscriptionWorkflow:
+        workflow = await session.scalar(
+            select(TranscriptionWorkflow).where(TranscriptionWorkflow.transcription_id == transcription_id)
+        )
+        if workflow is None:
+            raise ValueError("transcription workflow not found")
+        return workflow
+
+    @staticmethod
+    def _validate_result(job: ReportJob, result: SttResult) -> None:
+        if result.transcription_id != job.source_transcription_id:
+            raise ReportIntegrityError("transcription id mismatch")
+        if result.tenant_id != job.tenant_id:
+            raise ReportIntegrityError("tenant mismatch")
+        if result.raw.text_sha256 != job.raw_text_sha256:
+            raise ReportIntegrityError("raw checksum mismatch")
+        if result.corrected.text_sha256 != job.corrected_text_sha256:
+            raise ReportIntegrityError("corrected checksum mismatch")
+        if result.dictionary_version != job.dictionary_version:
+            raise ReportIntegrityError("dictionary version mismatch")

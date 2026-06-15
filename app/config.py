@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     app_name: str = "OnRamp API"
     app_version: str = "0.1.0"
     debug: bool = False
+
+    # Authentication
+    auth_jwt_secret: SecretStr = SecretStr("")
+    auth_jwt_issuer: str = ""
+    auth_jwt_audience: str = "onramp-api"
 
     # LLM Provider: "openai" | "azure" | "self_hosted"
     llm_provider: str = ""
@@ -40,6 +45,37 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
+    redis_outbox_batch_size: int = Field(default=100, ge=1)
+    redis_outbox_poll_interval_ms: int = Field(default=500, ge=1)
+    redis_stream_block_ms: int = Field(default=5000, ge=1)
+    redis_stream_read_count: int = Field(default=10, ge=1)
+    redis_stream_reclaim_idle_ms: int = Field(default=300000, ge=1000)
+
+    # STT internal API / report worker
+    stt_service_base_url: str = "http://onramp-stt-api:8000"
+    stt_service_token: SecretStr = SecretStr("")
+    stt_result_timeout_seconds: float = Field(default=30.0, gt=0)
+    report_worker_poll_interval_ms: int = Field(default=1000, ge=100)
+    report_worker_processing_timeout_seconds: int = Field(default=300, ge=30)
+    report_worker_max_retries: int = Field(default=3, ge=0)
+    report_window_max_chars: int = Field(default=12000, ge=1000)
+    report_window_overlap_chars: int = Field(default=500, ge=0)
+    report_merge_batch_size: int = Field(default=4, ge=2)
+
+    @model_validator(mode="after")
+    def _check_report_window(self) -> "Settings":
+        if self.report_window_overlap_chars >= self.report_window_max_chars:
+            raise ValueError("report_window_overlap_chars must be smaller than report_window_max_chars")
+        return self
+
+    # Object Storage
+    storage_bucket: str = "onramp-stt"
+    storage_endpoint_url: str = ""
+    storage_public_endpoint_url: str = ""
+    storage_region: str = "ap-northeast-2"
+    storage_access_key: SecretStr = SecretStr("")
+    storage_secret_key: SecretStr = SecretStr("")
+    storage_upload_expires_seconds: int = Field(default=900, ge=60, le=900)
 
     # Confluence
     confluence_base_url: str = ""
