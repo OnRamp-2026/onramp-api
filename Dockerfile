@@ -19,6 +19,8 @@ RUN pip install --upgrade pip \
 COPY --chown=onramp:onramp scripts ./scripts
 COPY --chown=onramp:onramp alembic ./alembic
 COPY --chown=onramp:onramp alembic.ini ./
+# nightly 평가 게이트(eval_retrieval --gate, E7 #141)가 읽는 골든셋·baseline (3개 파일만)
+COPY --chown=onramp:onramp data/eval/queries.jsonl data/eval/qrels.jsonl data/eval/baseline.json ./data/eval/
 
 USER onramp
 
