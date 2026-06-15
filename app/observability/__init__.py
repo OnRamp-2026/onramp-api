@@ -3,6 +3,16 @@
 `langfuse_enabled=false`(기본)면 전부 no-op(None 반환)이라 키 없이도 앱이 기동한다.
 """
 
-from app.observability.langfuse import get_callback_handler, get_langfuse_client, is_enabled
+from app.observability.langfuse import (
+    get_callback_handler,
+    get_langfuse_client,
+    is_enabled,
+    langfuse_run_config,
+)
 
-__all__ = ["get_callback_handler", "get_langfuse_client", "is_enabled"]
+__all__ = [
+    "get_callback_handler",
+    "get_langfuse_client",
+    "is_enabled",
+    "langfuse_run_config",
+]

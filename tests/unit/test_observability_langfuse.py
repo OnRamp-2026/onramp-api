@@ -107,3 +107,34 @@ def test_factory_returns_instances_when_enabled(monkeypatch):
 
     lf.get_langfuse_client.cache_clear()
     lf.get_callback_handler.cache_clear()
+
+
+def test_run_config_empty_when_disabled(monkeypatch):
+    import app.observability.langfuse as lf
+
+    monkeypatch.setattr(lf, "get_callback_handler", lambda: None)
+    assert lf.langfuse_run_config(request_id="r", model="m") == {}
+
+
+def test_run_config_has_callbacks_and_metadata_when_enabled(monkeypatch):
+    import app.observability.langfuse as lf
+
+    handler = object()
+    monkeypatch.setattr(lf, "get_callback_handler", lambda: handler)
+
+    cfg = lf.langfuse_run_config(request_id="rid", tenant="tenant1", model="gpt-4o", tags=["incident"])
+
+    assert cfg["callbacks"] == [handler]
+    md = cfg["metadata"]
+    assert md["langfuse_user_id"] == "tenant1"
+    assert md["langfuse_session_id"] == "rid"  # conversation 부재 → request_id 대체
+    assert md["request_id"] == "rid"
+    assert md["langfuse_tags"] == ["gpt-4o", "incident"]
+
+
+def test_run_config_session_id_overrides_request_id(monkeypatch):
+    import app.observability.langfuse as lf
+
+    monkeypatch.setattr(lf, "get_callback_handler", lambda: object())
+    cfg = lf.langfuse_run_config(request_id="rid", session_id="conv-9")
+    assert cfg["metadata"]["langfuse_session_id"] == "conv-9"

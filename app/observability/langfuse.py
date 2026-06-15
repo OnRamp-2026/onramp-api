@@ -18,6 +18,7 @@ import structlog
 from app.config import get_settings
 
 if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
     from langfuse import Langfuse
     from langfuse.langchain import CallbackHandler
 
@@ -75,3 +76,40 @@ def get_callback_handler() -> CallbackHandler | None:
         return None
 
     return CallbackHandler()
+
+
+def langfuse_run_config(
+    *,
+    request_id: str = "",
+    tenant: str | None = None,
+    session_id: str | None = None,
+    model: str = "",
+    tags: list[str] | None = None,
+) -> RunnableConfig:
+    """LangGraph(ainvoke)에 넘길 RunnableConfig 조각을 만든다.
+
+    관측 비활성/미설치면 빈 dict(`{}`)를 반환한다 — 호출부는 `config=cfg or None`로
+    그대로 넘기면 비활성 시 기존 동작과 100% 동일하다.
+
+    metadata의 `langfuse_*` 키는 v3 CallbackHandler가 trace 속성으로 인식한다:
+    - `langfuse_user_id`  = tenant (멀티테넌트 비용·품질 분리)
+    - `langfuse_session_id` = conversation 부재 시 request_id로 대체 (턴 단위 추적)
+    - `langfuse_tags`     = [model, …] (필터·집계용)
+    """
+    handler = get_callback_handler()
+    if handler is None:
+        return {}
+
+    metadata: dict[str, object] = {}
+    if tenant:
+        metadata["langfuse_user_id"] = tenant
+    sid = session_id or request_id
+    if sid:
+        metadata["langfuse_session_id"] = sid
+    if request_id:
+        metadata["request_id"] = request_id
+    tag_list = [t for t in [model, *(tags or [])] if t]
+    if tag_list:
+        metadata["langfuse_tags"] = tag_list
+
+    return {"callbacks": [handler], "metadata": metadata}
