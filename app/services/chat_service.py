@@ -11,7 +11,7 @@ from app.middleware.error_handler import OnRampError
 from app.middleware.request_id import request_id_var
 from app.models.request import ChatRequest
 from app.models.response import ChatResponse, FiveElementsResponse, SourceDoc
-from app.observability import langfuse_run_config
+from app.observability import langfuse_run_config, langfuse_span
 
 logger = logging.getLogger(__name__)
 
@@ -27,18 +27,23 @@ async def chat(request: ChatRequest) -> ChatResponse:
         "retry_count": 0,
         "max_retries": get_settings().trust_max_retries,
     }
-    # Langfuse 트레이스 연결 — 비활성이면 {} → config=None (기존 동작과 동일).
-    # tenant(langfuse_user_id)는 /chat 인증 연동(#98) 후 주입한다.
-    run_config = langfuse_run_config(request_id=request_id_var.get(), model=request.model)
-    try:
-        state = await compiled_graph.ainvoke(initial_state, config=run_config or None)
-    except OnRampError:
-        raise  # 노드가 올린 도메인 에러(LLMError 502 등)는 그대로
-    except Exception as exc:  # 그래프 실행 실패 → 500
-        logger.exception("chat 파이프라인 실패")
-        raise OnRampError("답변 생성 중 오류가 발생했습니다", status_code=500) from exc
+    # Langfuse 루트 span으로 한 턴을 감싼다 → 그래프(CallbackHandler) 노드 스팬 + call_llm
+    # generation이 모두 이 한 trace 아래로 중첩된다(비활성이면 no-op). 노드 스팬 생성을 위해
+    # CallbackHandler는 run_config로 계속 주입. tenant는 /chat 인증 연동(#98) 후 주입.
+    with langfuse_span(name="chat", input={"query": request.query, "model": request.model}) as root:
+        run_config = langfuse_run_config(request_id=request_id_var.get(), model=request.model)
+        try:
+            state = await compiled_graph.ainvoke(initial_state, config=run_config or None)
+        except OnRampError:
+            raise  # 노드가 올린 도메인 에러(LLMError 502 등)는 그대로
+        except Exception as exc:  # 그래프 실행 실패 → 500
+            logger.exception("chat 파이프라인 실패")
+            raise OnRampError("답변 생성 중 오류가 발생했습니다", status_code=500) from exc
 
-    return _to_response(state, request)
+        response = _to_response(state, request)
+        if root is not None:
+            root.update(output={"answerability_status": response.answerability_status, "domain": response.domain})
+        return response
 
 
 def _to_response(state: dict, request: ChatRequest) -> ChatResponse:
