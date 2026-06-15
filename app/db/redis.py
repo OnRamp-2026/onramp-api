@@ -12,6 +12,9 @@ def get_redis() -> Redis:
         _client = Redis.from_url(
             settings.redis_url,
             decode_responses=True,
+            # XREADGROUP(block=redis_stream_block_ms) 동안 정상적으로 블로킹 대기하는 중에
+            # 클라이언트 소켓이 먼저 타임아웃되지 않도록 block 시간보다 충분히 크게 설정.
+            socket_timeout=(settings.redis_stream_block_ms / 1000) + 5,
         )
     return _client
 
