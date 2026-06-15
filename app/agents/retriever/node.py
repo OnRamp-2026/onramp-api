@@ -18,6 +18,7 @@ from app.agents.retriever.rerank import apply_ranking_boosts, get_reranker
 from app.agents.retriever.search import SearchFilters, search_with_mode
 from app.agents.state import AgentState, Domain, RetryAction, SourceDocument
 from app.config import Settings, get_settings
+from app.observability import langfuse_span
 from app.rag.embedder import get_embedder
 from app.rag.lineage import get_lineages
 
@@ -71,20 +72,41 @@ async def retrieve_node(state: AgentState) -> dict:
     doc_keys = [payload.get("doc_key", "") or "" for _, payload in results]
     lineages = await anyio.to_thread.run_sync(partial(get_lineages, doc_keys, settings=settings))
 
-    try:
-        # CrossEncoder.predict는 CPU 동기 작업 → 스레드로 오프로드 (이벤트 루프 비차단)
-        reranked = await anyio.to_thread.run_sync(get_reranker().rerank, refined, candidates)
-        ranked: list[RankedRow] = [
-            (apply_ranking_boosts(raw, payload, domains, lineages, target_versions, settings), raw, payload)
-            for raw, payload in reranked
-        ]
-        ranked.sort(key=lambda item: item[0], reverse=True)  # ranking 점수로 재정렬 (raw는 진단용 보존)
-    except ModuleNotFoundError:  # sentence-transformers 미설치 → 리랭커 비활성
-        logger.warning("리랭커 비활성 — sentence-transformers 미설치. vector score 순 폴백 (설치: make install-rerank)")
-        ranked = _vector_fallback(results, domains, lineages, target_versions, settings)
-    except Exception:  # 리랭커 로드/실행 실패(OOM 등) → vector score 순 폴백
-        logger.warning("리랭커 로드/실행 실패 — vector score 순으로 폴백", exc_info=True)
-        ranked = _vector_fallback(results, domains, lineages, target_versions, settings)
+    # rerank(외부 GPU remote 등)를 span으로 감싸 backend·0-hit·폴백·top score 관측 (비활성 no-op).
+    fallback_reason: str | None = None
+    with langfuse_span(
+        name="rerank", input={"backend": settings.reranker_backend, "n_candidates": len(candidates)}
+    ) as span:
+        try:
+            # CrossEncoder.predict는 CPU 동기 작업 → 스레드로 오프로드 (이벤트 루프 비차단)
+            reranked = await anyio.to_thread.run_sync(get_reranker().rerank, refined, candidates)
+            ranked: list[RankedRow] = [
+                (apply_ranking_boosts(raw, payload, domains, lineages, target_versions, settings), raw, payload)
+                for raw, payload in reranked
+            ]
+            ranked.sort(key=lambda item: item[0], reverse=True)  # ranking 점수로 재정렬 (raw는 진단용 보존)
+        except ModuleNotFoundError:  # sentence-transformers 미설치 → 리랭커 비활성
+            logger.warning(
+                "리랭커 비활성 — sentence-transformers 미설치. vector score 순 폴백 (설치: make install-rerank)"
+            )
+            ranked = _vector_fallback(results, domains, lineages, target_versions, settings)
+            fallback_reason = "module_missing"
+        except Exception:  # 리랭커 로드/실행 실패(OOM·timeout·원격 5xx 등) → vector score 순 폴백
+            logger.warning("리랭커 로드/실행 실패 — vector score 순으로 폴백", exc_info=True)
+            ranked = _vector_fallback(results, domains, lineages, target_versions, settings)
+            fallback_reason = "error"
+        if span is not None:
+            span.update(
+                metadata={
+                    "backend": settings.reranker_backend,
+                    "n_hits": len(results),
+                    "zero_hit": not results,
+                    "n_candidates": len(candidates),
+                    "fallback": fallback_reason,
+                    "reranked": fallback_reason is None,
+                    "top_raw_score": max((raw for _, raw, _ in ranked), default=0.0),
+                }
+            )
 
     docs = [
         _to_source_doc(payload, ranking_score, raw_score, vec_score.get(payload.get("chunk_id"), 0.0), settings)

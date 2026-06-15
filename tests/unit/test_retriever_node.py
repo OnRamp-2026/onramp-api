@@ -409,3 +409,65 @@ async def test_node_retry_version_passes_filters(monkeypatch):
     )
     assert seen["filters"].version == "2.4"
     assert seen["filters"].pinned_doc_keys == ("apache:mpm",)
+
+
+# ── #135 rerank 커스텀 span ──
+def _fake_span(captured):
+    from contextlib import contextmanager
+
+    class _Span:
+        def update(self, **kw):
+            captured.update(kw)
+
+    @contextmanager
+    def _cm(**kw):
+        captured["start"] = kw
+        yield _Span()
+
+    return _cm
+
+
+@pytest.mark.asyncio
+async def test_rerank_span_records_metadata_on_success(monkeypatch):
+    hits = [_hit("c1", "a", 0.9)]
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return hits
+
+    class _R:
+        def rerank(self, q, c):
+            return [(0.7, p) for _, p in c]
+
+    _patch(monkeypatch, fake_search, _R())
+    captured: dict = {}
+    monkeypatch.setattr(node_mod, "langfuse_span", _fake_span(captured))
+
+    await retrieve_node({"refined_query": "q", "domains": ["장애대응"]})
+
+    md = captured["metadata"]
+    assert md["backend"] in ("torch", "onnx", "remote")
+    assert md["reranked"] is True and md["fallback"] is None
+    assert md["n_hits"] == 1 and md["zero_hit"] is False
+    assert md["top_raw_score"] == 0.7
+
+
+@pytest.mark.asyncio
+async def test_rerank_span_records_fallback_on_error(monkeypatch):
+    hits = [_hit("c1", "a", 0.9)]
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return hits
+
+    class _R:
+        def rerank(self, q, c):
+            raise RuntimeError("gpu down")
+
+    _patch(monkeypatch, fake_search, _R())
+    captured: dict = {}
+    monkeypatch.setattr(node_mod, "langfuse_span", _fake_span(captured))
+
+    out = await retrieve_node({"refined_query": "q", "domains": ["장애대응"]})
+
+    assert out["documents"]  # 폴백으로 결과는 나옴
+    assert captured["metadata"]["fallback"] == "error"
+    assert captured["metadata"]["reranked"] is False
