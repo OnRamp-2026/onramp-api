@@ -7,6 +7,7 @@ from app.observability.langfuse import (
     get_callback_handler,
     get_langfuse_client,
     is_enabled,
+    langfuse_generation,
     langfuse_run_config,
 )
 
@@ -14,5 +15,6 @@ __all__ = [
     "get_callback_handler",
     "get_langfuse_client",
     "is_enabled",
+    "langfuse_generation",
     "langfuse_run_config",
 ]

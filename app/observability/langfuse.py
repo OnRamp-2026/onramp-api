@@ -10,8 +10,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -113,3 +115,40 @@ def langfuse_run_config(
         metadata["langfuse_tags"] = tag_list
 
     return {"callbacks": [handler], "metadata": metadata}
+
+
+@contextmanager
+def langfuse_generation(
+    *,
+    name: str,
+    model: str | None = None,
+    input: Any = None,
+) -> Iterator[Any]:
+    """LLM 호출용 Langfuse generation span 컨텍스트.
+
+    관측 비활성/미설치면 None을 yield하는 no-op — 호출부는 `if gen is not None:` 가드만 하면 된다.
+    활성 시 현재 trace(LangGraph CallbackHandler span) 아래에 generation으로 자동 중첩되어,
+    `gen.update(output=..., usage_details=...)`로 token을 채우면 Langfuse가 model 기준 cost를 계산한다.
+    """
+    client = get_langfuse_client()
+    if client is None:
+        yield None
+        return
+
+    # span 생성(enter) 실패는 흡수(no-op) — 관측이 응답 경로를 막지 않게.
+    try:
+        cm = client.start_as_current_observation(name=name, as_type="generation", model=model, input=input)
+        gen = cm.__enter__()
+    except Exception as exc:
+        logger.warning("langfuse_generation_start_failed", error=str(exc))
+        yield None
+        return
+
+    # 본문 예외는 span에 error로 기록하고 그대로 전파(LLMError 등 유지).
+    try:
+        yield gen
+    except BaseException as exc:
+        cm.__exit__(type(exc), exc, exc.__traceback__)
+        raise
+    else:
+        cm.__exit__(None, None, None)

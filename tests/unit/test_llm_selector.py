@@ -197,3 +197,55 @@ async def test_call_llm_self_hosted_success(monkeypatch):
     assert out == "local 응답"
     assert captured["url"] == "http://local:8000/v1/chat/completions"
     assert captured["body"]["model"] == "mistral-7b"
+
+
+# ── #129 Langfuse generation: token/cost 계측 ──
+def test_usage_details_object_dict_and_empty():
+    """usage 객체/딕셔너리/None/빈값 → {input,output,total} 매핑."""
+    obj = type("U", (), {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})()
+    assert llm_selector._usage_details(obj) == {"input": 10, "output": 5, "total": 15}
+    assert llm_selector._usage_details({"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}) == {
+        "input": 3,
+        "output": 4,
+        "total": 7,
+    }
+    assert llm_selector._usage_details(None) is None
+    assert llm_selector._usage_details({}) is None
+
+
+@pytest.mark.asyncio
+async def test_call_llm_records_usage_to_generation(monkeypatch):
+    """call_llm이 generation에 model·output·usage_details를 기록한다."""
+    from contextlib import contextmanager
+
+    class _Comp:
+        async def create(self, **kw):
+            msg = type("M", (), {"content": "hi"})()
+            ch = type("C", (), {"message": msg})()
+            usage = type("U", (), {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18})()
+            return type("R", (), {"choices": [ch], "usage": usage})()
+
+    client = type("Cl", (), {"chat": type("Ch", (), {"completions": _Comp()})()})()
+    monkeypatch.setattr(llm_selector, "_get_openai_client", lambda settings: client)
+
+    captured: dict = {}
+
+    class _Gen:
+        def update(self, **kw):
+            captured.update(kw)
+
+    @contextmanager
+    def _fake_gen(**kw):
+        captured["start"] = kw
+        yield _Gen()
+
+    monkeypatch.setattr(llm_selector, "langfuse_generation", _fake_gen)
+
+    s = Settings(llm_provider="openai", openai_api_key="sk-test")
+    out = await call_llm("sys", "user", model="gpt-4o-mini", settings=s)
+
+    assert out == "hi"
+    assert captured["start"]["model"] == "gpt-4o-mini"
+    assert captured["model"] == "gpt-4o-mini"
+    assert captured["output"] == "hi"
+    assert captured["usage_details"] == {"input": 11, "output": 7, "total": 18}
