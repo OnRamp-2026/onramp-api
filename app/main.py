@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.slack import router as slack_router
 from app.api.v1.router import v1_router
 from app.config import get_settings
 from app.db.postgres import close_postgres, get_engine
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
     # Routers
     app.include_router(v1_router, prefix="/v1")
     app.include_router(auth_router, prefix="/auth", tags=["Auth"])
+    app.include_router(slack_router, prefix="/slack", tags=["Slack"])
 
     return app
 
