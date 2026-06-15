@@ -32,13 +32,17 @@ def _validate_cookie_origin(request: Request, settings: Settings) -> None:
         return
 
     configured = urlsplit(settings.auth_base_url)
-    expected_origin = f"{configured.scheme}://{configured.netloc}" if configured.scheme and configured.netloc else ""
+    expected_origin = (
+        f"{configured.scheme.lower()}://{configured.netloc.lower()}"
+        if configured.scheme and configured.netloc
+        else ""
+    )
     if not expected_origin:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="쿠키 인증 Origin 검증이 구성되지 않았습니다.",
         )
-    if request.headers.get("origin") != expected_origin:
+    if request.headers.get("origin", "").lower() != expected_origin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="허용되지 않은 요청 Origin입니다.",
