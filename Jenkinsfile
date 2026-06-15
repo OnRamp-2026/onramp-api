@@ -45,7 +45,10 @@ spec:
         sh '''
           set -eu
           apt-get update
-          apt-get install -y --no-install-recommends git ca-certificates
+          apt-get install -y --no-install-recommends git ca-certificates curl
+          # yq(mikefarah) — values-dev.yaml의 .app.image 만 스코프 갱신(reranker.image 등 다른 블록 보존)
+          curl -sSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          chmod +x /usr/local/bin/yq
           rm -rf /var/lib/apt/lists/*
         '''
       }
@@ -176,32 +179,11 @@ EOF
             git config user.name "onramp-jenkins"
             git config user.email "onramp-jenkins@users.noreply.github.com"
 
-            python - <<'PY'
-import os
-from pathlib import Path
+            # .app.image 만 스코프 갱신 — 같은 파일의 reranker.image 등 다른 이미지 블록을 덮어쓰지 않는다.
+            # (과거 naive 치환이 repository/tag/digest 모든 줄을 바꿔 reranker.image를 clobber한 버그 수정)
+            REPO="${IMAGE_REPOSITORY}" TAG="${IMAGE_TAG}" DIG="${IMAGE_DIGEST}" \
+              yq -i '.app.image.repository = strenv(REPO) | .app.image.tag = strenv(TAG) | .app.image.digest = strenv(DIG)' "${GITOPS_VALUES_FILE}"
 
-path = Path(os.environ["GITOPS_VALUES_FILE"])
-newline = chr(10)
-replacements = {
-    "repository:": os.environ["IMAGE_REPOSITORY"],
-    "tag:": os.environ["IMAGE_TAG"],
-    "digest:": os.environ["IMAGE_DIGEST"],
-}
-
-updated_lines = []
-for line in path.read_text().splitlines():
-    stripped = line.lstrip(" ")
-    indent = line[: len(line) - len(stripped)]
-
-    for key, value in replacements.items():
-        if stripped.startswith(key):
-            updated_lines.append(f"{indent}{key} {value}")
-            break
-    else:
-        updated_lines.append(line)
-
-path.write_text(newline.join(updated_lines) + newline)
-PY
             git diff -- "${GITOPS_VALUES_FILE}"
 
             if git diff --quiet -- "${GITOPS_VALUES_FILE}"; then
