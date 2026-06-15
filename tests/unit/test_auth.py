@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 
 from app.api.deps import decode_tenant_token, get_current_tenant
@@ -19,6 +19,27 @@ def _token(**claims: object) -> str:
         **claims,
     }
     return jwt.encode(payload, SECRET, algorithm="HS256")
+
+
+def _request(
+    *,
+    method: str = "GET",
+    cookie: str | None = None,
+    origin: str | None = None,
+) -> Request:
+    headers: list[tuple[bytes, bytes]] = []
+    if cookie:
+        headers.append((b"cookie", f"onramp_session={cookie}".encode()))
+    if origin:
+        headers.append((b"origin", origin.encode()))
+    return Request(
+        {
+            "type": "http",
+            "method": method,
+            "path": "/v1/transcriptions",
+            "headers": headers,
+        }
+    )
 
 
 def test_decode_tenant_token_uses_verified_claim() -> None:
@@ -59,16 +80,56 @@ def test_decode_tenant_token_requires_auth_configuration() -> None:
     assert exc_info.value.status_code == 503
 
 
-def test_get_current_tenant_requires_bearer_credentials() -> None:
+def test_get_current_tenant_requires_cookie_or_bearer() -> None:
     with pytest.raises(HTTPException) as exc_info:
-        get_current_tenant(None)
+        get_current_tenant(_request(), None)
 
     assert exc_info.value.status_code == 401
 
 
-def test_get_current_tenant_does_not_accept_client_tenant_header(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_current_tenant_accepts_bearer_without_origin(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(auth_jwt_secret=SECRET)
     monkeypatch.setattr("app.api.deps.get_settings", lambda: settings)
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=_token())
 
-    assert get_current_tenant(credentials) == "tenant-a"
+    assert get_current_tenant(_request(method="POST"), credentials) == "tenant-a"
+
+
+def test_get_current_tenant_accepts_session_cookie(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings(
+        auth_jwt_secret=SECRET,
+        auth_base_url="https://onramp.example.com",
+    )
+    monkeypatch.setattr("app.api.deps.get_settings", lambda: settings)
+
+    assert (
+        get_current_tenant(
+            _request(
+                method="POST",
+                cookie=_token(),
+                origin="https://onramp.example.com",
+            ),
+            None,
+        )
+        == "tenant-a"
+    )
+
+
+@pytest.mark.parametrize("origin", [None, "https://attacker.example.com"])
+def test_get_current_tenant_rejects_untrusted_cookie_origin(
+    monkeypatch: pytest.MonkeyPatch,
+    origin: str | None,
+) -> None:
+    settings = Settings(
+        auth_jwt_secret=SECRET,
+        auth_base_url="https://onramp.example.com",
+    )
+    monkeypatch.setattr("app.api.deps.get_settings", lambda: settings)
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_current_tenant(
+            _request(method="POST", cookie=_token(), origin=origin),
+            None,
+        )
+
+    assert exc_info.value.status_code == 403
