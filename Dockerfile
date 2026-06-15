@@ -18,6 +18,7 @@ RUN pip install --upgrade pip \
 
 COPY --chown=onramp:onramp scripts ./scripts
 COPY --chown=onramp:onramp alembic ./alembic
+COPY --chown=onramp:onramp alembic.ini ./
 
 USER onramp
 
