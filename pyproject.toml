@@ -10,7 +10,7 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
-    "PyJWT>=2.10.0",
+    "PyJWT[crypto]>=2.10.0",  # crypto extra = cryptography (Slack id_token RS256 검증 필수)
 
     # LangChain / LangGraph
     "langgraph>=0.2.0",
