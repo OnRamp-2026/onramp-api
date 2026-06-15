@@ -36,6 +36,7 @@ def _prime(r: RemoteReranker, client, url: str) -> None:
     r._client = client  # type: ignore[assignment]
     r._client_url = url
     r._resolved_url = url
+    r._url_resolved = True  # 캐시 적중 → rerank가 실제 Redis를 조회하지 않게
     r._url_checked_at = time.monotonic()
 
 
@@ -223,3 +224,69 @@ def test_rerank_raises_unavailable_when_no_url():
     r = _resolver(value=None, env_url="")
     with pytest.raises(RerankerUnavailableError):
         r.rerank("q", [("a", {})])
+
+
+def test_no_url_records_failure_and_caches_empty():
+    # 리뷰: 빈 URL도 실패로 집계(회로 open 유도) + 결과 캐시(매 요청 Redis 재조회 방지)
+    r = _resolver(value=None, env_url="")
+    with pytest.raises(RerankerUnavailableError):
+        r.rerank("q", [("a", {})])
+    assert r._cb_failures == 1  # _record_failure로 집계됨
+    assert r._url_resolved is True  # 빈 결과도 캐시 → 다음 호출은 Redis 재조회 안 함
+
+
+def test_no_url_opens_breaker_after_threshold():
+    r = _resolver(value=None, env_url="")
+    for _ in range(3):  # 임계치(3)까지 실패 집계
+        with pytest.raises(RerankerUnavailableError):
+            r.rerank("q", [("a", {})])
+    assert r._cb_open_until > time.monotonic()  # 회로 open → 이후 _resolve_url 자체 스킵
+
+
+def test_resolve_url_rejects_malformed_redis_url():
+    # 리뷰: Redis 값 검증 — 형식 불량이면 base_url로 쓰지 않고 env 폴백(SSRF 방지)
+    r = _resolver(value=b"not-a-url", env_url="http://env:8080")
+    assert r._resolve_url() == "http://env:8080"
+
+
+def test_resolve_url_rejects_non_http_redis_url():
+    r = _resolver(value=b"ftp://evil:21", env_url="http://env:8080")
+    assert r._resolve_url() == "http://env:8080"  # http/https만 허용
+
+
+# ── #123 리뷰: half-open 단일 probe 게이트 ───────────────────────────────
+
+
+def _half_open(client, failures: int = 3) -> RemoteReranker:
+    r = _breaker_remote(client)
+    r._cb_failures = failures
+    r._cb_open_until = time.monotonic() - 1  # 쿨다운 만료(half-open), != 0
+    return r
+
+
+def test_half_open_rejects_when_probe_inflight():
+    fc = _FailingClient()
+    r = _half_open(fc)
+    r._cb_probe_inflight = True  # 이미 다른 요청이 probe 중
+    with pytest.raises(RerankerUnavailableError):
+        r.rerank("q", [("a", {})])
+    assert fc.calls == 0  # probe 점유 중 → 원격 호출 스킵(즉시 폴백)
+
+
+def test_half_open_allows_single_probe_and_closes_on_success():
+    fc = _FakeClient([0.5])
+    r = _half_open(fc)
+    out = r.rerank("q", [("a", {"chunk_id": "a"})])  # probe 1개 통과
+    assert out == [(0.5, {"chunk_id": "a"})]
+    assert r._cb_probe_inflight is False  # finally에서 점유 해제
+    assert r._cb_open_until == 0.0 and r._cb_failures == 0  # 성공 → close
+
+
+def test_half_open_probe_failure_reopens():
+    fc = _FailingClient()
+    r = _half_open(fc)
+    with pytest.raises(RuntimeError):
+        r.rerank("q", [("a", {})])  # probe 실패
+    assert fc.calls == 1  # probe는 실제 1회 호출
+    assert r._cb_probe_inflight is False  # 점유 해제
+    assert r._cb_open_until > time.monotonic()  # 재오픈(쿨다운 갱신)

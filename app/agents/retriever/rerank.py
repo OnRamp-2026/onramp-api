@@ -8,6 +8,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -123,11 +124,13 @@ class RemoteReranker:
         # #73 동적 URL: on-demand GPU(VESSL)는 스핀업마다 URL이 바뀐다 → Redis 키에서 런타임 조회(짧게 캐시).
         self._redis: Any = None
         self._resolved_url = ""
+        self._url_resolved = False  # 최초 1회는 무조건 조회(빈 결과도 TTL 동안 캐시 — Redis 재조회 폭주 방지).
         self._url_checked_at = 0.0  # monotonic 시각. TTL 지나면 Redis 재조회.
         # 클라이언트 사이드 서킷브레이커 상태(파드별 인메모리). 별도 서비스/게이트웨이 불필요.
         self._cb_lock = threading.Lock()
         self._cb_failures = 0
         self._cb_open_until = 0.0  # monotonic 시각. time.monotonic() < 이 값이면 회로 open.
+        self._cb_probe_inflight = False  # half-open: 복구 probe 1개만 허용(나머지는 즉시 폴백).
 
     def _redis_client(self) -> Any:
         # 동기 redis 클라(lazy). socket 타임아웃을 짧게 — Redis 지연이 rerank 경로를 막지 않게.
@@ -137,21 +140,32 @@ class RemoteReranker:
             self._redis = redis.from_url(self.settings.redis_url, socket_timeout=1.0, socket_connect_timeout=1.0)
         return self._redis
 
+    @staticmethod
+    def _is_http_url(value: str) -> bool:
+        # config의 reranker_service_url 검증과 동일 기준(http/https + netloc).
+        parsed = urlparse(value)
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
     def _resolve_url(self) -> str:
         # Redis 키(reranker_url_redis_key) 우선 → 없으면 env(reranker_service_url) 폴백. TTL 동안 캐시.
-        # Redis 실패는 삼키고 env 폴백 — URL 조회가 rerank를 죽이지 않는다.
+        # 빈 결과도 캐시한다 — Redis 장애+env 빈값에서 매 요청 Redis 재조회가 반복되지 않게(즉시 폴백 유지).
         now = time.monotonic()
-        if self._resolved_url and now - self._url_checked_at < self.settings.reranker_url_cache_ttl_s:
+        if self._url_resolved and now - self._url_checked_at < self.settings.reranker_url_cache_ttl_s:
             return self._resolved_url
         url = ""
         try:
             raw = self._redis_client().get(self.settings.reranker_url_redis_key)
             if raw:
-                url = raw.decode() if isinstance(raw, bytes) else str(raw)
-                url = url.strip()
+                candidate = (raw.decode() if isinstance(raw, bytes) else str(raw)).strip()
+                # Redis 값은 검증 없이 base_url로 쓰지 않는다 — 오염 시 임의 대상 호출 방지(SSRF).
+                if self._is_http_url(candidate):
+                    url = candidate
+                elif candidate:
+                    logger.warning("Redis 리랭커 URL 형식 오류 — env 폴백 (%r)", candidate)
         except Exception:  # noqa: BLE001 — Redis 장애는 env 폴백으로 흡수
             url = ""
         self._resolved_url = url or self.settings.reranker_service_url.strip()
+        self._url_resolved = True
         self._url_checked_at = now
         return self._resolved_url
 
@@ -179,23 +193,30 @@ class RemoteReranker:
     def rerank(self, query: str, candidates: list[tuple[str, dict]]) -> list[tuple[float, dict]]:
         if not candidates:
             return []
-        # 회로 open이면 호출 스킵 → 즉시 예외 → vector 폴백(GPU OFF 동안 매 요청 connect 지연 방지).
+        # 서킷 게이트: open이면 스킵, half-open(쿨다운 만료)이면 probe 1개만 통과 → 즉시 vector 폴백.
         with self._cb_lock:
-            if time.monotonic() < self._cb_open_until:
+            now = time.monotonic()
+            if now < self._cb_open_until:
                 raise RerankerUnavailableError("reranker circuit open")
-        url = self._resolve_url()
-        if not url:
-            # env·Redis 둘 다 비었음(GPU OFF/미설정) → 호출 자체 불가 → 폴백.
-            raise RerankerUnavailableError("reranker URL 미설정 (env·Redis 모두 비어있음)")
-        client = self._get_client(url)
+            if self._cb_open_until != 0.0:  # 쿨다운 만료 후 half-open — 단일 probe만 허용
+                if self._cb_probe_inflight:
+                    raise RerankerUnavailableError("reranker circuit half-open")
+                self._cb_probe_inflight = True
         passages = [text for text, _ in candidates]
         try:
-            resp = client.post("/rerank", json={"query": query, "passages": passages})
+            url = self._resolve_url()
+            if not url:
+                # env·Redis 둘 다 비었음(GPU OFF/미설정) → 호출 불가 → 실패로 집계해 회로 open 유도.
+                raise RerankerUnavailableError("reranker URL 미설정 (env·Redis 모두 비어있음)")
+            resp = self._get_client(url).post("/rerank", json={"query": query, "passages": passages})
             resp.raise_for_status()
             scores = resp.json()["scores"]
         except Exception:
             self._record_failure()
             raise
+        finally:
+            with self._cb_lock:  # probe 점유 해제(성공이든 실패든) — 다음 호출이 게이트를 통과할 수 있게
+                self._cb_probe_inflight = False
         self._record_success()
         # strict=True: 서비스가 길이 불일치 점수를 주면 ValueError → 폴백(방어)
         ranked = [(float(score), payload) for score, (_, payload) in zip(scores, candidates, strict=True)]
@@ -337,6 +358,11 @@ def get_reranker(settings: Settings | None = None) -> Reranker:
         cfg.reranker_onnx_file,
         cfg.reranker_service_url,
         cfg.reranker_timeout_s,  # 변경 시 httpx 타임아웃이 반영되도록 키에 포함
+        cfg.reranker_connect_timeout_s,
+        cfg.reranker_breaker_fail_threshold,
+        cfg.reranker_breaker_cooldown_s,
+        cfg.reranker_url_redis_key,
+        cfg.reranker_url_cache_ttl_s,  # 위 설정 변경 시 stale 인스턴스 재사용 방지
     )
     with _reranker_lock:  # 동시 초기화·설정 전환에서 key와 instance가 어긋난 채 반환되는 것을 막는다
         if _reranker is None or _reranker_key != key:
