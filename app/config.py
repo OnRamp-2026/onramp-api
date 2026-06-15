@@ -36,6 +36,30 @@ class Settings(BaseSettings):
     # 기본 모델
     default_model: str = ""
 
+    # ── Observability (Langfuse, LLMOps) ──
+    # kill-switch: false(기본)면 관측 전부 no-op — 키 없이도 앱이 기동한다.
+    langfuse_enabled: bool = False
+    langfuse_public_key: str = ""  # pk-lf-… (비밀 아님)
+    langfuse_secret_key: SecretStr = SecretStr("")  # sk-lf-…
+    langfuse_host: str = ""  # self-host URL 또는 https://cloud.langfuse.com
+
+    @model_validator(mode="after")
+    def _check_langfuse(self) -> "Settings":
+        # fail-fast: 켜놓고 키/host가 비면 첫 요청에서 조용히 죽으므로 기동 단계에서 막는다.
+        if self.langfuse_enabled:
+            missing = [
+                name
+                for name, val in (
+                    ("langfuse_public_key", self.langfuse_public_key),
+                    ("langfuse_secret_key", self.langfuse_secret_key.get_secret_value()),
+                    ("langfuse_host", self.langfuse_host),
+                )
+                if not val.strip()
+            ]
+            if missing:
+                raise ValueError(f"langfuse_enabled=true면 다음 설정이 필요합니다: {', '.join(missing)}")
+        return self
+
     # Qdrant
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
