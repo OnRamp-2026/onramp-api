@@ -98,7 +98,12 @@ class Settings(BaseSettings):
     reranker_onnx_file: str = "model_quantized.onnx"
     # #72 remote: 별도 리랭커 서비스(onramp-reranker) — 메모리 분리. 예: http://onramp-reranker:8080
     reranker_service_url: str = ""
-    reranker_timeout_s: float = Field(default=10.0, gt=0)
+    reranker_timeout_s: float = Field(default=10.0, gt=0)  # read 타임아웃(연결 후 응답 대기)
+    # on-demand GPU(VESSL)가 꺼져 있을 때 매 요청을 오래 지연시키지 않도록 connect 타임아웃을 짧게 분리.
+    reranker_connect_timeout_s: float = Field(default=2.0, gt=0)
+    # 클라이언트 사이드 서킷브레이커(별도 서비스 X): 연속 실패 N회 → 쿨다운 동안 호출 스킵하고 즉시 vector 폴백.
+    reranker_breaker_fail_threshold: int = Field(default=3, ge=1)
+    reranker_breaker_cooldown_s: float = Field(default=30.0, gt=0)
 
     @model_validator(mode="after")
     def _check_reranker_remote(self) -> "Settings":

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -11,6 +13,12 @@ import httpx
 
 from app.config import Settings, get_settings
 from app.rag.version_fit import version_fit_from_payload
+
+logger = logging.getLogger(__name__)
+
+
+class RerankerUnavailableError(RuntimeError):
+    """서킷브레이커 open 등으로 remote 리랭커 호출을 건너뛸 때 — retriever_node가 잡아 vector 폴백."""
 
 
 class CrossEncoderReranker:
@@ -111,30 +119,68 @@ class RemoteReranker:
         self.settings = settings or get_settings()
         self._client: httpx.Client | None = None
         self._lock = threading.Lock()
+        # 클라이언트 사이드 서킷브레이커 상태(파드별 인메모리). 별도 서비스/게이트웨이 불필요.
+        self._cb_lock = threading.Lock()
+        self._cb_failures = 0
+        self._cb_open_until = 0.0  # monotonic 시각. time.monotonic() < 이 값이면 회로 open.
 
     @property
     def client(self) -> httpx.Client:
         # 동기 httpx 클라이언트(연결 재사용). rerank는 anyio.to_thread.run_sync로 스레드에서 호출됨.
+        # connect 타임아웃을 짧게 분리 — GPU(VESSL) OFF 시 매 요청이 read 타임아웃까지 매달리지 않게.
         if self._client is None:
             with self._lock:
                 if self._client is None:
                     self._client = httpx.Client(
                         base_url=self.settings.reranker_service_url,
-                        timeout=self.settings.reranker_timeout_s,
+                        timeout=httpx.Timeout(
+                            self.settings.reranker_timeout_s,
+                            connect=self.settings.reranker_connect_timeout_s,
+                        ),
                     )
         return self._client
 
     def rerank(self, query: str, candidates: list[tuple[str, dict]]) -> list[tuple[float, dict]]:
         if not candidates:
             return []
+        # 회로 open이면 호출 스킵 → 즉시 예외 → vector 폴백(GPU OFF 동안 매 요청 connect 지연 방지).
+        with self._cb_lock:
+            if time.monotonic() < self._cb_open_until:
+                raise RerankerUnavailableError("reranker circuit open")
         passages = [text for text, _ in candidates]
-        resp = self.client.post("/rerank", json={"query": query, "passages": passages})
-        resp.raise_for_status()
-        scores = resp.json()["scores"]
+        try:
+            resp = self.client.post("/rerank", json={"query": query, "passages": passages})
+            resp.raise_for_status()
+            scores = resp.json()["scores"]
+        except Exception:
+            self._record_failure()
+            raise
+        self._record_success()
         # strict=True: 서비스가 길이 불일치 점수를 주면 ValueError → 폴백(방어)
         ranked = [(float(score), payload) for score, (_, payload) in zip(scores, candidates, strict=True)]
         ranked.sort(key=lambda item: item[0], reverse=True)
         return ranked
+
+    def _record_failure(self) -> None:
+        # 임계치 도달 + 현재 open 상태가 아니면 회로 open(쿨다운). half-open 프로브 실패 시 재오픈도 처리.
+        with self._cb_lock:
+            self._cb_failures += 1
+            now = time.monotonic()
+            if self._cb_failures >= self.settings.reranker_breaker_fail_threshold and now >= self._cb_open_until:
+                self._cb_open_until = now + self.settings.reranker_breaker_cooldown_s
+                logger.warning(
+                    "리랭커 서킷브레이커 open — %d회 연속 실패, %.0fs 동안 vector 폴백",
+                    self._cb_failures,
+                    self.settings.reranker_breaker_cooldown_s,
+                )
+
+    def _record_success(self) -> None:
+        # 성공 시 회로 닫고 카운터 초기화(half-open 프로브 성공 = 정상 복귀).
+        with self._cb_lock:
+            if self._cb_open_until != 0.0:
+                logger.info("리랭커 서킷브레이커 close — 정상 복귀")
+            self._cb_failures = 0
+            self._cb_open_until = 0.0
 
     def close(self) -> None:
         # 인스턴스 교체/리셋 시 httpx 연결 풀 정리 (커넥션 누수 방지).

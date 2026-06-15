@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.agents.retriever.rerank import RemoteReranker, get_reranker, reset_reranker
+from app.agents.retriever.rerank import RemoteReranker, RerankerUnavailableError, get_reranker, reset_reranker
 from app.config import Settings
 
 
@@ -86,3 +86,67 @@ def test_reset_reranker_closes_remote_client():
     assert r._client is not None
     reset_reranker()
     assert r._client is None  # close()로 정리됨
+
+
+class _FailingClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def post(self, url: str, json: dict):  # noqa: A002
+        self.calls += 1
+        raise RuntimeError("boom")  # 연결/응답 실패 모사
+
+
+class _FlakyClient:
+    """처음 fail_first 번은 실패, 그 뒤 성공 — 서킷 복구(half-open→close) 검증용."""
+
+    def __init__(self, scores: list[float], fail_first: int) -> None:
+        self._scores = scores
+        self._fail_remaining = fail_first
+        self.calls = 0
+
+    def post(self, url: str, json: dict):  # noqa: A002
+        self.calls += 1
+        if self._fail_remaining > 0:
+            self._fail_remaining -= 1
+            raise RuntimeError("boom")
+        return _FakeResp({"scores": self._scores})
+
+
+def _breaker_remote(client) -> RemoteReranker:
+    r = RemoteReranker(
+        Settings(
+            reranker_backend="remote",
+            reranker_service_url="http://x:8080",
+            reranker_breaker_fail_threshold=3,
+            reranker_breaker_cooldown_s=30,
+        )
+    )
+    r._client = client  # type: ignore[assignment]
+    return r
+
+
+def test_circuit_breaker_opens_after_threshold_and_skips_calls():
+    fc = _FailingClient()
+    r = _breaker_remote(fc)
+    cands = [("a", {})]
+    for _ in range(3):  # 임계치(3)까지 실제 호출되어 실패
+        with pytest.raises(RuntimeError):
+            r.rerank("q", cands)
+    assert fc.calls == 3
+    # 회로 open → 다음 호출은 스킵하고 RerankerUnavailableError (vector 폴백 유도)
+    with pytest.raises(RerankerUnavailableError):
+        r.rerank("q", cands)
+    assert fc.calls == 3  # 호출 안 늘어남 — 즉시 폴백
+
+
+def test_circuit_breaker_resets_on_success():
+    fc = _FlakyClient([0.5], fail_first=2)  # 2회 실패(임계치 3 미만) 후 성공
+    r = _breaker_remote(fc)
+    cands = [("a", {"chunk_id": "a"})]
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            r.rerank("q", cands)
+    out = r.rerank("q", cands)  # 3번째는 성공 → 카운터 리셋
+    assert out == [(0.5, {"chunk_id": "a"})]
+    assert r._cb_failures == 0  # 성공으로 초기화 (회로 안 열림)
