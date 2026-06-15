@@ -33,9 +33,7 @@ def _validate_cookie_origin(request: Request, settings: Settings) -> None:
 
     configured = urlsplit(settings.auth_base_url)
     expected_origin = (
-        f"{configured.scheme.lower()}://{configured.netloc.lower()}"
-        if configured.scheme and configured.netloc
-        else ""
+        f"{configured.scheme.lower()}://{configured.netloc.lower()}" if configured.scheme and configured.netloc else ""
     )
     if not expected_origin:
         raise HTTPException(
