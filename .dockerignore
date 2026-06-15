@@ -11,7 +11,13 @@ __pycache__
 htmlcov
 .env
 .env.*
-data
+# data/는 제외하되, nightly 평가 게이트(eval_retrieval --gate)가 읽는 골든셋·baseline 3개만 허용 (#144)
+data/*
+!data/eval
+data/eval/*
+!data/eval/queries.jsonl
+!data/eval/qrels.jsonl
+!data/eval/baseline.json
 tests
 *.md
 docker-compose.yaml
