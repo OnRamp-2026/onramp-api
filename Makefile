@@ -55,6 +55,10 @@ eval-gate:
 eval-gen:
 	python scripts/eval_generation.py
 
+# 골든셋 → Langfuse Dataset 업로드 (E6). LANGFUSE_* env 필요.
+eval-dataset-push:
+	python scripts/eval_push_dataset.py
+
 # ─── 유틸 ───
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +
