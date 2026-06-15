@@ -104,21 +104,24 @@ class Settings(BaseSettings):
     # 클라이언트 사이드 서킷브레이커(별도 서비스 X): 연속 실패 N회 → 쿨다운 동안 호출 스킵하고 즉시 vector 폴백.
     reranker_breaker_fail_threshold: int = Field(default=3, ge=1)
     reranker_breaker_cooldown_s: float = Field(default=30.0, gt=0)
+    # #73 on-demand GPU(VESSL)는 스핀업마다 URL이 바뀐다. URL을 Redis 키에서 런타임 조회(rollout 없이 갱신).
+    # 키가 없으면 reranker_service_url로 폴백. 둘 다 비면 remote는 매 요청 실패 → 서킷브레이커 → vector 폴백.
+    reranker_url_redis_key: str = "reranker:service_url"
+    reranker_url_cache_ttl_s: float = Field(default=30.0, ge=0)  # URL 재조회 주기(Redis 부하 완화)
 
     @model_validator(mode="after")
     def _check_reranker_remote(self) -> "Settings":
-        # fail-fast: remote 백엔드면 서비스 URL이 유효해야 첫 요청에서 조용히 폴백되지 않는다.
+        # remote 백엔드: URL은 env(reranker_service_url) 또는 런타임 Redis(reranker_url_redis_key)에서 온다.
+        # env가 비어 있어도 Redis가 공급할 수 있으므로 fail-fast하지 않는다(둘 다 비면 폴백으로 흡수).
+        # 단, env URL이 지정됐다면 형식은 검증한다(오타로 조용히 폴백되는 것 방지).
         if self.reranker_backend == "remote":
             url = self.reranker_service_url.strip()
-            if not url:
-                raise ValueError(
-                    "reranker_backend='remote'면 reranker_service_url 필요 (예: http://onramp-reranker:8080)"
-                )
-            parsed = urlparse(url)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise ValueError(
-                    "reranker_service_url은 http/https URL 형식이어야 함 (예: http://onramp-reranker:8080)"
-                )
+            if url:
+                parsed = urlparse(url)
+                if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                    raise ValueError(
+                        "reranker_service_url은 http/https URL 형식이어야 함 (예: http://onramp-reranker:8080)"
+                    )
         return self
 
     @model_validator(mode="after")

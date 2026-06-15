@@ -1,4 +1,6 @@
-"""RemoteReranker (#72) — 서비스 없이 fake client로 매핑·정렬·폴백·백엔드 분기 검증."""
+"""RemoteReranker (#72/#73) — 서비스 없이 fake client로 매핑·정렬·폴백·백엔드 분기·동적 URL 검증."""
+
+import time
 
 import pytest
 from pydantic import ValidationError
@@ -28,9 +30,18 @@ class _FakeClient:
         return _FakeResp({"scores": self._scores})
 
 
+def _prime(r: RemoteReranker, client, url: str) -> None:
+    # #73: Redis 조회 없이 고정 URL+클라 주입 — _resolve_url 캐시를 채우고 _client_url을 맞춰
+    # _get_client가 주입한 fake client를 그대로 반환하게 한다(단위 테스트 격리).
+    r._client = client  # type: ignore[assignment]
+    r._client_url = url
+    r._resolved_url = url
+    r._url_checked_at = time.monotonic()
+
+
 def _remote(scores: list[float]) -> RemoteReranker:
     r = RemoteReranker(Settings(reranker_backend="remote", reranker_service_url="http://x:8080"))
-    r._client = _FakeClient(scores)  # type: ignore[assignment]
+    _prime(r, _FakeClient(scores), "http://x:8080")
     return r
 
 
@@ -64,9 +75,10 @@ def test_get_reranker_returns_remote_for_remote_backend():
     reset_reranker()
 
 
-def test_settings_remote_requires_service_url():
-    with pytest.raises(ValidationError):
-        Settings(reranker_backend="remote", reranker_service_url="")
+def test_settings_remote_allows_empty_url_redis_supplies():
+    # #73: remote여도 env URL이 비어 있을 수 있다(런타임 Redis가 공급) → 기동은 통과.
+    s = Settings(reranker_backend="remote", reranker_service_url="")
+    assert s.reranker_service_url == ""
 
 
 @pytest.mark.parametrize("bad_url", ["onramp-reranker:8080", "ftp://host:8080", "not a url"])
@@ -82,7 +94,7 @@ def test_reset_reranker_closes_remote_client():
     s = Settings(reranker_backend="remote", reranker_service_url="http://onramp-reranker:8080")
     r = get_reranker(s)
     assert isinstance(r, RemoteReranker)
-    _ = r.client  # lazy 클라이언트 생성
+    _ = r._get_client("http://onramp-reranker:8080")  # 클라이언트 생성
     assert r._client is not None
     reset_reranker()
     assert r._client is None  # close()로 정리됨
@@ -122,7 +134,7 @@ def _breaker_remote(client) -> RemoteReranker:
             reranker_breaker_cooldown_s=30,
         )
     )
-    r._client = client  # type: ignore[assignment]
+    _prime(r, client, "http://x:8080")
     return r
 
 
@@ -150,3 +162,64 @@ def test_circuit_breaker_resets_on_success():
     out = r.rerank("q", cands)  # 3번째는 성공 → 카운터 리셋
     assert out == [(0.5, {"chunk_id": "a"})]
     assert r._cb_failures == 0  # 성공으로 초기화 (회로 안 열림)
+
+
+# ── #73 동적 URL (Redis 우선 → env 폴백) ───────────────────────────────
+
+
+class _FakeRedis:
+    """get(key) → 지정값/예외. Redis 없이 _resolve_url 분기 검증."""
+
+    def __init__(self, value=None, raises: bool = False) -> None:
+        self._value = value
+        self._raises = raises
+
+    def get(self, key: str):
+        if self._raises:
+            raise RuntimeError("redis down")
+        return self._value
+
+
+def _resolver(value=None, raises: bool = False, env_url: str = "http://env:8080") -> RemoteReranker:
+    r = RemoteReranker(Settings(reranker_backend="remote", reranker_service_url=env_url))
+    r._redis = _FakeRedis(value, raises)  # 지연 redis 클라 대체
+    return r
+
+
+def test_resolve_url_prefers_redis():
+    r = _resolver(value=b"http://vessl-new:8080")
+    assert r._resolve_url() == "http://vessl-new:8080"  # Redis 값 우선
+
+
+def test_resolve_url_falls_back_to_env_when_redis_empty():
+    r = _resolver(value=None)  # 키 없음(GPU OFF/미설정)
+    assert r._resolve_url() == "http://env:8080"  # settings 폴백
+
+
+def test_resolve_url_falls_back_on_redis_error():
+    r = _resolver(raises=True)  # Redis 장애
+    assert r._resolve_url() == "http://env:8080"  # 예외 삼키고 settings 폴백
+
+
+def test_resolve_url_empty_when_no_source():
+    r = _resolver(value=None, env_url="")  # Redis도 env도 없음
+    assert r._resolve_url() == ""  # rerank가 RerankerUnavailableError로 폴백 유도
+
+
+def test_url_change_recreates_client():
+    r = _resolver(value=b"http://url-a:8080")
+    c1 = r._get_client(r._resolve_url())
+    assert r._client_url == "http://url-a:8080"
+    # 스핀업으로 URL 변경 → 캐시 만료 모사 후 새 URL → 새 클라이언트
+    r._redis = _FakeRedis(b"http://url-b:8080")
+    r._url_checked_at = 0.0  # 캐시 무효화
+    c2 = r._get_client(r._resolve_url())
+    assert r._client_url == "http://url-b:8080"
+    assert c2 is not c1  # 기존 클라 닫고 재생성
+
+
+def test_rerank_raises_unavailable_when_no_url():
+    # env·Redis 둘 다 비면 호출 불가 → 회로/폴백 유도 (조용히 빈 결과 X)
+    r = _resolver(value=None, env_url="")
+    with pytest.raises(RerankerUnavailableError):
+        r.rerank("q", [("a", {})])

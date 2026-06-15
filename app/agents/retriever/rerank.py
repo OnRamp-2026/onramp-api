@@ -118,26 +118,62 @@ class RemoteReranker:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self._client: httpx.Client | None = None
+        self._client_url = ""  # 현재 httpx 클라가 바인딩된 base_url. URL이 바뀌면 재생성.
         self._lock = threading.Lock()
+        # #73 동적 URL: on-demand GPU(VESSL)는 스핀업마다 URL이 바뀐다 → Redis 키에서 런타임 조회(짧게 캐시).
+        self._redis: Any = None
+        self._resolved_url = ""
+        self._url_checked_at = 0.0  # monotonic 시각. TTL 지나면 Redis 재조회.
         # 클라이언트 사이드 서킷브레이커 상태(파드별 인메모리). 별도 서비스/게이트웨이 불필요.
         self._cb_lock = threading.Lock()
         self._cb_failures = 0
         self._cb_open_until = 0.0  # monotonic 시각. time.monotonic() < 이 값이면 회로 open.
 
-    @property
-    def client(self) -> httpx.Client:
-        # 동기 httpx 클라이언트(연결 재사용). rerank는 anyio.to_thread.run_sync로 스레드에서 호출됨.
+    def _redis_client(self) -> Any:
+        # 동기 redis 클라(lazy). socket 타임아웃을 짧게 — Redis 지연이 rerank 경로를 막지 않게.
+        if self._redis is None:
+            import redis  # 지연 import — remote 백엔드일 때만 필요.
+
+            self._redis = redis.from_url(self.settings.redis_url, socket_timeout=1.0, socket_connect_timeout=1.0)
+        return self._redis
+
+    def _resolve_url(self) -> str:
+        # Redis 키(reranker_url_redis_key) 우선 → 없으면 env(reranker_service_url) 폴백. TTL 동안 캐시.
+        # Redis 실패는 삼키고 env 폴백 — URL 조회가 rerank를 죽이지 않는다.
+        now = time.monotonic()
+        if self._resolved_url and now - self._url_checked_at < self.settings.reranker_url_cache_ttl_s:
+            return self._resolved_url
+        url = ""
+        try:
+            raw = self._redis_client().get(self.settings.reranker_url_redis_key)
+            if raw:
+                url = raw.decode() if isinstance(raw, bytes) else str(raw)
+                url = url.strip()
+        except Exception:  # noqa: BLE001 — Redis 장애는 env 폴백으로 흡수
+            url = ""
+        self._resolved_url = url or self.settings.reranker_service_url.strip()
+        self._url_checked_at = now
+        return self._resolved_url
+
+    def _get_client(self, url: str) -> httpx.Client:
+        # 동기 httpx 클라(연결 재사용). rerank는 anyio.to_thread.run_sync로 스레드에서 호출됨.
+        # URL이 바뀌면(스핀업 새 VESSL URL) 기존 클라를 닫고 새로 만든다.
         # connect 타임아웃을 짧게 분리 — GPU(VESSL) OFF 시 매 요청이 read 타임아웃까지 매달리지 않게.
-        if self._client is None:
-            with self._lock:
-                if self._client is None:
-                    self._client = httpx.Client(
-                        base_url=self.settings.reranker_service_url,
-                        timeout=httpx.Timeout(
-                            self.settings.reranker_timeout_s,
-                            connect=self.settings.reranker_connect_timeout_s,
-                        ),
-                    )
+        if self._client is not None and self._client_url == url:
+            return self._client
+        with self._lock:
+            if self._client is not None and self._client_url == url:
+                return self._client
+            if self._client is not None:
+                self._client.close()
+            self._client = httpx.Client(
+                base_url=url,
+                timeout=httpx.Timeout(
+                    self.settings.reranker_timeout_s,
+                    connect=self.settings.reranker_connect_timeout_s,
+                ),
+            )
+            self._client_url = url
         return self._client
 
     def rerank(self, query: str, candidates: list[tuple[str, dict]]) -> list[tuple[float, dict]]:
@@ -147,9 +183,14 @@ class RemoteReranker:
         with self._cb_lock:
             if time.monotonic() < self._cb_open_until:
                 raise RerankerUnavailableError("reranker circuit open")
+        url = self._resolve_url()
+        if not url:
+            # env·Redis 둘 다 비었음(GPU OFF/미설정) → 호출 자체 불가 → 폴백.
+            raise RerankerUnavailableError("reranker URL 미설정 (env·Redis 모두 비어있음)")
+        client = self._get_client(url)
         passages = [text for text, _ in candidates]
         try:
-            resp = self.client.post("/rerank", json={"query": query, "passages": passages})
+            resp = client.post("/rerank", json={"query": query, "passages": passages})
             resp.raise_for_status()
             scores = resp.json()["scores"]
         except Exception:
@@ -188,6 +229,7 @@ class RemoteReranker:
             if self._client is not None:
                 self._client.close()
                 self._client = None
+                self._client_url = ""
 
 
 def apply_metadata_weight(rerank_score: float, payload: dict, settings: Settings) -> float:
