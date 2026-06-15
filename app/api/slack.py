@@ -110,6 +110,7 @@ def _format_answer(r: ChatResponse) -> str:
     sections = [
         ("현재 상황", a.situation),
         ("원인", a.cause),
+        ("근거", a.evidence),
         ("해결", a.solution),
         ("인프라 맥락", a.infra_context),
     ]
@@ -129,8 +130,13 @@ async def _post_message(channel: str, thread_ts: str, text: str, settings: Setti
                 headers={"Authorization": f"Bearer {settings.slack_bot_token.get_secret_value()}"},
                 json={"channel": channel, "thread_ts": thread_ts, "text": text},
             )
-        payload = res.json()
-        if not payload.get("ok", False):
-            logger.error("chat.postMessage 실패: %s", payload.get("error"))
     except httpx.HTTPError:
         logger.exception("Slack chat.postMessage 통신 실패")
+        return
+    try:
+        payload = res.json()
+    except ValueError:
+        logger.error("chat.postMessage 비정상 응답(non-JSON): %s", res.text[:200])
+        return
+    if not payload.get("ok", False):
+        logger.error("chat.postMessage 실패: %s", payload.get("error"))
