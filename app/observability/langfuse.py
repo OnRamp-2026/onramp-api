@@ -118,37 +118,54 @@ def langfuse_run_config(
 
 
 @contextmanager
-def langfuse_generation(
-    *,
-    name: str,
-    model: str | None = None,
-    input: Any = None,
-) -> Iterator[Any]:
-    """LLM 호출용 Langfuse generation span 컨텍스트.
+def _current_observation(*, name: str, as_type: str, input: Any = None, model: str | None = None) -> Iterator[Any]:
+    """현재 OTEL 컨텍스트 아래에 observation(span/generation)을 열고 yield한다.
 
-    관측 비활성/미설치면 None을 yield하는 no-op — 호출부는 `if gen is not None:` 가드만 하면 된다.
-    활성 시 현재 trace(LangGraph CallbackHandler span) 아래에 generation으로 자동 중첩되어,
-    `gen.update(output=..., usage_details=...)`로 token을 채우면 Langfuse가 model 기준 cost를 계산한다.
+    비활성/미설치/생성 실패 시 None을 yield(no-op) — 관측이 응답 경로를 막지 않는다.
+    `as_type="span"`으로 만든 루트 아래에 CallbackHandler 노드 스팬과 generation이 모두 중첩된다.
     """
     client = get_langfuse_client()
     if client is None:
         yield None
         return
 
-    # span 생성(enter) 실패는 흡수(no-op) — 관측이 응답 경로를 막지 않게.
+    kwargs: dict[str, Any] = {"name": name, "as_type": as_type, "input": input}
+    if model is not None:
+        kwargs["model"] = model
     try:
-        cm = client.start_as_current_observation(name=name, as_type="generation", model=model, input=input)
-        gen = cm.__enter__()
-    except Exception as exc:
-        logger.warning("langfuse_generation_start_failed", error=str(exc))
+        cm = client.start_as_current_observation(**kwargs)
+        obs = cm.__enter__()
+    except Exception as exc:  # 생성 실패 흡수
+        logger.warning("langfuse_observation_start_failed", error=str(exc), as_type=as_type)
         yield None
         return
 
     # 본문 예외는 span에 error로 기록하고 그대로 전파(LLMError 등 유지).
     try:
-        yield gen
+        yield obs
     except BaseException as exc:
         cm.__exit__(type(exc), exc, exc.__traceback__)
         raise
     else:
         cm.__exit__(None, None, None)
+
+
+@contextmanager
+def langfuse_span(*, name: str, input: Any = None) -> Iterator[Any]:
+    """한 작업 단위(예: 채팅 1턴)를 감싸는 루트 span. 비활성 시 no-op(None).
+
+    이 안에서 LangGraph(CallbackHandler) invoke와 call_llm generation이 실행되면
+    모두 이 span 아래로 중첩되어 **한 trace**가 된다.
+    """
+    with _current_observation(name=name, as_type="span", input=input) as obs:
+        yield obs
+
+
+@contextmanager
+def langfuse_generation(*, name: str, model: str | None = None, input: Any = None) -> Iterator[Any]:
+    """LLM 호출용 generation observation. 비활성 시 no-op(None).
+
+    `gen.update(output=..., usage_details=...)`로 token을 채우면 Langfuse가 model 기준 cost를 계산한다.
+    """
+    with _current_observation(name=name, as_type="generation", input=input, model=model) as obs:
+        yield obs

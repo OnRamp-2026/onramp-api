@@ -51,3 +51,45 @@ async def test_chat_passes_no_config_when_disabled(monkeypatch):
 
     # 비활성 → config=None (기존 동작과 100% 동일)
     assert captured["config"] is None
+
+
+@pytest.mark.asyncio
+async def test_chat_wraps_invoke_in_root_span_when_enabled(monkeypatch):
+    """langfuse 활성 시 chat()이 그래프 invoke를 루트 span으로 감싸고 output을 기록한다."""
+    import app.observability.langfuse as lf
+    import app.services.chat_service as cs
+
+    async def fake_ainvoke(state, config=None):
+        return {}
+
+    monkeypatch.setattr(cs.compiled_graph, "ainvoke", fake_ainvoke)
+
+    events: list = []
+
+    class FakeRoot:
+        def update(self, **kw):
+            events.append(("update", kw))
+
+    class FakeCM:
+        def __enter__(self):
+            events.append(("enter", None))
+            return FakeRoot()
+
+        def __exit__(self, *a):
+            events.append(("exit", a[0]))
+            return False
+
+    class FakeClient:
+        def start_as_current_observation(self, **kw):
+            events.append(("start", kw))
+            return FakeCM()
+
+    monkeypatch.setattr(lf, "get_langfuse_client", lambda: FakeClient())
+    monkeypatch.setattr(lf, "get_callback_handler", lambda: None)
+
+    await cs.chat(ChatRequest(query="안녕"))
+
+    kinds = [e[0] for e in events]
+    assert kinds[0] == "start" and kinds[1] == "enter" and kinds[-1] == "exit"
+    assert events[0][1]["as_type"] == "span"
+    assert "update" in kinds  # output 기록

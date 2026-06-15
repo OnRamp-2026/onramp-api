@@ -9,6 +9,7 @@ from app.observability.langfuse import (
     is_enabled,
     langfuse_generation,
     langfuse_run_config,
+    langfuse_span,
 )
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "is_enabled",
     "langfuse_generation",
     "langfuse_run_config",
+    "langfuse_span",
 ]
