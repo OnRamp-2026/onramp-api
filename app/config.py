@@ -18,6 +18,18 @@ class Settings(BaseSettings):
     auth_jwt_secret: SecretStr = SecretStr("")
     auth_jwt_issuer: str = ""
     auth_jwt_audience: str = "onramp-api"
+    auth_session_ttl_seconds: int = 28800  # 세션 JWT 만료 (8h)
+    auth_dev_token_enabled: bool = False  # /auth/dev-token 게이트 (운영 false, dev/STT 테스트용)
+    auth_default_tenant: str = "onramp"  # dev 토큰·미인증 fallback 테넌트
+    auth_cookie_name: str = "onramp_session"  # 세션 쿠키 이름 (프론트는 credentials:include로 사용)
+    auth_cookie_secure: bool = True  # HTTPS 전용 쿠키 (로컬 http 테스트 시 false)
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"  # OAuth top-level 복귀에 lax
+
+    # OIDC RP — Slack "Sign in with Slack" (인증 서버 안 만듦, 클라이언트만)
+    slack_client_id: str = ""
+    slack_client_secret: SecretStr = SecretStr("")
+    auth_base_url: str = ""  # 공개 base URL (redirect_uri 생성), 예: https://skala-cloud-team3-dev.skala-ai.com
+    frontend_post_login_redirect: str = "/"  # 로그인 성공 후 프론트 복귀 경로
 
     # LLM Provider: "openai" | "azure" | "self_hosted"
     llm_provider: str = ""
