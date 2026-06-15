@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from app.config import Settings, get_settings
 from app.rag.version_fit import version_fit_from_payload
+
+logger = logging.getLogger(__name__)
+
+
+class RerankerUnavailableError(RuntimeError):
+    """서킷브레이커 open 등으로 remote 리랭커 호출을 건너뛸 때 — retriever_node가 잡아 vector 폴백."""
 
 
 class CrossEncoderReranker:
@@ -110,31 +119,130 @@ class RemoteReranker:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self._client: httpx.Client | None = None
+        self._client_url = ""  # 현재 httpx 클라가 바인딩된 base_url. URL이 바뀌면 재생성.
         self._lock = threading.Lock()
+        # #73 동적 URL: on-demand GPU(VESSL)는 스핀업마다 URL이 바뀐다 → Redis 키에서 런타임 조회(짧게 캐시).
+        self._redis: Any = None
+        self._resolved_url = ""
+        self._url_resolved = False  # 최초 1회는 무조건 조회(빈 결과도 TTL 동안 캐시 — Redis 재조회 폭주 방지).
+        self._url_checked_at = 0.0  # monotonic 시각. TTL 지나면 Redis 재조회.
+        # 클라이언트 사이드 서킷브레이커 상태(파드별 인메모리). 별도 서비스/게이트웨이 불필요.
+        self._cb_lock = threading.Lock()
+        self._cb_failures = 0
+        self._cb_open_until = 0.0  # monotonic 시각. time.monotonic() < 이 값이면 회로 open.
+        self._cb_probe_inflight = False  # half-open: 복구 probe 1개만 허용(나머지는 즉시 폴백).
 
-    @property
-    def client(self) -> httpx.Client:
-        # 동기 httpx 클라이언트(연결 재사용). rerank는 anyio.to_thread.run_sync로 스레드에서 호출됨.
-        if self._client is None:
-            with self._lock:
-                if self._client is None:
-                    self._client = httpx.Client(
-                        base_url=self.settings.reranker_service_url,
-                        timeout=self.settings.reranker_timeout_s,
-                    )
+    def _redis_client(self) -> Any:
+        # 동기 redis 클라(lazy). socket 타임아웃을 짧게 — Redis 지연이 rerank 경로를 막지 않게.
+        if self._redis is None:
+            import redis  # 지연 import — remote 백엔드일 때만 필요.
+
+            self._redis = redis.from_url(self.settings.redis_url, socket_timeout=1.0, socket_connect_timeout=1.0)
+        return self._redis
+
+    @staticmethod
+    def _is_http_url(value: str) -> bool:
+        # config의 reranker_service_url 검증과 동일 기준(http/https + netloc).
+        parsed = urlparse(value)
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+    def _resolve_url(self) -> str:
+        # Redis 키(reranker_url_redis_key) 우선 → 없으면 env(reranker_service_url) 폴백. TTL 동안 캐시.
+        # 빈 결과도 캐시한다 — Redis 장애+env 빈값에서 매 요청 Redis 재조회가 반복되지 않게(즉시 폴백 유지).
+        now = time.monotonic()
+        if self._url_resolved and now - self._url_checked_at < self.settings.reranker_url_cache_ttl_s:
+            return self._resolved_url
+        url = ""
+        try:
+            raw = self._redis_client().get(self.settings.reranker_url_redis_key)
+            if raw:
+                candidate = (raw.decode() if isinstance(raw, bytes) else str(raw)).strip()
+                # Redis 값은 검증 없이 base_url로 쓰지 않는다 — 오염 시 임의 대상 호출 방지(SSRF).
+                if self._is_http_url(candidate):
+                    url = candidate
+                elif candidate:
+                    logger.warning("Redis 리랭커 URL 형식 오류 — env 폴백 (%r)", candidate)
+        except Exception:  # noqa: BLE001 — Redis 장애는 env 폴백으로 흡수
+            url = ""
+        self._resolved_url = url or self.settings.reranker_service_url.strip()
+        self._url_resolved = True
+        self._url_checked_at = now
+        return self._resolved_url
+
+    def _get_client(self, url: str) -> httpx.Client:
+        # 동기 httpx 클라(연결 재사용). rerank는 anyio.to_thread.run_sync로 스레드에서 호출됨.
+        # URL이 바뀌면(스핀업 새 VESSL URL) 기존 클라를 닫고 새로 만든다.
+        # connect 타임아웃을 짧게 분리 — GPU(VESSL) OFF 시 매 요청이 read 타임아웃까지 매달리지 않게.
+        if self._client is not None and self._client_url == url:
+            return self._client
+        with self._lock:
+            if self._client is not None and self._client_url == url:
+                return self._client
+            if self._client is not None:
+                self._client.close()
+            self._client = httpx.Client(
+                base_url=url,
+                timeout=httpx.Timeout(
+                    self.settings.reranker_timeout_s,
+                    connect=self.settings.reranker_connect_timeout_s,
+                ),
+            )
+            self._client_url = url
         return self._client
 
     def rerank(self, query: str, candidates: list[tuple[str, dict]]) -> list[tuple[float, dict]]:
         if not candidates:
             return []
+        # 서킷 게이트: open이면 스킵, half-open(쿨다운 만료)이면 probe 1개만 통과 → 즉시 vector 폴백.
+        with self._cb_lock:
+            now = time.monotonic()
+            if now < self._cb_open_until:
+                raise RerankerUnavailableError("reranker circuit open")
+            if self._cb_open_until != 0.0:  # 쿨다운 만료 후 half-open — 단일 probe만 허용
+                if self._cb_probe_inflight:
+                    raise RerankerUnavailableError("reranker circuit half-open")
+                self._cb_probe_inflight = True
         passages = [text for text, _ in candidates]
-        resp = self.client.post("/rerank", json={"query": query, "passages": passages})
-        resp.raise_for_status()
-        scores = resp.json()["scores"]
+        try:
+            url = self._resolve_url()
+            if not url:
+                # env·Redis 둘 다 비었음(GPU OFF/미설정) → 호출 불가 → 실패로 집계해 회로 open 유도.
+                raise RerankerUnavailableError("reranker URL 미설정 (env·Redis 모두 비어있음)")
+            resp = self._get_client(url).post("/rerank", json={"query": query, "passages": passages})
+            resp.raise_for_status()
+            scores = resp.json()["scores"]
+        except Exception:
+            self._record_failure()
+            raise
+        finally:
+            with self._cb_lock:  # probe 점유 해제(성공이든 실패든) — 다음 호출이 게이트를 통과할 수 있게
+                self._cb_probe_inflight = False
+        self._record_success()
         # strict=True: 서비스가 길이 불일치 점수를 주면 ValueError → 폴백(방어)
         ranked = [(float(score), payload) for score, (_, payload) in zip(scores, candidates, strict=True)]
         ranked.sort(key=lambda item: item[0], reverse=True)
         return ranked
+
+    def _record_failure(self) -> None:
+        # 임계치 도달 + 현재 open 상태가 아니면 회로 open(쿨다운). half-open 프로브 실패 시 재오픈도 처리.
+        with self._cb_lock:
+            self._cb_failures += 1
+            now = time.monotonic()
+            if self._cb_failures >= self.settings.reranker_breaker_fail_threshold and now >= self._cb_open_until:
+                self._cb_open_until = now + self.settings.reranker_breaker_cooldown_s
+                logger.warning(
+                    "리랭커 서킷브레이커 open — %d회 연속 실패, %.0fs 동안 vector 폴백",
+                    self._cb_failures,
+                    self.settings.reranker_breaker_cooldown_s,
+                )
+
+    def _record_success(self) -> None:
+        # 성공 시 회로 닫고 카운터 초기화(half-open 프로브 성공 = 정상 복귀).
+        with self._cb_lock:
+            if self._cb_open_until != 0.0:
+                logger.info("리랭커 서킷브레이커 close — 정상 복귀")
+            self._cb_failures = 0
+            self._cb_open_until = 0.0
 
     def close(self) -> None:
         # 인스턴스 교체/리셋 시 httpx 연결 풀 정리 (커넥션 누수 방지).
@@ -142,6 +250,7 @@ class RemoteReranker:
             if self._client is not None:
                 self._client.close()
                 self._client = None
+                self._client_url = ""
 
 
 def apply_metadata_weight(rerank_score: float, payload: dict, settings: Settings) -> float:
@@ -249,6 +358,11 @@ def get_reranker(settings: Settings | None = None) -> Reranker:
         cfg.reranker_onnx_file,
         cfg.reranker_service_url,
         cfg.reranker_timeout_s,  # 변경 시 httpx 타임아웃이 반영되도록 키에 포함
+        cfg.reranker_connect_timeout_s,
+        cfg.reranker_breaker_fail_threshold,
+        cfg.reranker_breaker_cooldown_s,
+        cfg.reranker_url_redis_key,
+        cfg.reranker_url_cache_ttl_s,  # 위 설정 변경 시 stale 인스턴스 재사용 방지
     )
     with _reranker_lock:  # 동시 초기화·설정 전환에서 key와 instance가 어긋난 채 반환되는 것을 막는다
         if _reranker is None or _reranker_key != key:
