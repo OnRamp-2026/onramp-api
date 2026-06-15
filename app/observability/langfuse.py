@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import structlog
 
@@ -148,6 +148,49 @@ def _current_observation(*, name: str, as_type: str, input: Any = None, model: s
         raise
     else:
         cm.__exit__(None, None, None)
+
+
+def current_trace_id() -> str | None:
+    """현재 활성 trace id (span 컨텍스트 안에서 호출). 비활성/없으면 None."""
+    client = get_langfuse_client()
+    if client is None:
+        return None
+    try:
+        return client.get_current_trace_id()
+    except Exception as exc:
+        logger.warning("langfuse_trace_id_failed", error=str(exc))
+        return None
+
+
+def score_current_trace(*, name: str, value: float, comment: str | None = None) -> None:
+    """현재 활성 trace에 score를 부착 (span 컨텍스트 안에서). 비활성/실패 시 no-op."""
+    client = get_langfuse_client()
+    if client is None:
+        return
+    try:
+        client.score_current_trace(name=name, value=value, comment=comment)
+    except Exception as exc:  # 관측 실패가 응답 경로를 막지 않게
+        logger.warning("langfuse_score_failed", error=str(exc), name=name)
+
+
+def create_trace_score(
+    *,
+    trace_id: str,
+    name: str,
+    value: float,
+    comment: str | None = None,
+    data_type: Literal["NUMERIC", "BOOLEAN"] = "NUMERIC",
+) -> bool:
+    """trace_id로 score를 생성 (피드백 엔드포인트용). 비활성/실패 시 False."""
+    client = get_langfuse_client()
+    if client is None:
+        return False
+    try:
+        client.create_score(trace_id=trace_id, name=name, value=value, comment=comment or None, data_type=data_type)
+        return True
+    except Exception as exc:
+        logger.warning("langfuse_create_score_failed", error=str(exc), name=name)
+        return False
 
 
 @contextmanager

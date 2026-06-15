@@ -11,7 +11,7 @@ from app.middleware.error_handler import OnRampError
 from app.middleware.request_id import request_id_var
 from app.models.request import ChatRequest
 from app.models.response import ChatResponse, FiveElementsResponse, SourceDoc
-from app.observability import langfuse_run_config, langfuse_span
+from app.observability import current_trace_id, langfuse_run_config, langfuse_span, score_current_trace
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,11 @@ async def chat(request: ChatRequest) -> ChatResponse:
         response = _to_response(state, request)
         if root is not None:
             root.update(output={"answerability_status": response.answerability_status, "domain": response.domain})
+            # trust_score를 online score로 부착 + trace_id를 응답에 노출(피드백 참조용)
+            trust_score = state.get("trust_score")
+            if isinstance(trust_score, int | float):
+                score_current_trace(name="trust_score", value=float(trust_score))
+            response.trace_id = current_trace_id() or ""
         return response
 
 

@@ -37,6 +37,7 @@ class ChatResponse(BaseModel):
     answerability_reason: str = ""
     domain: str = ""  # Domain.value (classifier 영문 키)
     model_used: str = ""
+    trace_id: str = ""  # Langfuse trace id (관측 활성 시) — /v1/chat/feedback 참조용
 
 
 class AssetResponse(BaseModel):

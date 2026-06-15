@@ -12,6 +12,14 @@ class ChatRequest(BaseModel):
     model: str = Field(default="", description="LLM 모델 (빈값이면 config 기본값)")
 
 
+class FeedbackRequest(BaseModel):
+    """POST /v1/chat/feedback 요청 — 답변 trace에 사용자 피드백 score 기록."""
+
+    trace_id: str = Field(..., min_length=1, description="ChatResponse.trace_id")
+    value: float = Field(..., ge=0.0, le=1.0, description="👎=0.0 ~ 👍=1.0")
+    comment: str = Field(default="", max_length=2000, description="피드백 사유(선택)")
+
+
 class AssetRequest(BaseModel):
     """POST /v1/asset 요청 — 회의 녹취 → 5요소 보고서 초안."""
 
