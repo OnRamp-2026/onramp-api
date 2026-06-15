@@ -138,3 +138,43 @@ def test_run_config_session_id_overrides_request_id(monkeypatch):
     monkeypatch.setattr(lf, "get_callback_handler", lambda: object())
     cfg = lf.langfuse_run_config(request_id="rid", session_id="conv-9")
     assert cfg["metadata"]["langfuse_session_id"] == "conv-9"
+
+
+def test_generation_noop_when_disabled(monkeypatch):
+    import app.observability.langfuse as lf
+
+    lf.get_langfuse_client.cache_clear()
+    monkeypatch.setattr(lf, "get_settings", lambda: Settings(langfuse_enabled=False))
+    with lf.langfuse_generation(name="llm.openai", model="gpt-4o-mini", input=[]) as gen:
+        assert gen is None
+    lf.get_langfuse_client.cache_clear()
+
+
+def test_generation_yields_span_and_exits_when_enabled(monkeypatch):
+    import app.observability.langfuse as lf
+
+    events = []
+
+    class FakeGen:
+        def update(self, **kw):
+            events.append(("update", kw))
+
+    class FakeCM:
+        def __enter__(self):
+            events.append(("enter", None))
+            return FakeGen()
+
+        def __exit__(self, *a):
+            events.append(("exit", a[0]))
+            return False
+
+    class FakeClient:
+        def start_as_current_generation(self, **kw):
+            events.append(("start", kw))
+            return FakeCM()
+
+    monkeypatch.setattr(lf, "get_langfuse_client", lambda: FakeClient())
+    with lf.langfuse_generation(name="llm.openai", model="gpt-4o-mini", input=[]) as gen:
+        gen.update(output="hi")
+    kinds = [e[0] for e in events]
+    assert kinds == ["start", "enter", "update", "exit"]

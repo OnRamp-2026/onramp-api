@@ -15,8 +15,22 @@ from openai import AsyncAzureOpenAI, AsyncOpenAI
 
 from app.config import Settings, get_settings
 from app.middleware.error_handler import LLMError
+from app.observability import langfuse_generation
 
 logger = logging.getLogger(__name__)
+
+
+def _usage_details(usage: Any) -> dict[str, int] | None:
+    """OpenAI/Azure usage(객체 또는 dict) → Langfuse usage_details({input,output,total}). 없으면 None."""
+    if usage is None:
+        return None
+    out: dict[str, int] = {}
+    for src, dst in (("prompt_tokens", "input"), ("completion_tokens", "output"), ("total_tokens", "total")):
+        val = usage.get(src) if isinstance(usage, dict) else getattr(usage, src, None)
+        if isinstance(val, int):
+            out[dst] = val
+    return out or None
+
 
 _DEFAULT_MODEL = "gpt-4o-mini"
 _AZURE_API_VERSION = "2024-06-01"
@@ -63,25 +77,33 @@ async def call_llm(
     settings = settings or get_settings()
     provider = resolve_provider(model, settings)
     args = (system_prompt, user_prompt, model, temperature, max_tokens, timeout, json_mode, settings)
+    gen_input = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
 
-    try:
-        if provider == "openai":
-            content = await _call_openai(*args)
-        elif provider == "azure":
-            content = await _call_azure(*args)
-        elif provider == "self_hosted":
-            content = await _call_self_hosted(*args)
-        else:
-            raise LLMError(f"지원하지 않는 llm_provider: {provider!r}")
-    except LLMError:
-        raise
-    except Exception as exc:  # openai/httpx 등 업스트림 실패 → 502
-        logger.warning("LLM 호출 실패 (provider=%s)", provider, exc_info=True)
-        raise LLMError("LLM 호출에 실패했습니다") from exc
+    # Langfuse generation으로 감싸 token·cost·model을 기록 (비활성이면 no-op).
+    with langfuse_generation(name=f"llm.{provider}", model=model or None, input=gen_input) as gen:
+        try:
+            if provider == "openai":
+                content, usage, model_name = await _call_openai(*args)
+            elif provider == "azure":
+                content, usage, model_name = await _call_azure(*args)
+            elif provider == "self_hosted":
+                content, usage, model_name = await _call_self_hosted(*args)
+            else:
+                raise LLMError(f"지원하지 않는 llm_provider: {provider!r}")
+        except LLMError:
+            raise
+        except Exception as exc:  # openai/httpx 등 업스트림 실패 → 502
+            logger.warning("LLM 호출 실패 (provider=%s)", provider, exc_info=True)
+            raise LLMError("LLM 호출에 실패했습니다") from exc
 
-    if not content:
-        raise LLMError("LLM 응답이 비어있습니다")
-    return content
+        if not content:
+            raise LLMError("LLM 응답이 비어있습니다")
+        if gen is not None:
+            gen.update(model=model_name, output=content, usage_details=usage)
+        return content
 
 
 def _extra_kwargs(max_tokens: int | None, json_mode: bool) -> dict[str, Any]:
@@ -134,8 +156,8 @@ async def _call_openai(
     timeout: float,
     json_mode: bool,
     settings: Settings,
-) -> str:
-    """OpenAI chat.completions 호출 (o1/o3 reasoning 모델은 temperature 생략·max_completion_tokens)."""
+) -> tuple[str, dict[str, int] | None, str]:
+    """OpenAI chat.completions 호출 → (content, usage_details, model_name). o1/o3는 temperature 생략."""
     if not settings.openai_api_key:
         raise LLMError("OpenAI API 키가 설정되지 않았습니다")
     model_name = model or settings.default_model or _DEFAULT_MODEL
@@ -158,7 +180,7 @@ async def _call_openai(
         if max_tokens is not None:
             create_kwargs["max_tokens"] = max_tokens
     resp = await _get_openai_client(settings).chat.completions.create(**create_kwargs)
-    return _content(resp.choices)
+    return _content(resp.choices), _usage_details(getattr(resp, "usage", None)), model_name
 
 
 async def _call_azure(
@@ -170,8 +192,8 @@ async def _call_azure(
     timeout: float,
     json_mode: bool,
     settings: Settings,
-) -> str:
-    """Azure OpenAI 호출 ("azure-" 접두사를 뗀 이름을 deployment로 사용)."""
+) -> tuple[str, dict[str, int] | None, str]:
+    """Azure OpenAI 호출 → (content, usage_details, deployment). "azure-" 접두사를 뗀 이름을 deployment로 사용."""
     if not settings.azure_openai_endpoint or not settings.azure_openai_api_key:
         raise LLMError("Azure OpenAI 설정(endpoint/key)이 없습니다")
     # "azure-" 접두사를 대소문자 무시로 제거하되 deployment 이름의 원본 케이스는 보존
@@ -188,7 +210,7 @@ async def _call_azure(
         timeout=timeout,
         **_extra_kwargs(max_tokens, json_mode),
     )
-    return _content(resp.choices)
+    return _content(resp.choices), _usage_details(getattr(resp, "usage", None)), deployment
 
 
 async def _call_self_hosted(
@@ -200,12 +222,13 @@ async def _call_self_hosted(
     timeout: float,
     json_mode: bool,
     settings: Settings,
-) -> str:
-    """Self-hosted OpenAI 호환 서버(/chat/completions)를 httpx로 호출."""
+) -> tuple[str, dict[str, int] | None, str]:
+    """Self-hosted OpenAI 호환 서버(/chat/completions)를 httpx로 호출 → (content, usage_details, model_name)."""
     if not settings.self_hosted_llm_url:
         raise LLMError("Self-hosted LLM URL이 설정되지 않았습니다")
+    model_name = model or settings.self_hosted_model_name or _DEFAULT_MODEL
     body: dict[str, Any] = {
-        "model": model or settings.self_hosted_model_name or _DEFAULT_MODEL,
+        "model": model_name,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -221,7 +244,8 @@ async def _call_self_hosted(
     choices = payload.get("choices") or []
     if not choices:
         raise LLMError("Self-hosted LLM 응답에 choices가 없습니다")
-    return choices[0].get("message", {}).get("content", "") or ""
+    content = choices[0].get("message", {}).get("content", "") or ""
+    return content, _usage_details(payload.get("usage")), model_name
 
 
 def reset_clients() -> None:
