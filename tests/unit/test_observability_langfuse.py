@@ -140,6 +140,38 @@ def test_run_config_session_id_overrides_request_id(monkeypatch):
     assert cfg["metadata"]["langfuse_session_id"] == "conv-9"
 
 
+def test_score_helpers_noop_when_disabled(monkeypatch):
+    import app.observability.langfuse as lf
+
+    monkeypatch.setattr(lf, "get_langfuse_client", lambda: None)
+    assert lf.current_trace_id() is None
+    assert lf.create_trace_score(trace_id="t", name="x", value=1.0) is False
+    lf.score_current_trace(name="x", value=1.0)  # 예외 없이 no-op
+
+
+def test_score_helpers_when_enabled(monkeypatch):
+    import app.observability.langfuse as lf
+
+    calls: dict = {}
+
+    class FakeClient:
+        def get_current_trace_id(self):
+            return "trace-abc"
+
+        def score_current_trace(self, **kw):
+            calls["score_current"] = kw
+
+        def create_score(self, **kw):
+            calls["create"] = kw
+
+    monkeypatch.setattr(lf, "get_langfuse_client", lambda: FakeClient())
+    assert lf.current_trace_id() == "trace-abc"
+    lf.score_current_trace(name="trust_score", value=0.8)
+    assert calls["score_current"]["name"] == "trust_score" and calls["score_current"]["value"] == 0.8
+    assert lf.create_trace_score(trace_id="t1", name="user_feedback", value=1.0, comment="good") is True
+    assert calls["create"]["trace_id"] == "t1" and calls["create"]["value"] == 1.0
+
+
 def test_generation_noop_when_disabled(monkeypatch):
     import app.observability.langfuse as lf
 

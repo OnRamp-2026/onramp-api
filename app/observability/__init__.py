@@ -4,19 +4,25 @@
 """
 
 from app.observability.langfuse import (
+    create_trace_score,
+    current_trace_id,
     get_callback_handler,
     get_langfuse_client,
     is_enabled,
     langfuse_generation,
     langfuse_run_config,
     langfuse_span,
+    score_current_trace,
 )
 
 __all__ = [
+    "create_trace_score",
+    "current_trace_id",
     "get_callback_handler",
     "get_langfuse_client",
     "is_enabled",
     "langfuse_generation",
     "langfuse_run_config",
     "langfuse_span",
+    "score_current_trace",
 ]
