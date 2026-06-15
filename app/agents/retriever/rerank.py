@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from app.config import Settings, get_settings
 from app.rag.version_fit import version_fit_from_payload
 
@@ -98,6 +100,50 @@ class OnnxCrossEncoderReranker:
         return ranked
 
 
+class RemoteReranker:
+    """#72: 리랭킹을 별도 서비스(onramp-reranker)에 위임. /rerank HTTP 호출 — 메모리를 API 파드 밖으로 분리.
+
+    CrossEncoder/Onnx 리랭커와 **동일 계약**(query, candidates → [(score[0,1], payload)] desc).
+    호출/응답 실패는 raise → retriever_node가 잡아 vector 폴백(API는 안 죽는다).
+    """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+        self._client: httpx.Client | None = None
+        self._lock = threading.Lock()
+
+    @property
+    def client(self) -> httpx.Client:
+        # 동기 httpx 클라이언트(연결 재사용). rerank는 anyio.to_thread.run_sync로 스레드에서 호출됨.
+        if self._client is None:
+            with self._lock:
+                if self._client is None:
+                    self._client = httpx.Client(
+                        base_url=self.settings.reranker_service_url,
+                        timeout=self.settings.reranker_timeout_s,
+                    )
+        return self._client
+
+    def rerank(self, query: str, candidates: list[tuple[str, dict]]) -> list[tuple[float, dict]]:
+        if not candidates:
+            return []
+        passages = [text for text, _ in candidates]
+        resp = self.client.post("/rerank", json={"query": query, "passages": passages})
+        resp.raise_for_status()
+        scores = resp.json()["scores"]
+        # strict=True: 서비스가 길이 불일치 점수를 주면 ValueError → 폴백(방어)
+        ranked = [(float(score), payload) for score, (_, payload) in zip(scores, candidates, strict=True)]
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        return ranked
+
+    def close(self) -> None:
+        # 인스턴스 교체/리셋 시 httpx 연결 풀 정리 (커넥션 누수 방지).
+        with self._lock:
+            if self._client is not None:
+                self._client.close()
+                self._client = None
+
+
 def apply_metadata_weight(rerank_score: float, payload: dict, settings: Settings) -> float:
     """최신성 가산 — 최근 문서일수록 점수를 더한다. 가산식이라 음수 점수에서도 단조 증가한다."""
     factor = _recency_factor(payload.get("last_modified", ""), settings.rerank_recency_half_life_days)
@@ -185,21 +231,34 @@ def _recency_factor(last_modified: str, half_life_days: int) -> float:
 recency_factor = _recency_factor
 
 
-_reranker: CrossEncoderReranker | OnnxCrossEncoderReranker | None = None
-_reranker_key: tuple[str, str, str, str, str] | None = None
+Reranker = CrossEncoderReranker | OnnxCrossEncoderReranker | RemoteReranker
+_reranker: Reranker | None = None
+_reranker_key: tuple[object, ...] | None = None
 _reranker_lock = threading.Lock()  # _reranker/_reranker_key 동시 갱신 보호 (key↔instance 불일치 방지)
 
 
-def get_reranker(settings: Settings | None = None) -> CrossEncoderReranker | OnnxCrossEncoderReranker:
-    # backend/model/device/artifact 조합이 바뀌면 재생성 (torch↔onnx·CPU↔GPU 전환·테스트 격리 보장)
+def get_reranker(settings: Settings | None = None) -> Reranker:
+    # backend/model/device/artifact/url 조합이 바뀌면 재생성 (torch↔onnx↔remote 전환·테스트 격리 보장)
     global _reranker, _reranker_key
     cfg = settings or get_settings()
-    key = (cfg.reranker_backend, cfg.reranker_model, cfg.reranker_device, cfg.reranker_onnx_dir, cfg.reranker_onnx_file)
+    key = (
+        cfg.reranker_backend,
+        cfg.reranker_model,
+        cfg.reranker_device,
+        cfg.reranker_onnx_dir,
+        cfg.reranker_onnx_file,
+        cfg.reranker_service_url,
+        cfg.reranker_timeout_s,  # 변경 시 httpx 타임아웃이 반영되도록 키에 포함
+    )
     with _reranker_lock:  # 동시 초기화·설정 전환에서 key와 instance가 어긋난 채 반환되는 것을 막는다
         if _reranker is None or _reranker_key != key:
+            if isinstance(_reranker, RemoteReranker):  # 교체 전 이전 remote 연결 정리
+                _reranker.close()
             _reranker_key = key
             if cfg.reranker_backend == "onnx":  # #60: int8 경량화 백엔드(opt-in)
                 _reranker = OnnxCrossEncoderReranker(cfg)
+            elif cfg.reranker_backend == "remote":  # #72: 별도 리랭커 서비스
+                _reranker = RemoteReranker(cfg)
             else:
                 _reranker = CrossEncoderReranker(cfg)
         return _reranker
@@ -208,5 +267,7 @@ def get_reranker(settings: Settings | None = None) -> CrossEncoderReranker | Onn
 def reset_reranker() -> None:
     global _reranker, _reranker_key
     with _reranker_lock:
+        if isinstance(_reranker, RemoteReranker):  # remote 연결 정리 후 리셋
+            _reranker.close()
         _reranker = None
         _reranker_key = None

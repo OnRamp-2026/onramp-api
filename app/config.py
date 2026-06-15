@@ -2,6 +2,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings
@@ -90,11 +91,30 @@ class Settings(BaseSettings):
     self_hosted_embedding_url: str = ""  # P1: BGE-M3 (VesslAI GPU)
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     reranker_device: str = "cpu"  # P1: "cuda"
-    # #60: 리랭커 백엔드. "torch"(기본·현행) | "onnx"(int8 경량화, CPU 파드용).
+    # 리랭커 백엔드. "torch"(기본·현행) | "onnx"(#60 int8 경량) | "remote"(#72 별도 서비스 HTTP).
     # onnx 사용 시 scripts/build_reranker_onnx.py 산출물 디렉토리를 reranker_onnx_dir로 지정.
-    reranker_backend: Literal["torch", "onnx"] = "torch"
+    reranker_backend: Literal["torch", "onnx", "remote"] = "torch"
     reranker_onnx_dir: str = ""
     reranker_onnx_file: str = "model_quantized.onnx"
+    # #72 remote: 별도 리랭커 서비스(onramp-reranker) — 메모리 분리. 예: http://onramp-reranker:8080
+    reranker_service_url: str = ""
+    reranker_timeout_s: float = Field(default=10.0, gt=0)
+
+    @model_validator(mode="after")
+    def _check_reranker_remote(self) -> "Settings":
+        # fail-fast: remote 백엔드면 서비스 URL이 유효해야 첫 요청에서 조용히 폴백되지 않는다.
+        if self.reranker_backend == "remote":
+            url = self.reranker_service_url.strip()
+            if not url:
+                raise ValueError(
+                    "reranker_backend='remote'면 reranker_service_url 필요 (예: http://onramp-reranker:8080)"
+                )
+            parsed = urlparse(url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError(
+                    "reranker_service_url은 http/https URL 형식이어야 함 (예: http://onramp-reranker:8080)"
+                )
+        return self
 
     @model_validator(mode="after")
     def _check_reranker_onnx(self) -> "Settings":
