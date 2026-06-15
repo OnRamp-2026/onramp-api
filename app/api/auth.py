@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -36,6 +37,7 @@ SLACK_ISSUER = "https://slack.com"
 SLACK_TEAM_CLAIM = "https://slack.com/team_id"
 SLACK_SCOPE = "openid profile email"
 _STATE_TTL = 600  # CSRF state 10분
+_STATE_COOKIE = "onramp_oauth_nonce"  # state↔브라우저 바인딩용 nonce 쿠키 (세션 고정 방지)
 
 
 # ── 모델 ──────────────────────────────────────────────────────────
@@ -78,21 +80,25 @@ def _safe_redirect_path(value: str | None) -> str:
     return "/"
 
 
-def _sign_state(redirect: str, settings: Settings) -> str:
+def _sign_state(redirect: str, nonce: str, settings: Settings) -> str:
     secret = settings.auth_jwt_secret.get_secret_value()
     now = datetime.now(UTC)
     return jwt.encode(
-        {"redirect": redirect, "iat": now, "exp": now + timedelta(seconds=_STATE_TTL)},
+        {"redirect": redirect, "nonce": nonce, "iat": now, "exp": now + timedelta(seconds=_STATE_TTL)},
         secret,
         algorithm=ALGORITHM,
     )
 
 
-def _verify_state(state: str, settings: Settings) -> str:
+def _verify_state(state: str, cookie_nonce: str | None, settings: Settings) -> str:
     try:
         claims = jwt.decode(state, settings.auth_jwt_secret.get_secret_value(), algorithms=[ALGORITHM])
     except InvalidTokenError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="state 검증 실패(CSRF).") from exc
+    # 브라우저 바인딩: state 내 nonce == 로그인 시 심은 nonce 쿠키 (공격자 state 주입=세션 고정 차단)
+    state_nonce = claims.get("nonce")
+    if not cookie_nonce or not isinstance(state_nonce, str) or not secrets.compare_digest(cookie_nonce, state_nonce):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="state 검증 실패(CSRF).")
     return _safe_redirect_path(claims.get("redirect"))
 
 
@@ -119,7 +125,8 @@ async def login(
         # 회사 SSO(Keycloak/Entra)는 동일 RP 패턴으로 확장 예정(P1)
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=f"provider '{provider}' 미지원.")
     redirect_uri = _require_slack(settings)
-    state = _sign_state(_safe_redirect_path(redirect), settings)
+    nonce = secrets.token_urlsafe(16)
+    state = _sign_state(_safe_redirect_path(redirect), nonce, settings)
     params = {
         "response_type": "code",
         "client_id": settings.slack_client_id,
@@ -127,7 +134,17 @@ async def login(
         "redirect_uri": redirect_uri,
         "state": state,
     }
-    return RedirectResponse(url=str(httpx.URL(SLACK_AUTHORIZE, params=params)))
+    response = RedirectResponse(url=str(httpx.URL(SLACK_AUTHORIZE, params=params)))
+    response.set_cookie(
+        key=_STATE_COOKIE,
+        value=nonce,
+        max_age=_STATE_TTL,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite="lax",  # Slack 콜백(top-level GET)에서 전송되도록 lax
+        path="/auth",
+    )
+    return response
 
 
 @router.get("/callback")
@@ -135,20 +152,25 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
     """Slack code → id_token 검증 → 세션 JWT 발급(쿠키) → 프론트 복귀."""
     settings = get_settings()
     redirect_uri = _require_slack(settings)
-    post_login = _verify_state(state, settings)
+    post_login = _verify_state(state, request.cookies.get(_STATE_COOKIE), settings)
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        token_res = await client.post(
-            SLACK_TOKEN,
-            data={
-                "client_id": settings.slack_client_id,
-                "client_secret": settings.slack_client_secret.get_secret_value(),
-                "code": code,
-                "redirect_uri": redirect_uri,
-                "grant_type": "authorization_code",
-            },
-        )
-    payload = token_res.json()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            token_res = await client.post(
+                SLACK_TOKEN,
+                data={
+                    "client_id": settings.slack_client_id,
+                    "client_secret": settings.slack_client_secret.get_secret_value(),
+                    "code": code,
+                    "redirect_uri": redirect_uri,
+                    "grant_type": "authorization_code",
+                },
+            )
+        payload = token_res.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Slack 토큰 교환 통신 실패.") from exc
+    except ValueError as exc:  # 비-JSON 응답
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Slack 응답 파싱 실패.") from exc
     if not payload.get("ok", False) or "id_token" not in payload:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Slack 토큰 교환 실패.")
 
@@ -168,6 +190,7 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
     )
     response = RedirectResponse(url=f"{settings.auth_base_url.rstrip('/')}{post_login}")
     _set_session_cookie(response, token, ttl, settings)
+    response.delete_cookie(_STATE_COOKIE, path="/auth")  # 1회성 nonce 정리
     return response
 
 
