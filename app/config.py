@@ -2,6 +2,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings
@@ -101,9 +102,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _check_reranker_remote(self) -> "Settings":
-        # fail-fast: remote 백엔드면 서비스 URL이 있어야 첫 요청에서 조용히 폴백되지 않는다.
-        if self.reranker_backend == "remote" and not self.reranker_service_url.strip():
-            raise ValueError("reranker_backend='remote'면 reranker_service_url 필요 (예: http://onramp-reranker:8080)")
+        # fail-fast: remote 백엔드면 서비스 URL이 유효해야 첫 요청에서 조용히 폴백되지 않는다.
+        if self.reranker_backend == "remote":
+            url = self.reranker_service_url.strip()
+            if not url:
+                raise ValueError("reranker_backend='remote'면 reranker_service_url 필요 (예: http://onramp-reranker:8080)")
+            parsed = urlparse(url)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError("reranker_service_url은 http/https URL 형식이어야 함 (예: http://onramp-reranker:8080)")
         return self
 
     @model_validator(mode="after")

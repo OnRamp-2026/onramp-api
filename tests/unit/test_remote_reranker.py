@@ -67,3 +67,22 @@ def test_get_reranker_returns_remote_for_remote_backend():
 def test_settings_remote_requires_service_url():
     with pytest.raises(ValidationError):
         Settings(reranker_backend="remote", reranker_service_url="")
+
+
+@pytest.mark.parametrize("bad_url", ["onramp-reranker:8080", "ftp://host:8080", "not a url"])
+def test_settings_remote_rejects_malformed_url(bad_url):
+    # fail-fast: 스킴/형식이 잘못된 URL은 기동 시 거부 (첫 요청까지 미루지 않는다)
+    with pytest.raises(ValidationError):
+        Settings(reranker_backend="remote", reranker_service_url=bad_url)
+
+
+def test_reset_reranker_closes_remote_client():
+    # 교체/리셋 시 httpx 연결을 닫는다 (커넥션 누수 방지)
+    reset_reranker()
+    s = Settings(reranker_backend="remote", reranker_service_url="http://onramp-reranker:8080")
+    r = get_reranker(s)
+    assert isinstance(r, RemoteReranker)
+    _ = r.client  # lazy 클라이언트 생성
+    assert r._client is not None
+    reset_reranker()
+    assert r._client is None  # close()로 정리됨
