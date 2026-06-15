@@ -169,7 +169,7 @@ def test_generation_yields_span_and_exits_when_enabled(monkeypatch):
             return False
 
     class FakeClient:
-        def start_as_current_generation(self, **kw):
+        def start_as_current_observation(self, **kw):
             events.append(("start", kw))
             return FakeCM()
 

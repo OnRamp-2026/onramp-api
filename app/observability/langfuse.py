@@ -137,7 +137,7 @@ def langfuse_generation(
 
     # span 생성(enter) 실패는 흡수(no-op) — 관측이 응답 경로를 막지 않게.
     try:
-        cm = client.start_as_current_generation(name=name, model=model, input=input)
+        cm = client.start_as_current_observation(name=name, as_type="generation", model=model, input=input)
         gen = cm.__enter__()
     except Exception as exc:
         logger.warning("langfuse_generation_start_failed", error=str(exc))
