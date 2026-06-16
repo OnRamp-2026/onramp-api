@@ -13,9 +13,13 @@ vesslctl auth status >/dev/null 2>&1 || vesslctl auth login
 # 1) 먼저 Redis 키 삭제 — onramp-api가 죽은 URL을 더 호출하지 않게(폴백 먼저, 그다음 terminate).
 "$DIR/clear.sh" || echo "  (Redis 정리 실패 — 수동 확인 필요)" >&2
 
-# 2) 워크스페이스 종료(과금 중단). 이름→slug 해석 후 -y 로 무확인 terminate.
-SLUG="$(vesslctl workspace list -o json 2>/dev/null \
-        | jq -r --arg n "$WS_NAME" '.[] | select(.name==$n) | (.slug // .name)' | head -1)"
+# 2) 워크스페이스 종료(과금 중단). list 구조 [{billingInfo, workspace:{...}}] —
+#    terminated/실패 제외, 실행 중 최신 워크스페이스의 slug를 잡아 -y 로 무확인 terminate.
+SLUG="$(vesslctl workspace list -o json 2>/dev/null | jq -r --arg n "$WS_NAME" '
+          map(.workspace)
+          | map(select(.name==$n))
+          | map(select((.state // "" | ascii_downcase | test("terminat|fail|error")) | not))
+          | sort_by(.createdDt) | last.slug // empty')"
 if [ -n "$SLUG" ]; then
   echo "워크스페이스 종료: $SLUG"
   vesslctl workspace terminate "$SLUG" -y
