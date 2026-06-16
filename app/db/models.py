@@ -219,11 +219,14 @@ class Report(Base):
     )
 
 
-class ConfluenceDocument(Base):
-    __tablename__ = "confluence_document"
+class SourceDocument(Base):
+    """멀티소스 인덱싱 원장 — confluence | github 등. (구 confluence_document)"""
+
+    __tablename__ = "source_document"
 
     tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True, default="onramp")
-    page_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    page_id: Mapped[str] = mapped_column(String(64), primary_key=True)  # 소스별 문서 id (gh:repo:path 등)
+    source: Mapped[str] = mapped_column(String(32), default="confluence")  # confluence | github
     space_key: Mapped[str] = mapped_column(String(32))
     title: Mapped[str] = mapped_column(String(500))
     source_url: Mapped[str | None] = mapped_column(String(1000))
@@ -240,19 +243,20 @@ class ConfluenceDocument(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "space_key", "page_id", name="uq_confluence_document_space_page"),
-        Index("ix_confluence_document_domain", "tenant_id", "domain"),
-        Index("ix_confluence_document_indexed_at", "tenant_id", "indexed_at"),
+        UniqueConstraint("tenant_id", "space_key", "page_id", name="uq_source_document_space_page"),
+        Index("ix_source_document_domain", "tenant_id", "domain"),
+        Index("ix_source_document_indexed_at", "tenant_id", "indexed_at"),
     )
 
 
-class ConfluenceDocumentPrevious(Base):
-    """직전 snapshot — current/previous 1+1 정책. 새 버전 수집 시 현재본 → 여기로 회전."""
+class SourceDocumentPrevious(Base):
+    """직전 snapshot — current/previous 1+1 정책. 새 버전 수집 시 현재본 → 여기로 회전. (구 confluence_document_previous)"""
 
-    __tablename__ = "confluence_document_previous"
+    __tablename__ = "source_document_previous"
 
     tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True, default="onramp")
     page_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source: Mapped[str] = mapped_column(String(32), default="confluence")
     space_key: Mapped[str] = mapped_column(String(32))
     title: Mapped[str] = mapped_column(String(500))
     source_url: Mapped[str | None] = mapped_column(String(1000))
@@ -272,8 +276,8 @@ class ConfluenceDocumentPrevious(Base):
     __table_args__ = (
         ForeignKeyConstraint(
             ["tenant_id", "page_id"],
-            ["confluence_document.tenant_id", "confluence_document.page_id"],
-            name="fk_confluence_document_previous_current",
+            ["source_document.tenant_id", "source_document.page_id"],
+            name="fk_source_document_previous_current",
             ondelete="CASCADE",
         ),
     )
@@ -317,8 +321,8 @@ class ChunkRegistry(Base):
     __table_args__ = (
         ForeignKeyConstraint(
             ["tenant_id", "page_id"],
-            ["confluence_document.tenant_id", "confluence_document.page_id"],
-            name="fk_chunk_registry_confluence_document",
+            ["source_document.tenant_id", "source_document.page_id"],
+            name="fk_chunk_registry_source_document",
             ondelete="CASCADE",
         ),
         Index("ix_chunk_registry_tenant_page", "tenant_id", "page_id"),

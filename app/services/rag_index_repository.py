@@ -1,4 +1,4 @@
-"""PostgreSQL read/write for RAG indexing (index_run, confluence_document, chunk_registry)."""
+"""PostgreSQL read/write for RAG indexing (index_run, source_document, chunk_registry)."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from sqlalchemy import delete, select
 
 from app.db.models import (
     ChunkRegistry,
-    ConfluenceDocument,
-    ConfluenceDocumentPrevious,
     IndexRun,
     IndexRunStatus,
+    SourceDocument,
+    SourceDocumentPrevious,
 )
 
 if TYPE_CHECKING:
@@ -74,9 +74,9 @@ async def should_index_page(
 ) -> bool:
     """True = hash changed or new page → indexing needed."""
     stored_hash = await db.scalar(
-        select(ConfluenceDocument.cleaned_markdown_hash).where(
-            ConfluenceDocument.tenant_id == tenant_id,
-            ConfluenceDocument.page_id == page_id,
+        select(SourceDocument.cleaned_markdown_hash).where(
+            SourceDocument.tenant_id == tenant_id,
+            SourceDocument.page_id == page_id,
         )
     )
     return stored_hash != cleaned_markdown_hash
@@ -94,24 +94,25 @@ async def rotate_and_save_document(
     """Rotate current → previous, then upsert new current. All within one flush."""
     now = _now()
     existing = await db.scalar(
-        select(ConfluenceDocument).where(
-            ConfluenceDocument.tenant_id == tenant_id,
-            ConfluenceDocument.page_id == page.page_id,
+        select(SourceDocument).where(
+            SourceDocument.tenant_id == tenant_id,
+            SourceDocument.page_id == page.page_id,
         )
     )
 
     if existing is not None:
         # delete old previous (if any), then promote current → previous
         await db.execute(
-            delete(ConfluenceDocumentPrevious).where(
-                ConfluenceDocumentPrevious.tenant_id == tenant_id,
-                ConfluenceDocumentPrevious.page_id == page.page_id,
+            delete(SourceDocumentPrevious).where(
+                SourceDocumentPrevious.tenant_id == tenant_id,
+                SourceDocumentPrevious.page_id == page.page_id,
             )
         )
         db.add(
-            ConfluenceDocumentPrevious(
+            SourceDocumentPrevious(
                 tenant_id=existing.tenant_id,
                 page_id=existing.page_id,
+                source=existing.source,
                 space_key=existing.space_key,
                 title=existing.title,
                 source_url=existing.source_url,
@@ -142,7 +143,7 @@ async def rotate_and_save_document(
         existing.updated_at = now
     else:
         db.add(
-            ConfluenceDocument(
+            SourceDocument(
                 tenant_id=tenant_id,
                 page_id=page.page_id,
                 space_key=page.space_key,
