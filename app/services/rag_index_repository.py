@@ -71,11 +71,13 @@ async def should_index_page(
     tenant_id: str,
     page_id: str,
     cleaned_markdown_hash: str,
+    source: str = "confluence",
 ) -> bool:
     """True = hash changed or new page → indexing needed."""
     stored_hash = await db.scalar(
         select(SourceDocument.cleaned_markdown_hash).where(
             SourceDocument.tenant_id == tenant_id,
+            SourceDocument.source == source,
             SourceDocument.page_id == page_id,
         )
     )
@@ -90,12 +92,14 @@ async def rotate_and_save_document(
     raw_html_hash: str,
     cleaned_markdown_hash: str,
     chunk_count: int,
+    source: str = "confluence",
 ) -> None:
     """Rotate current → previous, then upsert new current. All within one flush."""
     now = _now()
     existing = await db.scalar(
         select(SourceDocument).where(
             SourceDocument.tenant_id == tenant_id,
+            SourceDocument.source == source,
             SourceDocument.page_id == page.page_id,
         )
     )
@@ -105,6 +109,7 @@ async def rotate_and_save_document(
         await db.execute(
             delete(SourceDocumentPrevious).where(
                 SourceDocumentPrevious.tenant_id == tenant_id,
+                SourceDocumentPrevious.source == source,
                 SourceDocumentPrevious.page_id == page.page_id,
             )
         )
@@ -145,6 +150,7 @@ async def rotate_and_save_document(
         db.add(
             SourceDocument(
                 tenant_id=tenant_id,
+                source=source,
                 page_id=page.page_id,
                 space_key=page.space_key,
                 title=page.title,
@@ -171,6 +177,7 @@ async def upsert_chunk_registry(
     children: list[ChildChunk],
     run_id: uuid.UUID,
     tenant_id: str,
+    source: str = "confluence",
 ) -> None:
     if not children:
         return
@@ -184,6 +191,7 @@ async def upsert_chunk_registry(
                 point_id=uuid.UUID(_point_id(c.chunk_id)),
                 parent_id=c.parent_id,
                 page_id=c.page_id,
+                source=source,
                 run_id=run_id,
                 domain=c.domain,
                 token_count=c.token_count,
@@ -199,11 +207,13 @@ async def collect_stale_chunks(
     tenant_id: str,
     page_id: str,
     run_id: uuid.UUID,
+    source: str = "confluence",
 ) -> list[tuple[str, uuid.UUID]]:
     """Returns (chunk_id, point_id) for chunks that belong to a previous run."""
     rows = await db.execute(
         select(ChunkRegistry.chunk_id, ChunkRegistry.point_id).where(
             ChunkRegistry.tenant_id == tenant_id,
+            ChunkRegistry.source == source,
             ChunkRegistry.page_id == page_id,
             ChunkRegistry.run_id != run_id,
         )

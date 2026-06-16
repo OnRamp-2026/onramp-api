@@ -133,7 +133,7 @@ async def test_rotate_creates_new_document(db: AsyncSession) -> None:
         cleaned_markdown_hash=_hash(page.markdown),
         chunk_count=2,
     )
-    doc = await db.get(SourceDocument, ("onramp", "pg1"))
+    doc = await db.get(SourceDocument, ("onramp", "confluence", "pg1"))
     assert doc is not None
     assert doc.raw_html == page.html
     assert doc.chunk_count == 2
@@ -160,8 +160,8 @@ async def test_rotate_promotes_current_to_previous(db: AsyncSession) -> None:
         chunk_count=2,
     )
 
-    current = await db.get(SourceDocument, ("onramp", "pg1"))
-    previous = await db.get(SourceDocumentPrevious, ("onramp", "pg1"))
+    current = await db.get(SourceDocument, ("onramp", "confluence", "pg1"))
+    previous = await db.get(SourceDocumentPrevious, ("onramp", "confluence", "pg1"))
     assert current.raw_html == "<p>v2</p>"
     assert previous.raw_html == "<p>v1</p>"
 
@@ -178,8 +178,8 @@ async def test_rotate_replaces_old_previous(db: AsyncSession) -> None:
             chunk_count=i,
         )
 
-    current = await db.get(SourceDocument, ("onramp", "pg1"))
-    previous = await db.get(SourceDocumentPrevious, ("onramp", "pg1"))
+    current = await db.get(SourceDocument, ("onramp", "confluence", "pg1"))
+    previous = await db.get(SourceDocumentPrevious, ("onramp", "confluence", "pg1"))
     assert current.raw_html == "<p>v3</p>"
     assert previous.raw_html == "<p>v2</p>"  # v1 is gone
 

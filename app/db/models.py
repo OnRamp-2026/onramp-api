@@ -225,8 +225,9 @@ class SourceDocument(Base):
     __tablename__ = "source_document"
 
     tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True, default="onramp")
+    # source를 PK에 포함 — confluence/github가 동일 page_id를 가져도 별도 레코드(덮어쓰기 방지).
+    source: Mapped[str] = mapped_column(String(32), primary_key=True, default="confluence")  # confluence | github
     page_id: Mapped[str] = mapped_column(String(64), primary_key=True)  # 소스별 문서 id (gh:repo:path 등)
-    source: Mapped[str] = mapped_column(String(32), default="confluence")  # confluence | github
     space_key: Mapped[str] = mapped_column(String(32))
     title: Mapped[str] = mapped_column(String(500))
     source_url: Mapped[str | None] = mapped_column(String(1000))
@@ -243,7 +244,7 @@ class SourceDocument(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "space_key", "page_id", name="uq_source_document_space_page"),
+        UniqueConstraint("tenant_id", "source", "space_key", "page_id", name="uq_source_document_space_page"),
         Index("ix_source_document_domain", "tenant_id", "domain"),
         Index("ix_source_document_indexed_at", "tenant_id", "indexed_at"),
     )
@@ -255,8 +256,8 @@ class SourceDocumentPrevious(Base):
     __tablename__ = "source_document_previous"
 
     tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True, default="onramp")
+    source: Mapped[str] = mapped_column(String(32), primary_key=True, default="confluence")
     page_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    source: Mapped[str] = mapped_column(String(32), default="confluence")
     space_key: Mapped[str] = mapped_column(String(32))
     title: Mapped[str] = mapped_column(String(500))
     source_url: Mapped[str | None] = mapped_column(String(1000))
@@ -275,8 +276,8 @@ class SourceDocumentPrevious(Base):
 
     __table_args__ = (
         ForeignKeyConstraint(
-            ["tenant_id", "page_id"],
-            ["source_document.tenant_id", "source_document.page_id"],
+            ["tenant_id", "source", "page_id"],
+            ["source_document.tenant_id", "source_document.source", "source_document.page_id"],
             name="fk_source_document_previous_current",
             ondelete="CASCADE",
         ),
@@ -310,6 +311,7 @@ class ChunkRegistry(Base):
     point_id: Mapped[uuid.UUID]
     parent_id: Mapped[str] = mapped_column(String(80))
     page_id: Mapped[str] = mapped_column(String(64))
+    source: Mapped[str] = mapped_column(String(32), default="confluence")  # 소속 문서의 source
     run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("index_run.run_id", ondelete="SET NULL"))
     domain: Mapped[str | None] = mapped_column(String(32))
     section_type: Mapped[str | None] = mapped_column(String(40))
@@ -320,8 +322,8 @@ class ChunkRegistry(Base):
 
     __table_args__ = (
         ForeignKeyConstraint(
-            ["tenant_id", "page_id"],
-            ["source_document.tenant_id", "source_document.page_id"],
+            ["tenant_id", "source", "page_id"],
+            ["source_document.tenant_id", "source_document.source", "source_document.page_id"],
             name="fk_chunk_registry_source_document",
             ondelete="CASCADE",
         ),
