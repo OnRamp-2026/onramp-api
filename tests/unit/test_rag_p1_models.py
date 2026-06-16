@@ -2,14 +2,15 @@ from typing import cast
 
 from sqlalchemy import Table, inspect
 
-from app.db.models import ChatLog, ChunkRegistry, ConfluenceDocument, IndexRun
+from app.db.models import ChatLog, ChunkRegistry, IndexRun, SourceDocument
 
 
-def test_confluence_document_uses_tenant_page_primary_key() -> None:
-    table = cast(Table, inspect(ConfluenceDocument).local_table)
+def test_source_document_uses_tenant_page_primary_key() -> None:
+    table = cast(Table, inspect(SourceDocument).local_table)
 
-    assert [column.name for column in table.primary_key.columns] == ["tenant_id", "page_id"]
+    assert [column.name for column in table.primary_key.columns] == ["tenant_id", "source", "page_id"]
     assert "tenant_id" in table.c
+    assert "source" in table.c
     assert "raw_html_hash" in table.c
     assert "cleaned_markdown_hash" in table.c
 
@@ -24,7 +25,11 @@ def test_chunk_registry_tracks_qdrant_point_and_run() -> None:
 
     assert indexes["ix_chunk_registry_point_id"] == ("point_id",)
     assert indexes["ix_chunk_registry_run_id"] == ("run_id",)
-    assert ("confluence_document.tenant_id", "confluence_document.page_id") in fk_targets
+    assert (
+        "source_document.tenant_id",
+        "source_document.source",
+        "source_document.page_id",
+    ) in fk_targets
     assert ("index_run.run_id",) in fk_targets
 
 
