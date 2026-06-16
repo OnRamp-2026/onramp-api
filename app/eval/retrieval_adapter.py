@@ -126,7 +126,11 @@ async def retrieve_for_eval(
     qvec = await get_embedder().embed_query(query)
     # 필터용 domain은 대표(domains[0])만 — soft에선 무시되고 hard/hybrid에서만 쓰인다.
     filter_domain = domains[0] if domains else None
-    hits = await search_with_mode(qvec, top_k, domain=filter_domain, mode=effective_filter, settings=settings)
+    # query_text 전달 — hybrid_search_enabled일 때 운영(retrieve_node)과 동일하게 Dense+BM25 RRF가 작동.
+    # (안 넘기면 평가가 hybrid를 못 타고 dense로만 측정됨, #169 대응)
+    hits = await search_with_mode(
+        qvec, top_k, domain=filter_domain, mode=effective_filter, query_text=query, settings=settings
+    )
 
     results = [(point.score, point.payload or {}) for point in hits]
 
