@@ -1,16 +1,16 @@
 """Settings 범위 검증 — 환경변수로 오염된 도메인 보정 값을 차단한다."""
 
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from app.config import Settings
 
 
 def test_storage_and_auth_secrets_are_masked() -> None:
     settings = Settings(
-        auth_jwt_secret="auth-secret-with-at-least-32-bytes",
-        storage_access_key="storage-access-key",
-        storage_secret_key="storage-secret-key",
+        auth_jwt_secret=SecretStr("auth-secret-with-at-least-32-bytes"),
+        storage_access_key=SecretStr("storage-access-key"),
+        storage_secret_key=SecretStr("storage-secret-key"),
     )
 
     rendered = repr(settings)
@@ -81,3 +81,21 @@ def test_eol_versions_defaults_and_json_env_parsing():
     assert Settings(lineage_cache_ttl_seconds=0).lineage_cache_ttl_seconds == 0
     with pytest.raises(ValidationError):
         Settings(lineage_cache_ttl_seconds=-1)
+
+
+def test_stt_redis_url_falls_back_to_redis_url() -> None:
+    settings = Settings(redis_url="redis://local-redis:6379/0", stt_redis_url="")
+
+    assert settings.stt_redis_url == "redis://local-redis:6379/0"
+
+
+def test_stt_redis_url_can_be_separated() -> None:
+    settings = Settings(
+        redis_url="redis://tenant-redis:6379/0",
+        stt_redis_url="redis://shared-stt-redis:6379/0",
+        stt_consumer_group_suffix="tenant1",
+    )
+
+    assert settings.redis_url == "redis://tenant-redis:6379/0"
+    assert settings.stt_redis_url == "redis://shared-stt-redis:6379/0"
+    assert settings.stt_consumer_group_suffix == "tenant1"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import socket
 from json import JSONDecodeError
@@ -11,7 +12,7 @@ from redis.asyncio import Redis
 
 from app.config import get_settings
 from app.db.postgres import get_session_factory
-from app.db.redis import get_redis
+from app.db.redis import get_stt_redis
 from app.queue.constants import (
     REPORT_EVENT_GROUP,
     STT_COMPLETED_STREAM,
@@ -27,6 +28,11 @@ from app.services.stt_event_service import SttEventService, UnrecoverableSttEven
 logger = structlog.get_logger(__name__)
 
 
+def consumer_group_name(base_group: str, suffix: str) -> str:
+    normalized = suffix.strip()
+    return f"{base_group}-{normalized}" if normalized else base_group
+
+
 async def process_message(
     redis: Redis,
     service: SttEventService,
@@ -35,7 +41,23 @@ async def process_message(
     group: str,
     message_id: str,
     fields: dict[str, str],
+    own_tenant: str = "",
 ) -> None:
+    if own_tenant:
+        try:
+            payload = json.loads(fields.get("payload", "{}"))
+        except JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict) and payload.get("tenant_id") != own_tenant:
+            await logger.ainfo(
+                "stt_event_skipped_foreign_tenant",
+                stream=stream,
+                message_id=message_id,
+                event_tenant=payload.get("tenant_id"),
+                own_tenant=own_tenant,
+            )
+            await redis.xack(stream, group, message_id)
+            return
     try:
         await service.process(decode_envelope(fields))
     except (JSONDecodeError, KeyError, ValidationError, UnrecoverableSttEventError):
@@ -54,8 +76,9 @@ async def process_message(
 
 async def consume_stream(stream: str, group: str) -> None:
     settings = get_settings()
-    redis = get_redis()
+    redis = get_stt_redis()
     service = SttEventService(get_session_factory())
+    own_tenant = settings.stt_consumer_group_suffix.strip()
     consumer = f"{socket.gethostname()}-{os.getpid()}-{group}"
     await ensure_consumer_group(redis, stream, group)
     while True:
@@ -76,14 +99,25 @@ async def consume_stream(stream: str, group: str) -> None:
                 group=group,
                 message_id=message_id,
                 fields=fields,
+                own_tenant=own_tenant,
             )
 
 
 async def run() -> None:
+    settings = get_settings()
     await asyncio.gather(
-        consume_stream(STT_PROGRESS_STREAM, WORKFLOW_UPDATER_GROUP),
-        consume_stream(STT_TRANSCRIPT_COMPLETED_STREAM, TRANSCRIPT_OBSERVER_GROUP),
-        consume_stream(STT_COMPLETED_STREAM, REPORT_EVENT_GROUP),
+        consume_stream(
+            STT_PROGRESS_STREAM,
+            consumer_group_name(WORKFLOW_UPDATER_GROUP, settings.stt_consumer_group_suffix),
+        ),
+        consume_stream(
+            STT_TRANSCRIPT_COMPLETED_STREAM,
+            consumer_group_name(TRANSCRIPT_OBSERVER_GROUP, settings.stt_consumer_group_suffix),
+        ),
+        consume_stream(
+            STT_COMPLETED_STREAM,
+            consumer_group_name(REPORT_EVENT_GROUP, settings.stt_consumer_group_suffix),
+        ),
     )
 
 
