@@ -268,6 +268,20 @@ Confluence + GitHub 원문을 **PostgreSQL(원문 원장) · Qdrant(dense 청크
 
 공통 env 조절: `CONFLUENCE_LIMIT`(기본 500) · `GITHUB_REPOS`(기본 org 전체) · `SKIP_MIGRATE`/`SKIP_CONFLUENCE`/`SKIP_GITHUB`/`SKIP_DOCS=1`.
 
+### 증분 vs 전체 (재실행 동작)
+
+**모든 소스는 인덱싱 단계 hash-dedup으로 변경분만 실제 색인한다.** `cleaned_markdown` 해시가 같은 문서는 임베딩·색인을 건너뛰므로(`should_index_page`) **재실행은 안전·저렴(idempotent)** 하다. 다만 **fetch 단계 시간 증분**은 소스마다 다르다.
+
+| 소스 | fetch 시간 증분 | 전체 fetch | 재실행 시 |
+|---|---|---|---|
+| **Confluence** | ✅ `--hours N`(최근 N시간 수정분만 조회) | ✅ `--all` | 증분 fetch면 후보 자체가 적어 빠름 |
+| **GitHub** | ❌ 없음 — 항상 이슈/PR·docs **전체 fetch** | (전체가 기본) | 전체 fetch하되 변경 없는 문서는 hash로 색인 스킵 |
+
+- **Confluence 정기 동기화**(가벼움): `python scripts/index_recent_confluence_pages.py --hours 24` — 최근 수정분만. (`ingest_all.sh`는 초기/재구축용이라 기본 `--all`을 쓴다.)
+- **GitHub 정기 동기화**: 현재는 `scripts/index_github.py`로 **전체 fetch + hash 스킵**. fetch 비용은 들지만 색인·임베딩은 변경분만 발생. (GitHub `since` 기반 시간 증분 fetch는 후속 — 프로젝트 plan Stream 3.)
+
+> 즉 **"전체 재적재"가 두려울 필요 없다** — 두 소스 모두 변경 없는 문서는 재임베딩하지 않는다. 차이는 GitHub이 매번 *조회*는 전체로 한다는 점뿐.
+
 ### 로컬 (골든셋 구축)
 
 `.env`에 `OPENAI_API_KEY`·`GITHUB_TOKEN`·`BM25_SEARCH_ENABLED=true`·`OPENSEARCH_HOST=localhost` 추가 후:
