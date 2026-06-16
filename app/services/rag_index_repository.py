@@ -207,7 +207,7 @@ async def collect_stale_chunks(
             ChunkRegistry.run_id != run_id,
         )
     )
-    return list(rows.all())
+    return [(chunk_id, point_id) for chunk_id, point_id in rows.all()]
 
 
 async def delete_stale_chunk_rows(db: AsyncSession, *, chunk_ids: list[str]) -> None:
