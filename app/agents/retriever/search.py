@@ -105,6 +105,7 @@ async def search_with_mode(
         return await hybrid_search(
             query_text,
             query_vector,
+            top_k=top_k,
             domain=effective_domain,
             filters=filters,
             settings=settings,
