@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     opensearch_password: SecretStr = SecretStr("")
     opensearch_index: str = "onramp-chunks"
     opensearch_index_v1: str = "onramp-chunks-v1"
+    # 문서(원문) 인덱스 — document_tools(get_document_by_id, search_documents_by_text). 청크 인덱스와 별개.
+    opensearch_documents_index: str = "onramp-documents"
+    opensearch_documents_index_v1: str = "onramp-documents-v1"
     opensearch_timeout_seconds: float = Field(default=10.0, gt=0)
     hybrid_rrf_k: int = Field(default=60, ge=1)
     hybrid_dense_top_k: int = Field(default=50, ge=1)

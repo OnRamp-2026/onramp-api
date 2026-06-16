@@ -124,6 +124,69 @@ class OpenSearchClient:
             for hit in hits
         ]
 
+    # ── 문서(원문) 인덱스 — document_tools (get_document_by_id, search_documents_by_text) ──
+    async def ensure_documents_index(self) -> None:
+        alias = self.settings.opensearch_documents_index
+        concrete = self.settings.opensearch_documents_index_v1
+        alias_resp = await self._http.get(f"/_alias/{alias}")
+        if alias_resp.status_code == 200:
+            return
+        if alias_resp.status_code != 404:
+            alias_resp.raise_for_status()
+        index_resp = await self._http.head(f"/{concrete}")
+        if index_resp.status_code == 404:
+            create_resp = await self._http.put(f"/{concrete}", json=_documents_index_body(alias))
+            create_resp.raise_for_status()
+            return
+        if index_resp.status_code >= 400:
+            index_resp.raise_for_status()
+        alias_create = await self._http.post(
+            "/_aliases", json={"actions": [{"add": {"index": concrete, "alias": alias}}]}
+        )
+        alias_create.raise_for_status()
+
+    async def upsert_documents(self, documents: Sequence[Mapping[str, Any]]) -> None:
+        """원문 문서 upsert. _id = '{tenant_id}:{doc_id}' (테넌트 격리). 각 doc는 tenant_id·doc_id·content 포함."""
+        if not documents:
+            return
+        await self.ensure_documents_index()
+        index = self.settings.opensearch_documents_index
+        for document in documents:
+            doc_id = f"{document['tenant_id']}:{document['doc_id']}"
+            resp = await self._http.put(f"/{index}/_doc/{doc_id}", json=dict(document))
+            resp.raise_for_status()
+
+    async def get_document(self, doc_id: str, *, tenant_id: str) -> dict[str, Any] | None:
+        resp = await self._http.get(f"/{self.settings.opensearch_documents_index}/_doc/{tenant_id}:{doc_id}")
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        source = resp.json().get("_source")
+        return source if isinstance(source, dict) else None
+
+    async def get_documents(self, doc_ids: Sequence[str], *, tenant_id: str) -> list[dict[str, Any]]:
+        if not doc_ids:
+            return []
+        ids = [f"{tenant_id}:{doc_id}" for doc_id in doc_ids]
+        resp = await self._http.post(f"/{self.settings.opensearch_documents_index}/_mget", json={"ids": ids})
+        resp.raise_for_status()
+        return [doc["_source"] for doc in resp.json().get("docs", []) if doc.get("found")]
+
+    async def search_documents(
+        self, query: str, *, top_k: int, tenant_id: str, domain: str | None = None, source: str | None = None
+    ) -> list[OpenSearchHit]:
+        """원문 전체 BM25 검색(search_documents_by_text). 청크 검색과 별개 — 문서 단위."""
+        body = _documents_search_body(query, top_k=top_k, tenant_id=tenant_id, domain=domain, source=source)
+        resp = await self._http.post(f"/{self.settings.opensearch_documents_index}/_search", json=body)
+        resp.raise_for_status()
+        hits = resp.json().get("hits", {}).get("hits", [])
+        return [
+            OpenSearchHit(
+                id=str(hit.get("_id", "")), score=float(hit.get("_score") or 0.0), payload=hit.get("_source") or {}
+            )
+            for hit in hits
+        ]
+
 
 def _index_body(alias: str) -> dict[str, Any]:
     return {
@@ -213,6 +276,51 @@ def _search_body(
                 ],
                 "filter": filters,
                 "must_not": must_not,
+            }
+        },
+    }
+
+
+def _documents_index_body(alias: str) -> dict[str, Any]:
+    """원문 문서 인덱스 매핑. content=원문(cleaned_markdown) BM25, _source로 원문 반환."""
+    return {
+        "aliases": {alias: {}},
+        "settings": {
+            "analysis": {
+                "analyzer": {"onramp_ko": {"type": "custom", "tokenizer": "standard", "filter": ["lowercase"]}}
+            }
+        },
+        "mappings": {
+            "dynamic": "false",
+            "properties": {
+                "tenant_id": {"type": "keyword"},
+                "doc_id": {"type": "keyword"},  # = source_document.page_id (gh:repo:path 등)
+                "source": {"type": "keyword"},  # confluence | github
+                "title": {"type": "text", "analyzer": "onramp_ko"},
+                "content": {"type": "text", "analyzer": "onramp_ko"},  # 원문 전체(BM25 + _source 반환)
+                "domain": {"type": "keyword"},
+                "space_key": {"type": "keyword"},
+                "source_url": {"type": "keyword"},
+                "last_modified": {"type": "date", "ignore_malformed": True},
+            },
+        },
+    }
+
+
+def _documents_search_body(
+    query: str, *, top_k: int, tenant_id: str, domain: str | None, source: str | None
+) -> dict[str, Any]:
+    filters: list[dict[str, Any]] = [{"term": {"tenant_id": tenant_id}}]
+    if domain:
+        filters.append({"term": {"domain": domain}})
+    if source:
+        filters.append({"term": {"source": source}})
+    return {
+        "size": top_k,
+        "query": {
+            "bool": {
+                "must": [{"multi_match": {"query": query, "fields": ["title^3", "content"], "type": "best_fields"}}],
+                "filter": filters,
             }
         },
     }
