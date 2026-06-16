@@ -98,6 +98,31 @@ class IngestService:
 
         return self._prepare(await self.clean_all_pages(limit=limit))
 
+    # ── GitHub 소스 (이미 Markdown — clean 불필요, 동일한 mask→chunk→classify 재사용) ──
+    def prepare_github_pages(self, pages: list[MarkdownPage]) -> list[ChunkedConfluencePage]:
+        """GitHub MarkdownPage(README·docs·이슈/PR)를 confluence와 동일한 파이프라인으로 준비.
+
+        GitHub 원문은 이미 Markdown이라 HTML cleaning을 건너뛰고, mask→profile→chunk→metadata
+        분류는 그대로 재사용한다. ``html``에는 원문 Markdown을 보존(원장 raw_html).
+        """
+        return self._prepare([self._github_to_cleaned(page) for page in pages])
+
+    def _github_to_cleaned(self, page: MarkdownPage) -> CleanedConfluencePage:
+        return CleanedConfluencePage(
+            page_id=page.page_id,  # gh:repo:path | gh:repo#number
+            title=page.page_title,
+            space_key=page.space_key,  # repo 이름
+            markdown=page.markdown,
+            html=page.markdown,  # GitHub 원문 = Markdown
+            last_modified=page.last_modified,
+            version=None,
+            url=page.source_url,
+            site=page.site,
+            product_version=page.product_version,
+            doc_key=page.doc_key or make_doc_key(page.site, page.page_title),
+            is_eol=page.is_eol,
+        )
+
     # ── recent/all 공통 변환부 (fetch만 다르고 이하 동일) ─────────────────
     def _clean(self, pages: list[ConfluencePage]) -> list[CleanedConfluencePage]:
         return [self._clean_page(page) for page in pages]

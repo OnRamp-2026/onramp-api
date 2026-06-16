@@ -60,13 +60,14 @@ class IndexService:
 
     async def index_recent_pages(self, hours: int = 24, limit: int = 50) -> IndexResult:
         pages = await self.ingest_service.prepare_recent_pages_for_embedding(hours=hours, limit=limit)
-        return await self._index_prepared(pages)
+        return await self.index_prepared(pages)
 
     async def index_all_pages(self, limit: int = 50) -> IndexResult:
         pages = await self.ingest_service.prepare_all_pages_for_embedding(limit=limit)
-        return await self._index_prepared(pages)
+        return await self.index_prepared(pages)
 
-    async def _index_prepared(self, pages: list[ChunkedConfluencePage]) -> IndexResult:
+    async def index_prepared(self, pages: list[ChunkedConfluencePage], *, source: str = "confluence") -> IndexResult:
+        """Index already-prepared chunks. ``source`` 는 멀티소스 원장 식별키 (confluence|github)."""
         settings = self.settings or get_settings()
         tenant_id = settings.auth_default_tenant
 
@@ -89,6 +90,7 @@ class IndexService:
                             tenant_id=tenant_id,
                             page_id=pg.page_id,
                             cleaned_markdown_hash=cleaned_markdown_hash,
+                            source=source,
                         ):
                             continue
 
@@ -103,6 +105,7 @@ class IndexService:
                             raw_html_hash=raw_html_hash,
                             cleaned_markdown_hash=cleaned_markdown_hash,
                             chunk_count=len(chunked_page.children),
+                            source=source,
                         )
 
                         # 3. upsert chunk_registry
@@ -111,6 +114,7 @@ class IndexService:
                             children=chunked_page.children,
                             run_id=run.run_id,
                             tenant_id=tenant_id,
+                            source=source,
                         )
 
                         # 4. delete stale chunks from search + registry
@@ -119,6 +123,7 @@ class IndexService:
                             tenant_id=tenant_id,
                             page_id=pg.page_id,
                             run_id=run.run_id,
+                            source=source,
                         )
                         if stale:
                             stale_chunk_ids = [cid for cid, _ in stale]
