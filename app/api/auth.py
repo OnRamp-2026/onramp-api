@@ -83,11 +83,12 @@ def _safe_redirect_path(value: str | None) -> str:
 def _sign_state(redirect: str, nonce: str, settings: Settings) -> str:
     secret = settings.auth_jwt_secret.get_secret_value()
     now = datetime.now(UTC)
-    return jwt.encode(
+    token: str = jwt.encode(
         {"redirect": redirect, "nonce": nonce, "iat": now, "exp": now + timedelta(seconds=_STATE_TTL)},
         secret,
         algorithm=ALGORITHM,
     )
+    return token
 
 
 def _verify_state(state: str, cookie_nonce: str | None, settings: Settings) -> str:
@@ -197,13 +198,14 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
 def _verify_slack_id_token(id_token: str, settings: Settings) -> dict[str, Any]:
     try:
         signing_key = jwt.PyJWKClient(SLACK_JWKS).get_signing_key_from_jwt(id_token)
-        return jwt.decode(
+        claims: dict[str, Any] = jwt.decode(
             id_token,
             signing_key.key,
             algorithms=["RS256"],
             audience=settings.slack_client_id,
             issuer=SLACK_ISSUER,
         )
+        return claims
     except InvalidTokenError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Slack id_token 검증 실패.") from exc
 
