@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.db.base import Base
 from app.db.models import ReportJob, TranscriptionWorkflow, WorkflowStatus
 from app.queue.events import ProgressUpdated, StreamEnvelope, TranscriptCompleted, TranscriptionCompleted
-from app.services.stt_event_service import SttEventService
+from app.services.stt_event_service import SttEventService, UnrecoverableSttEventError
 
 
 @pytest.fixture
@@ -128,7 +128,30 @@ async def test_completion_event_rejects_tenant_mismatch(
         ).model_dump(mode="json"),
     )
 
-    with pytest.raises(ValueError, match="tenant"):
+    with pytest.raises(UnrecoverableSttEventError, match="tenant"):
+        await service.process(envelope)
+
+
+@pytest.mark.asyncio
+async def test_event_for_unknown_workflow_is_unrecoverable(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    service = SttEventService(session_factory)
+    envelope = StreamEnvelope(
+        event_id="evt-unknown-workflow",
+        event_type="transcription.completed",
+        payload=TranscriptionCompleted(
+            transcription_id=uuid4(),
+            tenant_id="tenant-a",
+            raw_text_sha256="a" * 64,
+            corrected_text_sha256="b" * 64,
+            dictionary_version="2026-06-14",
+            result_object_key="tenants/tenant-a/result.json",
+            completed_at=datetime.now(UTC),
+        ).model_dump(mode="json"),
+    )
+
+    with pytest.raises(UnrecoverableSttEventError, match="workflow"):
         await service.process(envelope)
 
 
