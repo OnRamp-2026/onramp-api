@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import socket
 from json import JSONDecodeError
@@ -41,28 +40,7 @@ async def process_message(
     group: str,
     message_id: str,
     fields: dict[str, str],
-    own_tenant: str = "",
 ) -> None:
-    if own_tenant:
-        try:
-            payload = json.loads(fields.get("payload", "{}"))
-        except JSONDecodeError:
-            payload = None
-        tenant_id = payload.get("tenant_id") if isinstance(payload, dict) else None
-        if isinstance(tenant_id, str):
-            tenant_id = tenant_id.strip()
-        else:
-            tenant_id = None
-        if tenant_id and tenant_id != own_tenant:
-            await logger.ainfo(
-                "stt_event_skipped_foreign_tenant",
-                stream=stream,
-                message_id=message_id,
-                event_tenant=tenant_id,
-                own_tenant=own_tenant,
-            )
-            await redis.xack(stream, group, message_id)
-            return
     try:
         await service.process(decode_envelope(fields))
     except (JSONDecodeError, KeyError, ValidationError, UnrecoverableSttEventError):
@@ -83,7 +61,6 @@ async def consume_stream(stream: str, group: str) -> None:
     settings = get_settings()
     redis = get_stt_redis()
     service = SttEventService(get_session_factory())
-    own_tenant = settings.stt_consumer_group_suffix.strip()
     consumer = f"{socket.gethostname()}-{os.getpid()}-{group}"
     await ensure_consumer_group(redis, stream, group)
     while True:
@@ -104,7 +81,6 @@ async def consume_stream(stream: str, group: str) -> None:
                 group=group,
                 message_id=message_id,
                 fields=fields,
-                own_tenant=own_tenant,
             )
 
 

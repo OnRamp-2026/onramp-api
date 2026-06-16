@@ -106,7 +106,7 @@ def test_consumer_group_name_uses_optional_suffix() -> None:
 
 
 @pytest.mark.asyncio
-async def test_foreign_tenant_message_is_acknowledged_and_skipped() -> None:
+async def test_tenant_message_is_processed_by_service_even_with_group_suffix() -> None:
     from app.workers.stt_event_consumer import process_message
 
     class AckRedis:
@@ -132,11 +132,15 @@ async def test_foreign_tenant_message_is_acknowledged_and_skipped() -> None:
         stream="onramp:stt:progress:v1",
         group="onramp-workflow-updaters-tenant1",
         message_id="2-0",
-        fields={"payload": json.dumps({"tenant_id": "tenant2"})},
-        own_tenant="tenant1",
+        fields={
+            "event_id": "evt-2",
+            "event_type": "transcription.progressed",
+            "schema_version": "1.0",
+            "payload": json.dumps({"tenant_id": "T089ENT4A2D"}),
+        },
     )
 
-    assert service.called is False
+    assert service.called is True
     assert redis.acked == [("onramp:stt:progress:v1", "onramp-workflow-updaters-tenant1", "2-0")]
 
 
@@ -173,7 +177,6 @@ async def test_missing_tenant_message_is_processed() -> None:
             "schema_version": "1.0",
             "payload": json.dumps({"status": "transcribing"}),
         },
-        own_tenant="tenant1",
     )
 
     assert service.called is True

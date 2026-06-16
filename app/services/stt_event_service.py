@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -95,14 +97,14 @@ class SttEventService:
             self._mark_processed(session, REPORT_EVENT_GROUP, envelope.event_id, str(existing.id))
 
     @staticmethod
-    async def _workflow(session: AsyncSession, transcription_id) -> TranscriptionWorkflow:  # type: ignore[no-untyped-def]
+    async def _workflow(session: AsyncSession, transcription_id: uuid.UUID) -> TranscriptionWorkflow:
         workflow = await session.scalar(
             select(TranscriptionWorkflow)
             .where(TranscriptionWorkflow.transcription_id == transcription_id)
             .with_for_update()
         )
         if workflow is None:
-            raise ValueError("transcription workflow not found")
+            raise UnrecoverableSttEventError("transcription workflow not found")
         return workflow
 
     @staticmethod
