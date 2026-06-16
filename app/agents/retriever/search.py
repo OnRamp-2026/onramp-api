@@ -85,6 +85,7 @@ async def search_with_mode(
     *,
     domain: str | None,
     mode: FilterMode,
+    query_text: str = "",
     filters: SearchFilters | None = None,
     settings: Settings | None = None,
 ) -> list[ScoredPoint]:
@@ -97,6 +98,19 @@ async def search_with_mode(
     사다리 필터(filters)는 **모든 모드·확장 경로에 항상 적용**된다 (#108).
     """
     settings = settings or get_settings()
+    if settings.hybrid_search_enabled and query_text.strip():
+        from app.rag.hybrid_search import hybrid_search
+
+        effective_domain = None if mode == "soft" or not domain else domain
+        return await hybrid_search(
+            query_text,
+            query_vector,
+            domain=effective_domain,
+            filters=filters,
+            settings=settings,
+            dense_search_fn=dense_search,
+        )
+
     if mode == "soft" or not domain:
         return await dense_search(query_vector, top_k, domain=None, filters=filters, settings=settings)
 
