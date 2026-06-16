@@ -86,6 +86,14 @@ class OpenSearchClient:
             resp = await self._http.put(f"/{self.settings.opensearch_index}/_doc/{chunk_id}", json=dict(document))
             resp.raise_for_status()
 
+    async def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
+        if not chunk_ids:
+            return
+        for chunk_id in chunk_ids:
+            resp = await self._http.delete(f"/{self.settings.opensearch_index}/_doc/{chunk_id}")
+            if resp.status_code not in (200, 404):
+                resp.raise_for_status()
+
     async def search(
         self,
         query: str,

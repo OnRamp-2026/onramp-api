@@ -229,6 +229,8 @@ class ConfluenceDocument(Base):
     source_url: Mapped[str | None] = mapped_column(String(1000))
     domain: Mapped[str | None] = mapped_column(String(32))
     version: Mapped[str | None] = mapped_column(String(32))
+    raw_html: Mapped[str | None] = mapped_column(Text)
+    cleaned_markdown: Mapped[str | None] = mapped_column(Text)
     raw_html_hash: Mapped[str | None] = mapped_column(String(64))
     cleaned_markdown_hash: Mapped[str | None] = mapped_column(String(64))
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -241,6 +243,39 @@ class ConfluenceDocument(Base):
         UniqueConstraint("tenant_id", "space_key", "page_id", name="uq_confluence_document_space_page"),
         Index("ix_confluence_document_domain", "tenant_id", "domain"),
         Index("ix_confluence_document_indexed_at", "tenant_id", "indexed_at"),
+    )
+
+
+class ConfluenceDocumentPrevious(Base):
+    """직전 snapshot — current/previous 1+1 정책. 새 버전 수집 시 현재본 → 여기로 회전."""
+
+    __tablename__ = "confluence_document_previous"
+
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True, default="onramp")
+    page_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    space_key: Mapped[str] = mapped_column(String(32))
+    title: Mapped[str] = mapped_column(String(500))
+    source_url: Mapped[str | None] = mapped_column(String(1000))
+    domain: Mapped[str | None] = mapped_column(String(32))
+    version: Mapped[str | None] = mapped_column(String(32))
+    raw_html: Mapped[str | None] = mapped_column(Text)
+    cleaned_markdown: Mapped[str | None] = mapped_column(Text)
+    raw_html_hash: Mapped[str | None] = mapped_column(String(64))
+    cleaned_markdown_hash: Mapped[str | None] = mapped_column(String(64))
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_modified: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    replaced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "page_id"],
+            ["confluence_document.tenant_id", "confluence_document.page_id"],
+            name="fk_confluence_document_previous_current",
+            ondelete="CASCADE",
+        ),
     )
 
 
