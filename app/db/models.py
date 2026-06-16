@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -56,6 +57,17 @@ class ReportStatus(StrEnum):
     draft = "draft"
     publishing = "publishing"
     published = "published"
+
+
+class IndexRunType(StrEnum):
+    full = "full"
+    incremental = "incremental"
+
+
+class IndexRunStatus(StrEnum):
+    running = "running"
+    success = "success"
+    failed = "failed"
 
 
 class TranscriptionWorkflow(Base):
@@ -204,4 +216,99 @@ class Report(Base):
             "source_transcription_id",
             name="uq_report_source_transcription",
         ),
+    )
+
+
+class ConfluenceDocument(Base):
+    __tablename__ = "confluence_document"
+
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True, default="onramp")
+    page_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    space_key: Mapped[str] = mapped_column(String(32))
+    title: Mapped[str] = mapped_column(String(500))
+    source_url: Mapped[str | None] = mapped_column(String(1000))
+    domain: Mapped[str | None] = mapped_column(String(32))
+    version: Mapped[str | None] = mapped_column(String(32))
+    raw_html_hash: Mapped[str | None] = mapped_column(String(64))
+    cleaned_markdown_hash: Mapped[str | None] = mapped_column(String(64))
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_modified: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "space_key", "page_id", name="uq_confluence_document_space_page"),
+        Index("ix_confluence_document_domain", "tenant_id", "domain"),
+        Index("ix_confluence_document_indexed_at", "tenant_id", "indexed_at"),
+    )
+
+
+class IndexRun(Base):
+    __tablename__ = "index_run"
+
+    run_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), default="onramp")
+    run_type: Mapped[str] = mapped_column(String(16), default=IndexRunType.incremental.value)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pages_indexed: Mapped[int] = mapped_column(Integer, default=0)
+    pages_failed: Mapped[int] = mapped_column(Integer, default=0)
+    chunks_indexed: Mapped[int] = mapped_column(Integer, default=0)
+    chunks_deleted: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default=IndexRunStatus.running.value)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (Index("ix_index_run_tenant_status", "tenant_id", "status", created_at.desc()),)
+
+
+class ChunkRegistry(Base):
+    __tablename__ = "chunk_registry"
+
+    chunk_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), default="onramp")
+    point_id: Mapped[uuid.UUID]
+    parent_id: Mapped[str] = mapped_column(String(80))
+    page_id: Mapped[str] = mapped_column(String(64))
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("index_run.run_id", ondelete="SET NULL"))
+    domain: Mapped[str | None] = mapped_column(String(32))
+    section_type: Mapped[str | None] = mapped_column(String(40))
+    token_count: Mapped[int | None] = mapped_column(Integer)
+    hash: Mapped[str] = mapped_column(String(64))
+    parent_content: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["tenant_id", "page_id"],
+            ["confluence_document.tenant_id", "confluence_document.page_id"],
+            name="fk_chunk_registry_confluence_document",
+            ondelete="CASCADE",
+        ),
+        Index("ix_chunk_registry_tenant_page", "tenant_id", "page_id"),
+        Index("ix_chunk_registry_run_id", "run_id"),
+        Index("ix_chunk_registry_point_id", "point_id", unique=True),
+    )
+
+
+class ChatLog(Base):
+    __tablename__ = "chat_log"
+
+    log_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), default="onramp")
+    query: Mapped[str] = mapped_column(Text)
+    domain: Mapped[str | None] = mapped_column(String(32))
+    use_case: Mapped[str | None] = mapped_column(String(16))
+    answerability_status: Mapped[str | None] = mapped_column(String(32))
+    answerability_reason: Mapped[str | None] = mapped_column(Text)
+    model_used: Mapped[str | None] = mapped_column(String(64))
+    source_count: Mapped[int] = mapped_column(Integer, default=0)
+    sources: Mapped[dict[str, Any] | list[dict[str, Any]] | None] = mapped_column(JSON)
+    latency_ms: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        Index("ix_chat_log_tenant_created", "tenant_id", created_at.desc()),
+        Index("ix_chat_log_domain", "tenant_id", "domain"),
     )
