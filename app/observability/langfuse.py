@@ -156,7 +156,8 @@ def current_trace_id() -> str | None:
     if client is None:
         return None
     try:
-        return client.get_current_trace_id()
+        trace_id: str | None = client.get_current_trace_id()
+        return trace_id
     except Exception as exc:
         logger.warning("langfuse_trace_id_failed", error=str(exc))
         return None

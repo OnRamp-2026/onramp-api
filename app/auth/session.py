@@ -93,7 +93,7 @@ def issue_session_token(
 def decode_session_claims(token: str, settings: Settings) -> dict[str, Any]:
     secret = _require_secret(settings)
     try:
-        claims = jwt.decode(
+        claims: dict[str, Any] = jwt.decode(
             token,
             secret,
             algorithms=[ALGORITHM],
