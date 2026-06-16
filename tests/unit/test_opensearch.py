@@ -1,11 +1,9 @@
 import httpx
-import pytest
 
 from app.config import Settings
 from app.db.opensearch import OpenSearchClient
 
 
-@pytest.mark.asyncio
 async def test_ensure_index_creates_index_with_alias_when_missing():
     requests: list[tuple[str, str, dict | None]] = []
 
@@ -29,7 +27,6 @@ async def test_ensure_index_creates_index_with_alias_when_missing():
     assert requests[-1][2]["aliases"] == {"onramp-chunks": {}}
 
 
-@pytest.mark.asyncio
 async def test_search_builds_tenant_and_ladder_filters():
     captured = {}
 

@@ -35,9 +35,11 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ──
     close_qdrant()
-    await close_opensearch()
-    await close_postgres()
-    await close_redis()
+    for close_fn in (close_opensearch, close_postgres, close_redis):
+        try:
+            await close_fn()
+        except Exception:
+            print(f"Shutdown warning: {close_fn.__name__} failed")
     print("Shutdown complete")
 
 

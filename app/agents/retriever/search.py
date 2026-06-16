@@ -91,6 +91,10 @@ async def search_with_mode(
 ) -> list[ScoredPoint]:
     """도메인 필터 모드에 따라 검색 전략을 적용한다 (운영 retrieve_node·평가 어댑터 공용).
 
+    query_text가 비어 있지 않고 hybrid_search_enabled가 켜진 경우 아래 mode 분기보다
+    hybrid_search(Dense+BM25 RRF)가 **우선 실행**된다.
+
+    hybrid gate가 적용되지 않을 때의 mode 동작:
     hard:   도메인 필터만 (확장 없음)
     hybrid: filtered-first + 저품질(0건/최고 score 미달) 무필터 확장 + merge
     soft:   무필터 검색 (도메인 가산은 호출측 rerank에서)

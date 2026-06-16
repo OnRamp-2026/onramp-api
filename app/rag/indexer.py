@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from functools import partial
 from uuid import NAMESPACE_URL, uuid5
@@ -15,6 +16,8 @@ from app.db.opensearch import OpenSearchClient, get_opensearch
 from app.db.qdrant import ensure_collection, get_qdrant
 from app.rag.chunker import ChildChunk
 from app.rag.embedder import Embedder, get_embedder
+
+logger = logging.getLogger(__name__)
 
 UPSERT_BATCH_SIZE = 256  # 청크당 payload+벡터 ~20KB → 배치당 ~5MB (Qdrant 한도 32MB 대비 여유)
 
@@ -70,5 +73,8 @@ async def index_children(
     if settings.bm25_search_enabled:
         os_client = opensearch_client or get_opensearch()
         documents = [_opensearch_document(child, settings) for child in children]
-        await os_client.upsert_chunks(documents)
+        try:
+            await os_client.upsert_chunks(documents)
+        except Exception:
+            logger.exception("OpenSearch upsert failed; proceeding with Qdrant-only indexing")
     return len(points)

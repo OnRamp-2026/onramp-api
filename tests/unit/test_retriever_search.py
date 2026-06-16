@@ -140,7 +140,7 @@ async def test_soft_mode_still_applies_ladder_filters(monkeypatch):
 async def test_hybrid_search_gate_uses_query_text(monkeypatch):
     seen = {}
 
-    async def fake_hybrid(query_text, query_vector, *, domain, filters, settings, dense_search_fn, **kwargs):
+    async def fake_hybrid(query_text, query_vector, *, domain, filters, settings, dense_search_fn, **kwargs):  # noqa: ANN202, ARG001
         seen["query_text"] = query_text
         seen["domain"] = domain
         return [_pt("hybrid", 0.1)]
@@ -158,7 +158,7 @@ async def test_hybrid_search_gate_uses_query_text(monkeypatch):
 async def test_hybrid_search_gate_respects_soft_domain(monkeypatch):
     seen = {}
 
-    async def fake_hybrid(query_text, query_vector, *, domain, filters, settings, dense_search_fn, **kwargs):
+    async def fake_hybrid(query_text, query_vector, *, domain, filters, settings, dense_search_fn, **kwargs):  # noqa: ANN202, ARG001
         seen["domain"] = domain
         return []
 

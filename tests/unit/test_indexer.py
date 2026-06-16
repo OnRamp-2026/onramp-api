@@ -139,6 +139,8 @@ async def test_index_children_upserts_opensearch_when_enabled():
     )
 
     assert n == 1
+    assert client.upserted is not None
+    assert len(client.upserted) == 1
     assert os_client.documents[0]["tenant_id"] == "tenant-a"
     assert os_client.documents[0]["embedding_text"].startswith("emb")
 
