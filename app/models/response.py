@@ -38,6 +38,7 @@ class ChatResponse(BaseModel):
     domain: str = ""  # Domain.value (classifier 영문 키)
     model_used: str = ""
     trace_id: str = ""  # Langfuse trace id (관측 활성 시) — /v1/chat/feedback 참조용
+    conversation_id: str = ""  # 저장된 대화 ID (로그인 시) — 프론트 활성 대화 동기화용
 
 
 class AssetResponse(BaseModel):
@@ -59,3 +60,25 @@ class AssetApproveResponse(BaseModel):
     report_id: str
     status: str  # "published"
     confluence_url: str
+
+
+class ConversationSummary(BaseModel):
+    """GET /v1/conversations 목록 항목 — 사이드바 '최근 대화' 1줄."""
+
+    conversation_id: str
+    title: str
+    updated_at: str
+
+
+class ConversationMessage(BaseModel):
+    """대화 복원용 메시지 1건."""
+
+    role: str  # "user" | "assistant"
+    content: str = ""
+    answer: FiveElementsResponse | None = None
+    sources: list[SourceDoc] = Field(default_factory=list)
+    domain: str = ""
+    answerability_status: str = ""
+    answerability_reason: str = ""
+    model_used: str = ""
+    created_at: str = ""

@@ -10,6 +10,7 @@ class ChatRequest(BaseModel):
 
     query: str = Field(..., min_length=1, max_length=2000, description="사용자 질문")
     model: str = Field(default="", description="LLM 모델 (빈값이면 config 기본값)")
+    conversation_id: str = Field(default="", description="이어갈 대화 ID (빈값이면 새 대화)")
 
 
 class FeedbackRequest(BaseModel):
