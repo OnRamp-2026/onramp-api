@@ -1,0 +1,14 @@
+# RAGAS 생성 평가 전용 이미지 — base onramp-api 이미지에 .[eval] extra(ragas) 추가.
+# prod 이미지엔 ragas를 넣지 않으므로(설계), nightly generation experiment(scripts/eval_generation_langfuse.py)는
+# 이 이미지로 실행한다.
+#
+# build (Jenkins/수동):
+#   docker build -f Dockerfile.eval --build-arg BASE_IMAGE=<registry>/onramp-api:<tag> \
+#     -t <registry>/onramp-api-eval:<tag> .
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+USER root
+# .[eval] = ragas (+ langchain-community 고정). pyproject·app은 base 이미지에 이미 존재.
+RUN pip install --no-cache-dir ".[eval]"
+USER onramp
