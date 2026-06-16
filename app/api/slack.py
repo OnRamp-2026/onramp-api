@@ -1,7 +1,8 @@
-"""`/slack/events` — Slack 봇 (Events API). 멘션 → RAG 답변 회신.
+"""`/slack/events` — Slack 봇 (Events API). 멘션·DM → RAG 답변 회신.
 
-로그인(OIDC, #98)과 **완전 별개**. 신규 입사자·웹앱 미접속자가 Slack에서 봇을 멘션하면
-`/v1/chat`(RAG)을 그대로 호출해 5요소 답변을 스레드로 돌려준다. (#146)
+로그인(OIDC, #98)과 **완전 별개**. 신규 입사자·웹앱 미접속자가 Slack에서 봇을 멘션하거나
+DM으로 질문하면 `/v1/chat`(RAG)을 그대로 호출해 5요소 답변을 돌려준다. (#146)
+채널 멘션(`app_mention`)은 원 메시지 스레드로, DM(`message`+`channel_type=im`)은 평문으로 회신.
 
 흐름: Slack 이벤트 → 서명 검증 → **3초 내 200 ack** → 백그라운드에서 chat → `chat.postMessage`.
 """
@@ -82,17 +83,21 @@ async def events(
         return Response(status_code=status.HTTP_200_OK)
 
     event = payload.get("event", {})
-    # 봇 자신/다른 봇 메시지는 무시(루프 방지)
-    if event.get("type") == "app_mention" and not event.get("bot_id"):
-        background.add_task(_handle_mention, event, settings)
+    # 봇 자신/다른 봇 메시지·서브타입(편집·입장·봇메시지 등)은 무시 — DM 루프 방지의 핵심
+    if not event.get("bot_id") and event.get("subtype") is None:
+        event_type = event.get("type")
+        # 채널 멘션 또는 봇과의 1:1 DM만 처리(채널 일반 메시지는 소음이라 제외)
+        if event_type == "app_mention" or (event_type == "message" and event.get("channel_type") == "im"):
+            background.add_task(_handle_message, event, settings)
 
     return Response(status_code=status.HTTP_200_OK)  # 3초 내 ack (실처리는 백그라운드)
 
 
-async def _handle_mention(event: dict[str, Any], settings: Settings) -> None:
+async def _handle_message(event: dict[str, Any], settings: Settings) -> None:
     question = _MENTION_RE.sub("", str(event.get("text", ""))).strip()
     channel = str(event.get("channel", ""))
-    thread_ts = str(event.get("thread_ts") or event.get("ts") or "")
+    # DM은 스레드 없이 평문 회신, 채널 멘션은 원 메시지 스레드로
+    thread_ts = "" if event.get("channel_type") == "im" else str(event.get("thread_ts") or event.get("ts") or "")
     if not question or not channel:
         return
     try:
@@ -123,12 +128,15 @@ def _format_answer(r: ChatResponse) -> str:
 
 
 async def _post_message(channel: str, thread_ts: str, text: str, settings: Settings) -> None:
+    message: dict[str, Any] = {"channel": channel, "text": text}
+    if thread_ts:  # DM은 thread_ts 없음 → 평문 회신(빈 값 전송 시 Slack이 거부)
+        message["thread_ts"] = thread_ts
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             res = await client.post(
                 SLACK_POST_MESSAGE,
                 headers={"Authorization": f"Bearer {settings.slack_bot_token.get_secret_value()}"},
-                json={"channel": channel, "thread_ts": thread_ts, "text": text},
+                json=message,
             )
     except httpx.HTTPError:
         logger.exception("Slack chat.postMessage 통신 실패")
