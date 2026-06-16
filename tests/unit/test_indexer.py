@@ -2,7 +2,7 @@ import pytest
 
 from app.config import Settings
 from app.rag.chunker import ChildChunk
-from app.rag.indexer import _point_id, index_children
+from app.rag.indexer import _opensearch_document, _point_id, index_children
 
 
 def _child(chunk_id: str, content: str = "내용") -> ChildChunk:
@@ -56,6 +56,14 @@ class _FakeClient:
     def upsert(self, collection_name, points):
         self.upserted = points if self.upserted is None else self.upserted + points
         self.upsert_calls += 1
+
+
+class _FakeOpenSearchClient:
+    def __init__(self):
+        self.documents = None
+
+    async def upsert_chunks(self, documents):
+        self.documents = documents
 
 
 def test_point_id_stable_and_unique():
@@ -114,3 +122,33 @@ async def test_index_children_batches_exact_multiple(monkeypatch):
     assert n == 4
     assert client.upsert_calls == 2  # 2+2 — 빈 3회차 없음
     assert len(client.upserted) == 4
+
+
+@pytest.mark.asyncio
+async def test_index_children_upserts_opensearch_when_enabled():
+    client = _FakeClient()
+    os_client = _FakeOpenSearchClient()
+    settings = Settings(embedding_dim=3, bm25_search_enabled=True, auth_default_tenant="tenant-a")
+
+    n = await index_children(
+        [_child("pg_000")],
+        embedder=_FakeEmbedder(),
+        client=client,
+        opensearch_client=os_client,
+        settings=settings,
+    )
+
+    assert n == 1
+    assert os_client.documents[0]["tenant_id"] == "tenant-a"
+    assert os_client.documents[0]["embedding_text"].startswith("emb")
+
+
+def test_opensearch_document_normalizes_optional_lists():
+    child = _child("pg_000")
+    document = _opensearch_document(child, Settings(auth_default_tenant="tenant-a"))
+
+    assert document["tenant_id"] == "tenant-a"
+    assert document["block_types"] == []
+    assert document["keywords"] == []
+    assert document["tags"] == []
+    assert document["code_languages"] == []

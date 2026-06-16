@@ -7,6 +7,7 @@ from app.api.auth import router as auth_router
 from app.api.slack import router as slack_router
 from app.api.v1.router import v1_router
 from app.config import get_settings
+from app.db.opensearch import close_opensearch
 from app.db.postgres import close_postgres, get_engine
 from app.db.qdrant import close_qdrant, get_qdrant
 from app.db.redis import close_redis, get_redis
@@ -34,6 +35,7 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ──
     close_qdrant()
+    await close_opensearch()
     await close_postgres()
     await close_redis()
     print("Shutdown complete")

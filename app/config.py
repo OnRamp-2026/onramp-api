@@ -89,6 +89,22 @@ class Settings(BaseSettings):
     qdrant_port: int = 6333
     qdrant_collection: str = "onramp"
 
+    # OpenSearch / Hybrid Retrieval
+    bm25_search_enabled: bool = False
+    hybrid_search_enabled: bool = False
+    opensearch_scheme: Literal["http", "https"] = "http"
+    opensearch_host: str = "localhost"
+    opensearch_port: int = 9200
+    opensearch_username: str = ""
+    opensearch_password: SecretStr = SecretStr("")
+    opensearch_index: str = "onramp-chunks"
+    opensearch_index_v1: str = "onramp-chunks-v1"
+    opensearch_timeout_seconds: float = Field(default=10.0, gt=0)
+    hybrid_rrf_k: int = Field(default=60, ge=1)
+    hybrid_dense_top_k: int = Field(default=50, ge=1)
+    hybrid_bm25_top_k: int = Field(default=50, ge=1)
+    hybrid_final_top_k: int = Field(default=20, ge=1)
+
     # PostgreSQL
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/onramp"
 

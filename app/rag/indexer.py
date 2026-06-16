@@ -11,6 +11,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct
 
 from app.config import Settings, get_settings
+from app.db.opensearch import OpenSearchClient, get_opensearch
 from app.db.qdrant import ensure_collection, get_qdrant
 from app.rag.chunker import ChildChunk
 from app.rag.embedder import Embedder, get_embedder
@@ -30,14 +31,26 @@ def _payload(child: ChildChunk) -> dict:
     return data
 
 
+def _opensearch_document(child: ChildChunk, settings: Settings) -> dict:
+    data = asdict(child)
+    data.pop("content_vector", None)
+    data["tenant_id"] = settings.auth_default_tenant
+    data["block_types"] = child.block_types or []
+    data["keywords"] = child.keywords or []
+    data["tags"] = child.tags or []
+    data["code_languages"] = child.code_languages or []
+    return data
+
+
 async def index_children(
     children: list[ChildChunk],
     *,
     embedder: Embedder | None = None,
     client: QdrantClient | None = None,
+    opensearch_client: OpenSearchClient | None = None,
     settings: Settings | None = None,
 ) -> int:
-    """ChildChunk를 embedding_text로 임베딩해 Qdrant upsert. 반환: upsert 수."""
+    """ChildChunk를 embedding_text로 임베딩해 Qdrant/OpenSearch upsert. 반환: upsert 수."""
     if not children:
         return 0
     embedder = embedder or get_embedder()
@@ -54,4 +67,8 @@ async def index_children(
     for start in range(0, len(points), UPSERT_BATCH_SIZE):
         batch = points[start : start + UPSERT_BATCH_SIZE]
         await anyio.to_thread.run_sync(partial(client.upsert, collection_name=settings.qdrant_collection, points=batch))
+    if settings.bm25_search_enabled:
+        os_client = opensearch_client or get_opensearch()
+        documents = [_opensearch_document(child, settings) for child in children]
+        await os_client.upsert_chunks(documents)
     return len(points)
