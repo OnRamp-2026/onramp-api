@@ -89,6 +89,12 @@ def test_stt_redis_url_falls_back_to_redis_url() -> None:
     assert settings.stt_redis_url == "redis://local-redis:6379/0"
 
 
+def test_stt_redis_url_whitespace_falls_back_to_redis_url() -> None:
+    settings = Settings(redis_url="redis://local-redis:6379/0", stt_redis_url="   ")
+
+    assert settings.stt_redis_url == "redis://local-redis:6379/0"
+
+
 def test_stt_redis_url_can_be_separated() -> None:
     settings = Settings(
         redis_url="redis://tenant-redis:6379/0",

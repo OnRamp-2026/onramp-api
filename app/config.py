@@ -107,8 +107,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _resolve_stt_redis(self) -> "Settings":
-        if not self.stt_redis_url:
-            self.stt_redis_url = self.redis_url
+        normalized = self.stt_redis_url.strip()
+        self.stt_redis_url = normalized or self.redis_url
         return self
 
     # STT internal API / report worker

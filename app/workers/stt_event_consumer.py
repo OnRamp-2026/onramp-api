@@ -48,12 +48,17 @@ async def process_message(
             payload = json.loads(fields.get("payload", "{}"))
         except JSONDecodeError:
             payload = None
-        if isinstance(payload, dict) and payload.get("tenant_id") != own_tenant:
+        tenant_id = payload.get("tenant_id") if isinstance(payload, dict) else None
+        if isinstance(tenant_id, str):
+            tenant_id = tenant_id.strip()
+        else:
+            tenant_id = None
+        if tenant_id and tenant_id != own_tenant:
             await logger.ainfo(
                 "stt_event_skipped_foreign_tenant",
                 stream=stream,
                 message_id=message_id,
-                event_tenant=payload.get("tenant_id"),
+                event_tenant=tenant_id,
                 own_tenant=own_tenant,
             )
             await redis.xack(stream, group, message_id)

@@ -138,3 +138,43 @@ async def test_foreign_tenant_message_is_acknowledged_and_skipped() -> None:
 
     assert service.called is False
     assert redis.acked == [("onramp:stt:progress:v1", "onramp-workflow-updaters-tenant1", "2-0")]
+
+
+@pytest.mark.asyncio
+async def test_missing_tenant_message_is_processed() -> None:
+    from app.workers.stt_event_consumer import process_message
+
+    class AckRedis:
+        def __init__(self) -> None:
+            self.acked: list[tuple[str, str, str]] = []
+
+        async def xack(self, stream: str, group: str, message_id: str) -> None:
+            self.acked.append((stream, group, message_id))
+
+    class Service:
+        def __init__(self) -> None:
+            self.called = False
+
+        async def process(self, envelope: object) -> None:
+            self.called = True
+
+    redis = AckRedis()
+    service = Service()
+
+    await process_message(
+        cast(Redis, redis),
+        service,  # type: ignore[arg-type]
+        stream="onramp:stt:progress:v1",
+        group="onramp-workflow-updaters-tenant1",
+        message_id="3-0",
+        fields={
+            "event_id": "evt-3",
+            "event_type": "transcription.progress",
+            "schema_version": "1.0",
+            "payload": json.dumps({"status": "transcribing"}),
+        },
+        own_tenant="tenant1",
+    )
+
+    assert service.called is True
+    assert redis.acked == [("onramp:stt:progress:v1", "onramp-workflow-updaters-tenant1", "3-0")]
