@@ -1,6 +1,35 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.db.base import Base
 from app.rag.chunker import ChildChunk
 from app.services.index_service import IndexService
 from app.services.ingest_service import ChunkedConfluencePage, CleanedConfluencePage
+
+# ── SQLite 세션 팩토리 픽스처 (FK 미검증) ──────────────────────────────────────
+
+
+@pytest.fixture
+async def sqlite_session_factory():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    @asynccontextmanager
+    async def _factory():
+        async with factory() as session:
+            yield session
+
+    yield _factory
+    await engine.dispose()
+
+
+# ── test helpers ───────────────────────────────────────────────────────────────
 
 
 def _child(chunk_id: str) -> ChildChunk:
@@ -56,7 +85,12 @@ class _FakeIngestService:
         return self.pages
 
 
-async def test_index_recent_pages_flattens_children_and_returns_summary() -> None:
+# ── tests ──────────────────────────────────────────────────────────────────────
+
+
+async def test_index_recent_pages_flattens_children_and_returns_summary(
+    sqlite_session_factory: AsyncSession,
+) -> None:
     captured_children: list[ChildChunk] = []
 
     async def fake_index_children(children: list[ChildChunk]) -> int:
@@ -69,7 +103,11 @@ async def test_index_recent_pages_flattens_children_and_returns_summary() -> Non
             _page("p2", [_child("p2_000")]),
         ]
     )
-    service = IndexService(ingest_service=ingest, index_children_fn=fake_index_children)  # type: ignore[arg-type]
+    service = IndexService(
+        ingest_service=ingest,
+        index_children_fn=fake_index_children,  # type: ignore[arg-type]
+        session_factory=sqlite_session_factory,
+    )
 
     result = await service.index_recent_pages(hours=12, limit=7)
 
@@ -79,7 +117,9 @@ async def test_index_recent_pages_flattens_children_and_returns_summary() -> Non
     assert result.chunks_indexed == 3
 
 
-async def test_index_all_pages_uses_full_prepare_path() -> None:
+async def test_index_all_pages_uses_full_prepare_path(
+    sqlite_session_factory: AsyncSession,
+) -> None:
     captured_children: list[ChildChunk] = []
 
     async def fake_index_children(children: list[ChildChunk]) -> int:
@@ -87,7 +127,11 @@ async def test_index_all_pages_uses_full_prepare_path() -> None:
         return len(children)
 
     ingest = _FakeIngestService([_page("p1", [_child("p1_000"), _child("p1_001")])])
-    service = IndexService(ingest_service=ingest, index_children_fn=fake_index_children)  # type: ignore[arg-type]
+    service = IndexService(
+        ingest_service=ingest,
+        index_children_fn=fake_index_children,  # type: ignore[arg-type]
+        session_factory=sqlite_session_factory,
+    )
 
     result = await service.index_all_pages(limit=9)
 
@@ -98,7 +142,9 @@ async def test_index_all_pages_uses_full_prepare_path() -> None:
     assert result.chunks_indexed == 2
 
 
-async def test_index_recent_pages_handles_pages_without_children() -> None:
+async def test_index_recent_pages_handles_pages_without_children(
+    sqlite_session_factory: AsyncSession,
+) -> None:
     async def fake_index_children(children: list[ChildChunk]) -> int:
         assert children == []
         return 0
@@ -106,6 +152,7 @@ async def test_index_recent_pages_handles_pages_without_children() -> None:
     service = IndexService(
         ingest_service=_FakeIngestService([_page("empty", [])]),  # type: ignore[arg-type]
         index_children_fn=fake_index_children,
+        session_factory=sqlite_session_factory,
     )
 
     result = await service.index_recent_pages()

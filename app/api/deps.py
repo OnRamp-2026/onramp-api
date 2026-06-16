@@ -24,7 +24,7 @@ _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 async def get_db_session() -> AsyncIterator[AsyncSession]:
-    async for session in session_scope():
+    async with session_scope() as session:
         yield session
 
 
