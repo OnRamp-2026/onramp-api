@@ -6,6 +6,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -14,6 +15,12 @@ from app.config import Settings, get_settings
 logger = logging.getLogger(__name__)
 
 _client: OpenSearchClient | None = None
+
+
+def _doc_url(index: str, doc_id: str) -> str:
+    """`_doc/{id}` 경로 생성. _id는 '/'·'#'·':' 등을 포함할 수 있어(예: gh:repo:docs/x.md) URL path에선
+    반드시 percent-encode한다. (인코딩 누락 시 '/'→경로분리로 400, '#'→fragment로 잘림.)"""
+    return f"/{index}/_doc/{quote(doc_id, safe='')}"
 
 
 @dataclass(frozen=True)
@@ -83,14 +90,14 @@ class OpenSearchClient:
         await self.ensure_index()
         for document in documents:
             chunk_id = str(document["chunk_id"])
-            resp = await self._http.put(f"/{self.settings.opensearch_index}/_doc/{chunk_id}", json=dict(document))
+            resp = await self._http.put(_doc_url(self.settings.opensearch_index, chunk_id), json=dict(document))
             resp.raise_for_status()
 
     async def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
         if not chunk_ids:
             return
         for chunk_id in chunk_ids:
-            resp = await self._http.delete(f"/{self.settings.opensearch_index}/_doc/{chunk_id}")
+            resp = await self._http.delete(_doc_url(self.settings.opensearch_index, chunk_id))
             if resp.status_code not in (200, 404):
                 resp.raise_for_status()
 
@@ -153,11 +160,11 @@ class OpenSearchClient:
         index = self.settings.opensearch_documents_index
         for document in documents:
             doc_id = f"{document['tenant_id']}:{document['doc_id']}"
-            resp = await self._http.put(f"/{index}/_doc/{doc_id}", json=dict(document))
+            resp = await self._http.put(_doc_url(index, doc_id), json=dict(document))
             resp.raise_for_status()
 
     async def get_document(self, doc_id: str, *, tenant_id: str) -> dict[str, Any] | None:
-        resp = await self._http.get(f"/{self.settings.opensearch_documents_index}/_doc/{tenant_id}:{doc_id}")
+        resp = await self._http.get(_doc_url(self.settings.opensearch_documents_index, f"{tenant_id}:{doc_id}"))
         if resp.status_code == 404:
             return None
         resp.raise_for_status()
