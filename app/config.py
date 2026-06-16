@@ -160,6 +160,11 @@ class Settings(BaseSettings):
     confluence_space_key: str = "OnRamp"
     confluence_timezone: str = "Asia/Seoul"
 
+    # GitHub 소스 (멀티소스 적재 — repo 문서/이슈/PR)
+    github_token: SecretStr = SecretStr("")  # repo scope PAT/App 토큰 (private repo 수집)
+    github_org: str = "OnRamp-2026"
+    github_docs_dirs: list[str] = ["docs"]  # repo 문서로 수집할 디렉터리(README는 항상 포함)
+
     # RAG / Retrieval
     embedding_model: str = "text-embedding-3-small"
     embedding_dim: int = 1536
