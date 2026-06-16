@@ -245,6 +245,61 @@ Response:
 
 로컬 Qdrant/PostgreSQL/Redis는 FastAPI 서버 startup, readiness check, 임베딩/색인 단계부터 필요합니다. 수집과 Markdown 정제만 확인할 때는 미리 띄우지 않아도 됩니다.
 
+## 멀티소스 적재 (로컬·prod 공용)
+
+Confluence + GitHub 원문을 **PostgreSQL(원문 원장) · Qdrant(dense 청크) · OpenSearch(청크 BM25 + 문서 BM25)** 에 적재한다. 적재 코드는 환경을 모르고 **앱 env(`DATABASE_URL`/`QDRANT_*`/`OPENSEARCH_*`/`*_TOKEN`)만** 본다 — 즉 **같은 스크립트가 로컬과 prod에서 동일하게 동작**한다(차이는 env뿐).
+
+| 저장소 | 역할 | 적재 트리거 |
+|---|---|---|
+| PostgreSQL `source_document` | 원문 진실원천(raw + cleaned_markdown), 멀티소스 원장(`source`=confluence\|github) | 항상 |
+| Qdrant `onramp-chunks` | dense 청크(벡터) | 항상 |
+| OpenSearch `onramp-chunks` | 청크 BM25(하이브리드) | `BM25_SEARCH_ENABLED=true`일 때만 |
+| OpenSearch `onramp-documents` | 문서 단위 BM25(document_tools) | `index_documents_to_opensearch.py` |
+
+### 스크립트 구성
+
+| 스크립트 | 역할 |
+|---|---|
+| `scripts/ingest_all.sh` | **공용 코어** — migrate → Confluence → GitHub → OS 문서 투영 → 현황. 인프라 비의존(로컬·prod 공용) |
+| `scripts/ingest_all_local.sh` | **로컬 래퍼** — `docker compose up` 으로 인프라 띄운 뒤 코어 호출 |
+| `scripts/index_github.py` | GitHub repo 문서(README·docs)·이슈/PR 적재 |
+| `scripts/index_documents_to_opensearch.py` | Postgres 원문 → OpenSearch 문서 인덱스 투영 |
+| `scripts/ingest_status.py` | 4저장소 적재 현황 카운트(docker/kubectl 비의존) |
+
+공통 env 조절: `CONFLUENCE_LIMIT`(기본 500) · `GITHUB_REPOS`(기본 org 전체) · `SKIP_MIGRATE`/`SKIP_CONFLUENCE`/`SKIP_GITHUB`/`SKIP_DOCS=1`.
+
+### 로컬 (골든셋 구축)
+
+`.env`에 `OPENAI_API_KEY`·`GITHUB_TOKEN`·`BM25_SEARCH_ENABLED=true`·`OPENSEARCH_HOST=localhost` 추가 후:
+
+    bash scripts/ingest_all_local.sh                     # 인프라 기동 + 전체 적재 + 현황
+
+    # 일부만 / 소량 테스트
+    CONFLUENCE_LIMIT=20 GITHUB_REPOS="onramp-api docs" bash scripts/ingest_all_local.sh
+    SKIP_GITHUB=1 bash scripts/ingest_all_local.sh
+
+자세한 단계별 절차는 [`docs/local_ingestion.md`](docs/local_ingestion.md) 참고.
+
+### Production
+
+prod는 인프라가 클러스터에 이미 있으므로 **로컬 래퍼가 아니라 코어(`scripts/ingest_all.sh`)를 onramp-api 파드 안에서** 실행한다. 파드 env(Secret/ConfigMap)에 이미 `DATABASE_URL`·`QDRANT_*`·`OPENSEARCH_*`·`OPENAI_API_KEY`·`CONFLUENCE_*` 가 주입되어 있다.
+
+    # 대상 네임스페이스: dev | tenant1-onramp | tenant2-onramp
+    NS=dev
+    kubectl exec -n "$NS" deploy/onramp-api -- bash scripts/ingest_all.sh
+
+    # 현황만 확인
+    kubectl exec -n "$NS" deploy/onramp-api -- python scripts/ingest_status.py
+
+    # 일부만 (예: GitHub 제외, 증분 대신 전체)
+    kubectl exec -n "$NS" deploy/onramp-api -- env SKIP_GITHUB=1 CONFLUENCE_LIMIT=1000 bash scripts/ingest_all.sh
+
+전제·주의:
+- **GitHub 적재**를 prod에서 하려면 `GITHUB_TOKEN`(repo scope)을 해당 네임스페이스의 `onramp-api` Secret에 추가해야 한다(없으면 GitHub 단계는 자동 스킵). ConfigMap이 아닌 **Secret**으로.
+- **OpenSearch 청크/문서**는 클러스터에 OpenSearch가 배포되고 `BM25_SEARCH_ENABLED=true`일 때만 적재된다(미배포 시 Qdrant+Postgres만, 단계는 비치명적으로 스킵).
+- 멀티테넌트: 네임스페이스별로 각자 저장소를 가지므로 **테넌트마다 따로** 실행한다.
+- 현재 정기 동기화용 CronJob은 없다(수동 실행). 자동화는 후속 작업.
+
 ## Development
 
 ### 의존성 추가
