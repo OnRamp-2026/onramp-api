@@ -20,10 +20,11 @@ router = APIRouter()
 async def chat_endpoint(request: ChatRequest, user: OptionalUser, db: DatabaseSession) -> ChatResponse:
     """자연어 질문 → Router → Retriever → Answer → 5요소 구조화 답변.
 
-    로그인 사용자면 질문/답변을 대화 기록에 저장하고 conversation_id를 응답에 실어준다.
-    익명(미로그인)이면 저장하지 않고 그대로 답한다(데모 안전).
+    chat_service는 운영/eval용 chat_log를 best-effort로 저장한다.
+    로그인 사용자면 별도로 질문/답변을 대화 기록에 저장하고 conversation_id를 응답에 실어준다.
     """
-    response = await chat_service(request)
+    tenant_id = user.tenant_id if user is not None else "anonymous"
+    response = await chat_service(request, tenant_id=tenant_id, session=db)
     if user is not None and user.subject:
         try:
             response.conversation_id = await persist_turn(

@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+import time
+from enum import Enum
+from typing import Any
 
 from app.agents.graph import compiled_graph
 from app.agents.state import AnswerabilityStatus, Domain, FiveElements, SourceDocument
 from app.config import get_settings
+from app.db.models import ChatLog
 from app.middleware.error_handler import OnRampError
 from app.middleware.request_id import request_id_var
 from app.models.request import ChatRequest
@@ -16,8 +20,9 @@ from app.observability import current_trace_id, langfuse_run_config, langfuse_sp
 logger = logging.getLogger(__name__)
 
 
-async def chat(request: ChatRequest) -> ChatResponse:
+async def chat(request: ChatRequest, *, tenant_id: str = "anonymous", session: Any | None = None) -> ChatResponse:
     """질문을 그래프로 흘려 5요소 구조화 답변(ChatResponse)을 만든다."""
+    started_at = time.perf_counter()
     # routing model에는 request.model만 — default_model을 섞으면 provider 선택이 그쪽으로 샌다.
     # 빈 model이면 selector가 config.llm_provider로 라우팅하고, default_model은 모델 이름으로만 쓰인다.
     initial_state = {
@@ -41,6 +46,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             raise OnRampError("답변 생성 중 오류가 발생했습니다", status_code=500) from exc
 
         response = _to_response(state, request)
+        latency_ms = int((time.perf_counter() - started_at) * 1000)
         if root is not None:
             root.update(output={"answerability_status": response.answerability_status, "domain": response.domain})
             # trust_score를 online score로 부착 + trace_id를 응답에 노출(피드백 참조용)
@@ -49,6 +55,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
             if isinstance(overall, int | float):
                 score_current_trace(name="trust_score", value=float(overall))
             response.trace_id = current_trace_id() or ""
+        await _persist_chat_log_best_effort(
+            session,
+            tenant_id=tenant_id,
+            request=request,
+            response=response,
+            state=state,
+            latency_ms=latency_ms,
+        )
         return response
 
 
@@ -85,3 +99,48 @@ def _to_source(doc: SourceDocument) -> SourceDoc:
         site=doc.site,
         product_version=doc.product_version,
     )
+
+
+async def _persist_chat_log_best_effort(
+    session: Any | None,
+    *,
+    tenant_id: str,
+    request: ChatRequest,
+    response: ChatResponse,
+    state: dict,
+    latency_ms: int,
+) -> None:
+    """운영/eval용 chat_log를 저장한다. 실패해도 사용자 응답은 막지 않는다."""
+    if session is None:
+        return
+    try:
+        session.add(
+            ChatLog(
+                tenant_id=tenant_id,
+                query=request.query,
+                domain=response.domain or None,
+                use_case=_value_or_none(state.get("use_case")),
+                answerability_status=response.answerability_status or None,
+                answerability_reason=response.answerability_reason or None,
+                model_used=response.model_used or None,
+                source_count=len(response.sources),
+                sources=[source.model_dump() for source in response.sources],
+                latency_ms=latency_ms,
+            )
+        )
+        await session.flush()
+        await session.commit()
+    except Exception:
+        logger.exception("chat_log 저장 실패")
+        try:
+            await session.rollback()
+        except Exception:
+            logger.exception("chat_log rollback 실패")
+
+
+def _value_or_none(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, Enum):
+        return str(value.value)
+    return str(value)
