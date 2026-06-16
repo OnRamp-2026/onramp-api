@@ -1,19 +1,37 @@
 """POST /v1/chat 엔드포인트."""
 
+import logging
+
 from fastapi import APIRouter
 
+from app.api.deps import DatabaseSession, OptionalUser
 from app.models.request import ChatRequest, FeedbackRequest
 from app.models.response import ChatResponse
 from app.observability import create_trace_score
 from app.services.chat_service import chat as chat_service
+from app.services.conversation_service import persist_turn
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest) -> ChatResponse:
-    """자연어 질문 → Router → Retriever → Answer → 5요소 구조화 답변."""
-    return await chat_service(request)
+async def chat_endpoint(request: ChatRequest, user: OptionalUser, db: DatabaseSession) -> ChatResponse:
+    """자연어 질문 → Router → Retriever → Answer → 5요소 구조화 답변.
+
+    로그인 사용자면 질문/답변을 대화 기록에 저장하고 conversation_id를 응답에 실어준다.
+    익명(미로그인)이면 저장하지 않고 그대로 답한다(데모 안전).
+    """
+    response = await chat_service(request)
+    if user is not None and user.subject:
+        try:
+            response.conversation_id = await persist_turn(
+                db, tenant_id=user.tenant_id, user_id=user.subject, request=request, response=response
+            )
+        except Exception:  # 저장 실패가 답변 응답을 막지 않도록
+            logger.exception("대화 기록 저장 실패")
+    return response
 
 
 @router.post("/chat/feedback")

@@ -312,3 +312,42 @@ class ChatLog(Base):
         Index("ix_chat_log_tenant_created", "tenant_id", created_at.desc()),
         Index("ix_chat_log_domain", "tenant_id", "domain"),
     )
+
+
+class Conversation(Base):
+    """대화 1건 — 사이드바 '최근 대화' 목록의 한 줄. 로그인 사용자(tenant_id+user_id)에 귀속."""
+
+    __tablename__ = "conversation"
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[str] = mapped_column(String(64), default="onramp")
+    user_id: Mapped[str] = mapped_column(String(128))
+    title: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        # "내 최근 대화" 정렬 — 테넌트+유저 범위, 최신 갱신순
+        Index("ix_conversation_tenant_user_updated", "tenant_id", "user_id", updated_at.desc()),
+    )
+
+
+class Message(Base):
+    """대화 안의 한 턴(질문/답변). assistant 답변은 answer(5요소)+sources JSON으로 보관해 그대로 복원."""
+
+    __tablename__ = "message"
+
+    message_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversation.conversation_id", ondelete="CASCADE"))
+    tenant_id: Mapped[str] = mapped_column(String(64), default="onramp")
+    role: Mapped[str] = mapped_column(String(16))  # "user" | "assistant"
+    content: Mapped[str] = mapped_column(Text, default="")
+    answer: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # assistant 5요소
+    sources: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)  # 인용 출처 스냅샷
+    domain: Mapped[str | None] = mapped_column(String(32))
+    answerability_status: Mapped[str | None] = mapped_column(String(32))
+    answerability_reason: Mapped[str | None] = mapped_column(Text)
+    model_used: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (Index("ix_message_conversation_created", "conversation_id", "created_at"),)

@@ -8,7 +8,12 @@ from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.session import decode_session_claims
+from app.auth.session import (
+    SessionUser,
+    decode_session_claims,
+    extract_token,
+    get_current_user,
+)
 from app.config import Settings, get_settings
 from app.db.postgres import session_scope
 from app.storage.base import ObjectStorage
@@ -67,10 +72,32 @@ def get_current_tenant(
     )
 
 
+def get_optional_user(request: Request) -> SessionUser | None:
+    """로그인했으면 SessionUser, 아니면 None(401 미발생). 대화 기록 옵셔널 저장용 — 익명 챗은 그대로 동작."""
+    settings = get_settings()
+    token = extract_token(request, settings)
+    if not token:
+        return None
+    try:
+        claims = decode_session_claims(token, settings)
+    except HTTPException:
+        return None
+    return SessionUser(
+        tenant_id=claims["tenant_id"],
+        subject=str(claims.get("sub", "")),
+        provider=claims.get("provider"),
+        name=claims.get("name"),
+        email=claims.get("email"),
+        claims=claims,
+    )
+
+
 def get_object_storage() -> ObjectStorage:
     return get_storage()
 
 
 DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
 CurrentTenant = Annotated[str, Depends(get_current_tenant)]
+CurrentUser = Annotated[SessionUser, Depends(get_current_user)]
+OptionalUser = Annotated[SessionUser | None, Depends(get_optional_user)]
 StorageDependency = Annotated[ObjectStorage, Depends(get_object_storage)]
