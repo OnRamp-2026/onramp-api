@@ -100,6 +100,17 @@ class Settings(BaseSettings):
     redis_stream_read_count: int = Field(default=10, ge=1)
     redis_stream_reclaim_idle_ms: int = Field(default=300000, ge=1000)
 
+    # STT event bus Redis (shared across tenant API instances).
+    # Empty value falls back to redis_url for single-Redis/local environments.
+    stt_redis_url: str = ""
+    stt_consumer_group_suffix: str = ""
+
+    @model_validator(mode="after")
+    def _resolve_stt_redis(self) -> "Settings":
+        normalized = self.stt_redis_url.strip()
+        self.stt_redis_url = normalized or self.redis_url
+        return self
+
     # STT internal API / report worker
     stt_service_base_url: str = "http://onramp-stt-api:8000"
     stt_service_token: SecretStr = SecretStr("")

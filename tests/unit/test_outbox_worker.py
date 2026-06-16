@@ -25,7 +25,7 @@ async def test_outbox_worker_retries_after_infrastructure_error(monkeypatch: pyt
 
     monkeypatch.setattr(outbox_publisher, "OutboxPublisher", FakePublisher)
     monkeypatch.setattr(outbox_publisher, "get_session_factory", lambda: object())
-    monkeypatch.setattr(outbox_publisher, "get_redis", lambda: object())
+    monkeypatch.setattr(outbox_publisher, "get_stt_redis", lambda: object())
     monkeypatch.setattr(outbox_publisher.asyncio, "sleep", no_sleep)
 
     with pytest.raises(asyncio.CancelledError):

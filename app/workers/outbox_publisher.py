@@ -6,7 +6,7 @@ import structlog
 
 from app.config import get_settings
 from app.db.postgres import get_session_factory
-from app.db.redis import get_redis
+from app.db.redis import get_stt_redis
 from app.queue.outbox import OutboxPublisher
 
 logger = structlog.get_logger(__name__)
@@ -16,7 +16,7 @@ async def run() -> None:
     settings = get_settings()
     publisher = OutboxPublisher(
         get_session_factory(),
-        get_redis(),
+        get_stt_redis(),
         batch_size=settings.redis_outbox_batch_size,
     )
     poll_interval = settings.redis_outbox_poll_interval_ms / 1000
