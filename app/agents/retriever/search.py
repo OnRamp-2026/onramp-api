@@ -85,11 +85,16 @@ async def search_with_mode(
     *,
     domain: str | None,
     mode: FilterMode,
+    query_text: str = "",
     filters: SearchFilters | None = None,
     settings: Settings | None = None,
 ) -> list[ScoredPoint]:
     """도메인 필터 모드에 따라 검색 전략을 적용한다 (운영 retrieve_node·평가 어댑터 공용).
 
+    query_text가 비어 있지 않고 hybrid_search_enabled가 켜진 경우 아래 mode 분기보다
+    hybrid_search(Dense+BM25 RRF)가 **우선 실행**된다.
+
+    hybrid gate가 적용되지 않을 때의 mode 동작:
     hard:   도메인 필터만 (확장 없음)
     hybrid: filtered-first + 저품질(0건/최고 score 미달) 무필터 확장 + merge
     soft:   무필터 검색 (도메인 가산은 호출측 rerank에서)
@@ -97,6 +102,20 @@ async def search_with_mode(
     사다리 필터(filters)는 **모든 모드·확장 경로에 항상 적용**된다 (#108).
     """
     settings = settings or get_settings()
+    if settings.hybrid_search_enabled and query_text.strip():
+        from app.rag.hybrid_search import hybrid_search
+
+        effective_domain = None if mode == "soft" or not domain else domain
+        return await hybrid_search(
+            query_text,
+            query_vector,
+            top_k=top_k,
+            domain=effective_domain,
+            filters=filters,
+            settings=settings,
+            dense_search_fn=dense_search,
+        )
+
     if mode == "soft" or not domain:
         return await dense_search(query_vector, top_k, domain=None, filters=filters, settings=settings)
 

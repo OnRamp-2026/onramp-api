@@ -134,3 +134,43 @@ async def test_soft_mode_still_applies_ladder_filters(monkeypatch):
     await search_with_mode([0.1], 5, domain="manual", mode="soft", filters=filters, settings=Settings())
     assert seen["domain"] is None  # soft → 도메인 무필터
     assert seen["filters"] is filters  # 사다리 필터는 유지
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_gate_uses_query_text(monkeypatch):
+    seen = {}
+
+    async def fake_hybrid(query_text, query_vector, *, domain, filters, settings, dense_search_fn, **kwargs):  # noqa: ANN202, ARG001
+        seen["query_text"] = query_text
+        seen["domain"] = domain
+        return [_pt("hybrid", 0.1)]
+
+    monkeypatch.setattr("app.rag.hybrid_search.hybrid_search", fake_hybrid)
+    settings = Settings(hybrid_search_enabled=True)
+
+    out = await search_with_mode([0.1], 5, domain="manual", mode="hard", query_text="장애 대응", settings=settings)
+
+    assert [p.id for p in out] == ["hybrid"]
+    assert seen == {"query_text": "장애 대응", "domain": "manual"}
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_gate_respects_soft_domain(monkeypatch):
+    seen = {}
+
+    async def fake_hybrid(query_text, query_vector, *, domain, filters, settings, dense_search_fn, **kwargs):  # noqa: ANN202, ARG001
+        seen["domain"] = domain
+        return []
+
+    monkeypatch.setattr("app.rag.hybrid_search.hybrid_search", fake_hybrid)
+
+    await search_with_mode(
+        [0.1],
+        5,
+        domain="manual",
+        mode="soft",
+        query_text="장애 대응",
+        settings=Settings(hybrid_search_enabled=True),
+    )
+
+    assert seen["domain"] is None

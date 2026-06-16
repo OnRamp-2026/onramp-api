@@ -60,6 +60,7 @@ async def retrieve_node(state: AgentState) -> dict:
         top_k,
         domain=(domains[0] if domains else None),
         mode=settings.retriever_domain_filter_mode,
+        query_text=refined,
         filters=None if filters.is_empty() else filters,
         settings=settings,
     )
