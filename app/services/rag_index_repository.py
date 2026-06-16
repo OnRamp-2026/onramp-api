@@ -29,6 +29,7 @@ def _now() -> datetime:
 
 # ── index_run ──────────────────────────────────────────────────────────────────
 
+
 async def create_index_run(db: AsyncSession, *, tenant_id: str) -> IndexRun:
     run = IndexRun(tenant_id=tenant_id)
     db.add(run)
@@ -62,6 +63,7 @@ async def fail_index_run(db: AsyncSession, run: IndexRun, *, error: str) -> None
 
 
 # ── confluence_document ────────────────────────────────────────────────────────
+
 
 async def should_index_page(
     db: AsyncSession,
@@ -160,6 +162,7 @@ async def rotate_and_save_document(
 
 
 # ── chunk_registry ─────────────────────────────────────────────────────────────
+
 
 async def upsert_chunk_registry(
     db: AsyncSession,

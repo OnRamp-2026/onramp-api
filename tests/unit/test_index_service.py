@@ -12,6 +12,7 @@ from app.services.ingest_service import ChunkedConfluencePage, CleanedConfluence
 
 # ── SQLite 세션 팩토리 픽스처 (FK 미검증) ──────────────────────────────────────
 
+
 @pytest.fixture
 async def sqlite_session_factory():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -29,6 +30,7 @@ async def sqlite_session_factory():
 
 
 # ── test helpers ───────────────────────────────────────────────────────────────
+
 
 def _child(chunk_id: str) -> ChildChunk:
     return ChildChunk(
@@ -84,6 +86,7 @@ class _FakeIngestService:
 
 
 # ── tests ──────────────────────────────────────────────────────────────────────
+
 
 async def test_index_recent_pages_flattens_children_and_returns_summary(
     sqlite_session_factory: AsyncSession,

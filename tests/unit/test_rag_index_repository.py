@@ -14,6 +14,7 @@ from app.services import rag_index_repository as repo
 
 # ── in-memory DB fixture ───────────────────────────────────────────────────────
 
+
 @pytest.fixture
 async def db() -> AsyncSession:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -26,6 +27,7 @@ async def db() -> AsyncSession:
 
 
 # ── fake ChildChunk ────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class _Chunk:
@@ -62,6 +64,7 @@ def _hash(text: str) -> str:
 
 # ── index_run ──────────────────────────────────────────────────────────────────
 
+
 async def test_create_and_finish_index_run(db: AsyncSession) -> None:
     run = await repo.create_index_run(db, tenant_id="onramp")
     assert run.run_id is not None
@@ -82,6 +85,7 @@ async def test_fail_index_run(db: AsyncSession) -> None:
 
 # ── should_index_page ──────────────────────────────────────────────────────────
 
+
 async def test_should_index_page_new(db: AsyncSession) -> None:
     assert await repo.should_index_page(db, tenant_id="onramp", page_id="pg1", cleaned_markdown_hash="aaa") is True
 
@@ -91,8 +95,12 @@ async def test_should_index_page_same_hash(db: AsyncSession) -> None:
     md_hash = _hash(page.markdown)
     raw_hash = _hash(page.html)
     await repo.rotate_and_save_document(
-        db, tenant_id="onramp", page=page,
-        raw_html_hash=raw_hash, cleaned_markdown_hash=md_hash, chunk_count=1,
+        db,
+        tenant_id="onramp",
+        page=page,
+        raw_html_hash=raw_hash,
+        cleaned_markdown_hash=md_hash,
+        chunk_count=1,
     )
     assert await repo.should_index_page(db, tenant_id="onramp", page_id="pg1", cleaned_markdown_hash=md_hash) is False
 
@@ -102,19 +110,28 @@ async def test_should_index_page_changed_hash(db: AsyncSession) -> None:
     md_hash = _hash(page.markdown)
     raw_hash = _hash(page.html)
     await repo.rotate_and_save_document(
-        db, tenant_id="onramp", page=page,
-        raw_html_hash=raw_hash, cleaned_markdown_hash=md_hash, chunk_count=1,
+        db,
+        tenant_id="onramp",
+        page=page,
+        raw_html_hash=raw_hash,
+        cleaned_markdown_hash=md_hash,
+        chunk_count=1,
     )
     assert await repo.should_index_page(db, tenant_id="onramp", page_id="pg1", cleaned_markdown_hash="changed") is True
 
 
 # ── rotate_and_save_document ───────────────────────────────────────────────────
 
+
 async def test_rotate_creates_new_document(db: AsyncSession) -> None:
     page = _Page()
     await repo.rotate_and_save_document(
-        db, tenant_id="onramp", page=page,
-        raw_html_hash=_hash(page.html), cleaned_markdown_hash=_hash(page.markdown), chunk_count=2,
+        db,
+        tenant_id="onramp",
+        page=page,
+        raw_html_hash=_hash(page.html),
+        cleaned_markdown_hash=_hash(page.markdown),
+        chunk_count=2,
     )
     doc = await db.get(ConfluenceDocument, ("onramp", "pg1"))
     assert doc is not None
@@ -125,14 +142,22 @@ async def test_rotate_creates_new_document(db: AsyncSession) -> None:
 async def test_rotate_promotes_current_to_previous(db: AsyncSession) -> None:
     page_v1 = _Page(html="<p>v1</p>", markdown="v1")
     await repo.rotate_and_save_document(
-        db, tenant_id="onramp", page=page_v1,
-        raw_html_hash=_hash(page_v1.html), cleaned_markdown_hash=_hash(page_v1.markdown), chunk_count=1,
+        db,
+        tenant_id="onramp",
+        page=page_v1,
+        raw_html_hash=_hash(page_v1.html),
+        cleaned_markdown_hash=_hash(page_v1.markdown),
+        chunk_count=1,
     )
 
     page_v2 = _Page(html="<p>v2</p>", markdown="v2")
     await repo.rotate_and_save_document(
-        db, tenant_id="onramp", page=page_v2,
-        raw_html_hash=_hash(page_v2.html), cleaned_markdown_hash=_hash(page_v2.markdown), chunk_count=2,
+        db,
+        tenant_id="onramp",
+        page=page_v2,
+        raw_html_hash=_hash(page_v2.html),
+        cleaned_markdown_hash=_hash(page_v2.markdown),
+        chunk_count=2,
     )
 
     current = await db.get(ConfluenceDocument, ("onramp", "pg1"))
@@ -145,8 +170,12 @@ async def test_rotate_replaces_old_previous(db: AsyncSession) -> None:
     for i in range(1, 4):
         p = _Page(html=f"<p>v{i}</p>", markdown=f"v{i}")
         await repo.rotate_and_save_document(
-            db, tenant_id="onramp", page=p,
-            raw_html_hash=_hash(p.html), cleaned_markdown_hash=_hash(p.markdown), chunk_count=i,
+            db,
+            tenant_id="onramp",
+            page=p,
+            raw_html_hash=_hash(p.html),
+            cleaned_markdown_hash=_hash(p.markdown),
+            chunk_count=i,
         )
 
     current = await db.get(ConfluenceDocument, ("onramp", "pg1"))
@@ -157,25 +186,41 @@ async def test_rotate_replaces_old_previous(db: AsyncSession) -> None:
 
 # ── tenant isolation ───────────────────────────────────────────────────────────
 
+
 async def test_tenant_isolation(db: AsyncSession) -> None:
     for tenant in ("t1", "t2"):
         p = _Page(markdown=f"content for {tenant}")
         await repo.rotate_and_save_document(
-            db, tenant_id=tenant, page=p,
-            raw_html_hash=_hash(p.html), cleaned_markdown_hash=_hash(p.markdown), chunk_count=1,
+            db,
+            tenant_id=tenant,
+            page=p,
+            raw_html_hash=_hash(p.html),
+            cleaned_markdown_hash=_hash(p.markdown),
+            chunk_count=1,
         )
 
-    assert await repo.should_index_page(db, tenant_id="t1", page_id="pg1", cleaned_markdown_hash=_hash("content for t1")) is False
-    assert await repo.should_index_page(db, tenant_id="t1", page_id="pg1", cleaned_markdown_hash=_hash("content for t2")) is True
+    assert (
+        await repo.should_index_page(db, tenant_id="t1", page_id="pg1", cleaned_markdown_hash=_hash("content for t1"))
+        is False
+    )
+    assert (
+        await repo.should_index_page(db, tenant_id="t1", page_id="pg1", cleaned_markdown_hash=_hash("content for t2"))
+        is True
+    )
 
 
 # ── chunk_registry ─────────────────────────────────────────────────────────────
 
+
 async def test_upsert_chunk_registry(db: AsyncSession) -> None:
     page = _Page()
     await repo.rotate_and_save_document(
-        db, tenant_id="onramp", page=page,
-        raw_html_hash=_hash(page.html), cleaned_markdown_hash=_hash(page.markdown), chunk_count=1,
+        db,
+        tenant_id="onramp",
+        page=page,
+        raw_html_hash=_hash(page.html),
+        cleaned_markdown_hash=_hash(page.markdown),
+        chunk_count=1,
     )
     run = await repo.create_index_run(db, tenant_id="onramp")
     chunks = [_Chunk(chunk_id="pg1_000"), _Chunk(chunk_id="pg1_001")]
@@ -189,8 +234,12 @@ async def test_upsert_chunk_registry(db: AsyncSession) -> None:
 async def test_collect_and_delete_stale_chunks(db: AsyncSession) -> None:
     page = _Page()
     await repo.rotate_and_save_document(
-        db, tenant_id="onramp", page=page,
-        raw_html_hash=_hash(page.html), cleaned_markdown_hash=_hash(page.markdown), chunk_count=1,
+        db,
+        tenant_id="onramp",
+        page=page,
+        raw_html_hash=_hash(page.html),
+        cleaned_markdown_hash=_hash(page.markdown),
+        chunk_count=1,
     )
     run1 = await repo.create_index_run(db, tenant_id="onramp")
     run2 = await repo.create_index_run(db, tenant_id="onramp")
