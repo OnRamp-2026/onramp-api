@@ -69,7 +69,8 @@ async def test_fetch_repo_docs_keeps_readme_and_docs_only():
 async def test_fetch_repo_docs_readme_can_be_excluded():
     gh = GithubClient(settings=_settings(), client=_client_with(_docs_handler))
     pages = await gh.fetch_repo_docs("onramp", include_readme=False)
-    assert all(not p.page_id.endswith("README.md") for p in pages)
+    # README만 빠지고 docs 문서는 그대로 남아야 함(빈 결과로 회귀 통과 방지)
+    assert {p.page_id for p in pages} == {"gh:onramp:docs/guide.md", "gh:onramp:docs/sub/deep.md"}
 
 
 def _issues_handler(request: httpx.Request) -> httpx.Response:
@@ -128,3 +129,11 @@ async def test_empty_repo_raises():
     gh = GithubClient(settings=_settings(), client=_client_with(_docs_handler))
     with pytest.raises(ValueError):
         await gh.fetch_repo_docs("")
+
+
+async def test_injected_client_not_closed_after_call():
+    # 주입 클라는 _session이 닫지 않아야 — 같은 인스턴스로 여러 메서드 호출 가능 (CodeRabbit critical)
+    http = _client_with(_docs_handler)
+    gh = GithubClient(settings=_settings(), client=http)
+    await gh.fetch_repo_docs("onramp")
+    assert not http.is_closed

@@ -11,7 +11,9 @@ HTML 클린 단계 없이 ``MarkdownPage``를 바로 생성한다.
 from __future__ import annotations
 
 import base64
+import contextlib
 import logging
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -47,6 +49,18 @@ class GithubClient:
     def _new_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(base_url=GITHUB_API, headers=self._headers(), timeout=30.0)
 
+    @contextlib.asynccontextmanager
+    async def _session(self) -> AsyncIterator[httpx.AsyncClient]:
+        # 주입 클라는 닫지 않고 재사용(여러 메서드 호출 지원), 메서드별 생성 클라만 닫는다.
+        if self._client is not None:
+            yield self._client
+        else:
+            client = self._new_client()
+            try:
+                yield client
+            finally:
+                await client.aclose()
+
     # ── repo 문서 (README + docs/) ───────────────────────────────────────
     async def fetch_repo_docs(
         self, repo: str, *, include_readme: bool = True, docs_dirs: tuple[str, ...] | None = None
@@ -59,7 +73,7 @@ class GithubClient:
             raise ValueError("repo must not be empty")
         dirs = docs_dirs if docs_dirs is not None else tuple(self.settings.github_docs_dirs)
 
-        async with self._client or self._new_client() as client:
+        async with self._session() as client:
             branch = await self._default_branch(client, repo)
             paths = await self._list_markdown_paths(client, repo, branch)
             wanted = [p for p in paths if (include_readme and p.upper() == "README.MD") or _under_dirs(p, dirs)]
@@ -89,7 +103,7 @@ class GithubClient:
             raise ValueError("repo must not be empty")
 
         pages: list[MarkdownPage] = []
-        async with self._client or self._new_client() as client:
+        async with self._session() as client:
             page = 1
             while True:
                 resp = await client.get(
@@ -105,7 +119,7 @@ class GithubClient:
                     if is_pr and not include_pr:
                         continue
                     comments = await self._issue_comments(client, repo, it["number"]) if it.get("comments") else ""
-                    pages.append(_issue_to_page(self.org, repo, it, comments))
+                    pages.append(_issue_to_page(repo, it, comments))
                 page += 1
         logger.info("GitHub issues/PRs fetched: %s (%d items)", repo, len(pages))
         return pages
@@ -161,7 +175,7 @@ def _under_dirs(path: str, dirs: tuple[str, ...]) -> bool:
     return any(path == d or path.startswith(f"{d}/") for d in dirs)
 
 
-def _issue_to_page(org: str, repo: str, issue: dict, comments: str) -> MarkdownPage:
+def _issue_to_page(repo: str, issue: dict, comments: str) -> MarkdownPage:
     kind = "PR" if "pull_request" in issue else "Issue"
     labels = ", ".join(label["name"] for label in issue.get("labels", []) if isinstance(label, dict))
     body = issue.get("body") or ""
