@@ -3,9 +3,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.auth import router as auth_router
 from app.api.slack import router as slack_router
-from app.api.v1.router import v1_router
+from app.api.v1.auth import public_router as public_auth_router
+from app.api.v1.router import build_v1_router
 from app.config import get_settings
 from app.db.opensearch import close_opensearch
 from app.db.postgres import close_postgres, get_engine
@@ -69,8 +69,9 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
 
     # Routers
-    app.include_router(v1_router, prefix="/v1")
-    app.include_router(auth_router, prefix="/auth", tags=["Auth"])
+    app.include_router(build_v1_router(enable_slack_auth=settings.auth_enable_slack_login), prefix="/v1")
+    if settings.auth_enable_slack_login:
+        app.include_router(public_auth_router)
     app.include_router(slack_router, prefix="/slack", tags=["Slack"])
 
     return app

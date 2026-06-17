@@ -21,12 +21,19 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from app.auth.tenant_registry import resolve_internal_tenant_id  # noqa: E402
 from app.config import get_settings  # noqa: E402
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tenant-id", required=True, help="tenant_id 클레임 값")
+    tenant_group = parser.add_mutually_exclusive_group(required=True)
+    tenant_group.add_argument("--tenant-id", help="tenant_id 클레임 값")
+    tenant_group.add_argument(
+        "--external-tenant",
+        help="외부 IdP/팀 식별값. --provider와 함께 쓰면 tenant registry로 내부 tenant_id를 해석한다.",
+    )
+    parser.add_argument("--provider", help="외부 tenant 식별값 provider. 예: slack, entra")
     parser.add_argument("--ttl-seconds", type=int, default=3600, help="토큰 유효 기간(초), 기본 3600")
     args = parser.parse_args()
 
@@ -35,9 +42,22 @@ def main() -> None:
     if len(secret) < 32:
         raise SystemExit("AUTH_JWT_SECRET이 설정되지 않았거나 32자 미만입니다.")
 
+    if args.external_tenant is not None:
+        if not args.provider:
+            raise SystemExit("--external-tenant 사용 시 --provider가 필요합니다.")
+        tenant_id = resolve_internal_tenant_id(
+            provider=args.provider,
+            external_tenant=args.external_tenant,
+            settings=settings,
+        )
+    else:
+        tenant_id = args.tenant_id
+        if args.provider:
+            raise SystemExit("--tenant-id와 --provider를 함께 사용할 수 없습니다.")
+
     now = datetime.now(UTC)
     claims: dict[str, object] = {
-        "tenant_id": args.tenant_id,
+        "tenant_id": tenant_id,
         "iat": now,
         "exp": now + timedelta(seconds=args.ttl_seconds),
     }

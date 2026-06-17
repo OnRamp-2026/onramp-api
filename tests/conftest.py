@@ -5,6 +5,12 @@ from httpx import ASGITransport, AsyncClient
 @pytest.fixture
 async def client():
     """FastAPI 테스트 클라이언트."""
+    import os
+
+    os.environ["DEBUG"] = "false"
+    from app.config import get_settings
+
+    get_settings.cache_clear()
     from app.main import app
 
     transport = ASGITransport(app=app)
