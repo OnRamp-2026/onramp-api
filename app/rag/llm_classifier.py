@@ -33,7 +33,9 @@ _TIE_BREAK = (
     "판정 우선순위:\n"
     "- 회의록·기획 형식 문서는 내용이 장애/API를 다뤄도 형식(meeting_note/planning) 우선.\n"
     "- incident는 실제 장애 사후분석(postmortem·outage)에만 부여.\n"
-    "- api_reference는 엔드포인트·요청/응답 스펙이 주가 될 때만, 설정·절차 위주면 manual.\n"
+    "- api_reference는 REST/HTTP API의 엔드포인트·요청/응답·상태코드 스펙이 주가 될 때만.\n"
+    "  서버/미들웨어의 모듈·지시어(directive)·설정 항목 설명(예: Apache/nginx mod_* 문서,\n"
+    "  설정 디렉티브 레퍼런스)은 api_reference가 아니라 manual로 분류한다.\n"
 )
 
 _SYSTEM_PROMPT = (
