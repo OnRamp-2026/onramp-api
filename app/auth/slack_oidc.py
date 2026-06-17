@@ -102,7 +102,8 @@ async def _exchange_code_for_token(*, code: str, settings: Settings) -> SlackTok
     }
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(settings.auth_slack_token_url, json=payload)
+            # Slack openid.connect.token은 application/x-www-form-urlencoded만 파싱한다(JSON 바디는 code 미인식 → invalid_code).
+            response = await client.post(settings.auth_slack_token_url, data=payload)
         response.raise_for_status()
     except httpx.HTTPError as exc:
         raise OnRampError("Slack 토큰 교환 호출에 실패했습니다.", status_code=502) from exc

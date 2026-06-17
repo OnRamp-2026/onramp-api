@@ -108,8 +108,11 @@ async def test_slack_callback_issues_internal_session_token(
 
     async def handler(request: httpx.Request) -> httpx.Response:
         assert str(request.url) == "https://slack.com/api/openid.connect.token"
+        # Slack OAuth 엔드포인트는 form-encoded만 파싱한다(JSON 바디면 invalid_code).
+        assert request.headers["content-type"] == "application/x-www-form-urlencoded"
         body = request.read().decode()
-        assert "authorization_code" in body
+        assert "grant_type=authorization_code" in body
+        assert "code=test-code" in body
         return httpx.Response(
             200,
             request=request,
