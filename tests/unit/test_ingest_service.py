@@ -298,3 +298,30 @@ async def test_prepare_ignores_llm_when_disabled() -> None:
 
     assert classifier.calls == 0  # 플래그 off → 분류기 미호출
     assert all(child.domain_source == "rule" for child in pages[0].children)
+
+
+async def test_prepare_github_pages_applies_llm_domain_when_enabled() -> None:
+    # Confluence/GitHub 공통 _prepare 계약 — GitHub MarkdownPage 입력도 LLM 메타가 동일하게 반영된다.
+    from app.rag.chunker import MarkdownPage
+
+    classifier = FakeDomainClassifier(DomainResult(domain="planning", secondary="manual", confidence=0.77))
+    service = IngestService(
+        domain_classifier=classifier,  # type: ignore[arg-type]
+        settings=_settings_with_llm(True),
+    )
+    page = MarkdownPage(
+        page_id="gh:onramp-api:README.md",
+        page_title="README",
+        markdown="# 온보딩 설계\n요구사항과 아키텍처 결정을 정리한다.",
+        source_url="https://github.com/OnRamp-2026/onramp-api",
+        space_key="onramp-api",
+    )
+
+    prepared = await service.prepare_github_pages([page])
+
+    children = prepared[0].children
+    assert children
+    assert all(child.domain == "planning" for child in children)
+    assert all(child.domain_source == "llm" for child in children)
+    assert all(child.domain_confidence == 0.77 for child in children)
+    assert all("domain2:manual" in (child.tags or []) for child in children)

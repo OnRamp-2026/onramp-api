@@ -66,8 +66,13 @@ async def _judge(title: str, masked: str, assigned: str, model: str) -> dict | N
     except Exception as exc:  # noqa: BLE001
         logger.warning("심사 실패: %s", exc)
         return None
-    if data.get("best") not in DOMAINS:
+    if not isinstance(data, dict) or data.get("best") not in DOMAINS:
         return None
+    # acceptable을 bool로 강제 — 문자열 "false"가 truthy로 잡혀 lenient 지표를 오염시키지 않게.
+    acceptable = data.get("acceptable")
+    if isinstance(acceptable, str):
+        acceptable = acceptable.strip().lower() == "true"
+    data["acceptable"] = bool(acceptable)
     return data
 
 

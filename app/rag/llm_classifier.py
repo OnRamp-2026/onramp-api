@@ -84,6 +84,11 @@ class DocumentDomainClassifier:
             logger.warning("LLM 도메인 분류 실패 — 룰 fallback: %s", exc)
             return None
 
+        # JSON이 객체가 아니면(list/str/number 등) data.get 가 터지므로 먼저 검증 — 룰 fallback.
+        if not isinstance(data, dict):
+            logger.warning("LLM 도메인 분류 응답이 객체 아님(%s) — 룰 fallback", type(data).__name__)
+            return None
+
         domain = str(data.get("domain", "")).strip()
         if domain not in DOMAIN_RULES:
             logger.warning("LLM이 알 수 없는 도메인 반환(%r) — 룰 fallback", domain)

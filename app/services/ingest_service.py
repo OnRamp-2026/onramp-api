@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, replace
 
 from app.config import Settings, get_settings
 from app.db.confluence import ConfluenceClient, ConfluencePage
 from app.rag.chunker import ChildChunk, ControlDocChunker, MarkdownPage, ParentChunk, SemanticChunker
-from app.rag.classifier import ChunkMetadataClassifier, DocumentProfileClassifier
+from app.rag.classifier import ChunkingProfile, ChunkMetadataClassifier, DocumentProfileClassifier
 from app.rag.cleaner import TextCleaner
 from app.rag.labels import is_eol, make_doc_key, parse_product_version, parse_site
 from app.rag.llm_classifier import DocumentDomainClassifier, DomainResult
@@ -66,6 +67,7 @@ class IngestService:
         self.metadata_classifier = metadata_classifier or ChunkMetadataClassifier()
         self.domain_classifier = domain_classifier or DocumentDomainClassifier()
         self.settings = settings or get_settings()
+        self._classify_concurrency = 8  # 문서 단위 LLM 분류 동시 호출 상한
 
     # ── recent (증분, lastmodified 기준) ──────────────────────────────────
     async def clean_recent_pages(self, hours: int = 24, limit: int = 50) -> list[CleanedConfluencePage]:
@@ -153,14 +155,27 @@ class IngestService:
         return [self._chunk_cleaned_page(self._mask_page(page)) for page in cleaned_pages]
 
     async def _prepare(self, cleaned_pages: list[CleanedConfluencePage]) -> list[ChunkedConfluencePage]:
-        prepared_pages: list[ChunkedConfluencePage] = []
+        # 1) 마스킹·청킹(동기)은 먼저 스테이징한다.
+        staged: list[tuple[CleanedConfluencePage, ChunkingProfile, ChunkedConfluencePage]] = []
         for page in cleaned_pages:
             masked_page = self._mask_page(page)
             chunking_profile = self.profile_classifier.classify_page(masked_page.title, masked_page.markdown)
             chunked_page = self._chunk_cleaned_page(masked_page, chunking_profile=chunking_profile)
+            staged.append((masked_page, chunking_profile, chunked_page))
 
-            # 도메인 상속 맵 — LLM 옵션이 켜지면 문서 1회 LLM 분류로 대체, 실패 시 룰 fallback.
-            llm_result = await self._classify_domain(masked_page)
+        # 2) 문서 단위 LLM 분류는 bounded concurrency로 병렬화(순차 시 문서 수만큼 지연 누적).
+        #    LLM 옵션이 꺼져 있으면 _classify_domain이 즉시 None → gather가 사실상 no-op.
+        sem = asyncio.Semaphore(self._classify_concurrency)
+
+        async def _classify(masked_page: CleanedConfluencePage) -> DomainResult | None:
+            async with sem:
+                return await self._classify_domain(masked_page)
+
+        llm_results = await asyncio.gather(*(_classify(masked) for masked, _, _ in staged))
+
+        # 3) 도메인 상속(LLM 또는 룰) + 메타 반영.
+        prepared_pages: list[ChunkedConfluencePage] = []
+        for (_, chunking_profile, chunked_page), llm_result in zip(staged, llm_results, strict=True):
             if llm_result is not None:
                 parent_domains = {parent.parent_id: llm_result.domain for parent in chunked_page.parents}
             else:

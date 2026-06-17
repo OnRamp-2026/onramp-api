@@ -49,6 +49,13 @@ async def test_classify_invalid_json_returns_none(monkeypatch: pytest.MonkeyPatc
     assert await DocumentDomainClassifier().classify("t", "b") is None
 
 
+async def test_classify_non_object_json_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 유효 JSON이지만 객체가 아닌 경우(list/str) data.get가 터지지 않고 룰 fallback(None)이어야 한다.
+    _patch_call_llm(monkeypatch, lambda: '["manual"]')
+
+    assert await DocumentDomainClassifier().classify("t", "b") is None
+
+
 async def test_classify_drops_secondary_equal_to_primary(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_call_llm(monkeypatch, lambda: '{"domain": "manual", "secondary": "manual", "confidence": 0.5}')
 

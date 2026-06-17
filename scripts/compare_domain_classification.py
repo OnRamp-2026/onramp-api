@@ -39,16 +39,31 @@ DOMAINS = list(DOMAIN_DEFINITIONS)
 
 
 async def _rule_domain_by_page(base: str) -> dict[str, str]:
-    """OpenSearch 청크에서 page_id → 다수결 룰 도메인 맵을 만든다."""
-    body = {"size": 10000, "_source": ["page_id", "domain"], "query": {"match_all": {}}}
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(f"{base}/onramp-chunks/_search", json=body)
-        r.raise_for_status()
-        hits = r.json()["hits"]["hits"]
+    """OpenSearch 청크에서 page_id → 다수결 룰 도메인. search_after로 전체 순회(10k 절단 방지)."""
     votes: dict[str, Counter] = defaultdict(Counter)
-    for h in hits:
-        s = h["_source"]
-        votes[s.get("page_id")][s.get("domain")] += 1
+    page_size = 2000
+    search_after: list | None = None
+    async with httpx.AsyncClient(timeout=30) as client:
+        while True:
+            body: dict = {
+                "size": page_size,
+                "_source": ["page_id", "domain"],
+                "query": {"match_all": {}},
+                "sort": [{"chunk_id": "asc"}],
+            }
+            if search_after:
+                body["search_after"] = search_after
+            r = await client.post(f"{base}/onramp-chunks/_search", json=body)
+            r.raise_for_status()
+            hits = r.json()["hits"]["hits"]
+            if not hits:
+                break
+            for h in hits:
+                s = h["_source"]
+                votes[s.get("page_id")][s.get("domain")] += 1
+            search_after = hits[-1]["sort"]
+            if len(hits) < page_size:
+                break
     return {pid: c.most_common(1)[0][0] for pid, c in votes.items() if c}
 
 

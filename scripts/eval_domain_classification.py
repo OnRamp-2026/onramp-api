@@ -98,8 +98,11 @@ async def run(per_domain: int, space: str | None, concurrency: int) -> None:
     pairs = [(rule, llm, c) for (rule, llm), c in zip(results, samples, strict=True) if llm]
 
     # 집계
-    agree = sum(1 for rule, llm, _ in pairs if rule == llm)
     n = len(pairs)
+    if not n:
+        logger.warning("유효 분류 결과 없음 — 종료")
+        return
+    agree = sum(1 for rule, llm, _ in pairs if rule == llm)
     per_domain_stat: dict[str, list[int]] = defaultdict(lambda: [0, 0])  # rule domain → [agree, total]
     confusion: Counter = Counter()
     for rule, llm, _ in pairs:

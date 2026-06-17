@@ -41,10 +41,10 @@ class _FakeGithub:
 
 class _FakeIndex:
     def __init__(self) -> None:
-        self.calls: list[tuple[int, str]] = []
+        self.calls: list[tuple[int, str, bool]] = []
 
     async def index_prepared(self, pages, *, source: str = "confluence", force: bool = False) -> IndexResult:  # noqa: ANN001
-        self.calls.append((len(pages), source))
+        self.calls.append((len(pages), source, force))
         return IndexResult(pages_indexed=len(pages), chunks_indexed=len(pages) * 2)
 
 
@@ -64,8 +64,19 @@ async def test_index_repos_aggregates_and_tags_github_source() -> None:
     # 2 repos × (1 doc + 1 issue) = 4 pages, source는 반드시 github
     assert github.docs_calls == ["onramp-api", "onramp-web"]
     assert github.issue_calls == ["onramp-api", "onramp-web"]
-    assert index.calls == [(4, "github")]
+    assert index.calls == [(4, "github", False)]
     assert result.pages_indexed == 4
+
+
+async def test_index_repos_passes_force_flag() -> None:
+    github = _FakeGithub()
+    index = _FakeIndex()
+    service = GithubIndexService(github=github, ingest=_FakeIngest(), index=index)  # type: ignore[arg-type]
+
+    await service.index_repos(["onramp-api"], force=True)
+
+    # force=True가 index_prepared까지 전달되는지 회귀 보호
+    assert index.calls == [(2, "github", True)]
 
 
 async def test_index_repos_empty_skips_index() -> None:

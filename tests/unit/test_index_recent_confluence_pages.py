@@ -4,8 +4,8 @@ from app.services.index_service import IndexResult
 
 class _FakeIndexService:
     def __init__(self) -> None:
-        self.recent_calls: list[tuple[int, int]] = []
-        self.all_calls: list[int] = []
+        self.recent_calls: list[tuple[int, int, bool]] = []
+        self.all_calls: list[tuple[int, bool]] = []
 
     async def index_recent_pages(self, hours: int, limit: int, *, force: bool = False) -> IndexResult:
         self.recent_calls.append((hours, limit, force))

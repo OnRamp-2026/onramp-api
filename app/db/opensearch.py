@@ -99,6 +99,8 @@ class OpenSearchClient:
             json={"actions": [{"add": {"index": concrete, "alias": alias}}]},
         )
         alias_create.raise_for_status()
+        # concrete 인덱스(옛 매핑)에 alias만 붙인 경로도 신규 청크 필드를 보장한다.
+        await self._ensure_chunk_fields(alias)
 
     async def upsert_chunks(self, documents: Sequence[Mapping[str, Any]]) -> None:
         if not documents:
