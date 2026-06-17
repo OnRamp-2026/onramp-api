@@ -4,7 +4,11 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, DatabaseSession
 from app.models.response import ConversationMessage, ConversationSummary, FiveElementsResponse, SourceDoc
-from app.services.conversation_service import get_conversation_messages, list_conversations
+from app.services.conversation_service import (
+    delete_conversation,
+    get_conversation_messages,
+    list_conversations,
+)
 
 router = APIRouter()
 
@@ -45,3 +49,13 @@ async def get_conversation(conversation_id: str, user: CurrentUser, db: Database
         )
         for m in messages
     ]
+
+
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_conversation(conversation_id: str, user: CurrentUser, db: DatabaseSession) -> None:
+    """본인 소유 대화를 삭제한다(message는 CASCADE). 소유자가 아니거나 없으면 404."""
+    deleted = await delete_conversation(
+        db, tenant_id=user.tenant_id, user_id=user.subject, conversation_id=conversation_id
+    )
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="대화를 찾을 수 없습니다.")
