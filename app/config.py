@@ -18,12 +18,21 @@ class Settings(BaseSettings):
     auth_jwt_secret: SecretStr = SecretStr("")
     auth_jwt_issuer: str = ""
     auth_jwt_audience: str = "onramp-api"
+    auth_enable_slack_login: bool = False
     auth_session_ttl_seconds: int = Field(default=28800, ge=60)  # 세션 JWT 만료 (8h, 최소 60s)
+    auth_state_ttl_seconds: int = Field(default=600, ge=60, le=3600)
     auth_dev_token_enabled: bool = False  # /auth/dev-token 게이트 (운영 false, dev/STT 테스트용)
     auth_default_tenant: str = "onramp"  # dev 토큰·미인증 fallback 테넌트
     auth_cookie_name: str = "onramp_session"  # 세션 쿠키 이름 (프론트는 credentials:include로 사용)
     auth_cookie_secure: bool = True  # HTTPS 전용 쿠키 (로컬 http 테스트 시 false)
     auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"  # OAuth top-level 복귀에 lax
+    auth_slack_client_id: str = ""
+    auth_slack_client_secret: SecretStr = SecretStr("")
+    auth_slack_redirect_uri: str = ""
+    auth_slack_authorize_url: str = "https://slack.com/openid/connect/authorize"
+    auth_slack_token_url: str = "https://slack.com/api/openid.connect.token"
+    auth_slack_issuer: str = "https://slack.com"
+    tenant_registry: dict[str, object] = Field(default_factory=dict)
 
     # OIDC RP — Slack "Sign in with Slack" (인증 서버 안 만듦, 클라이언트만)
     slack_client_id: str = ""
@@ -312,7 +321,7 @@ class Settings(BaseSettings):
     trust_eol_cap: float = Field(default=0.3, ge=0.0, le=1.0)  # EOL 버전 version_fit 상한
     trust_single_lineage_cap: float = Field(default=0.7, ge=0.0, le=1.0)  # 다버전 site 단일계보 보수 캡
 
-    @field_validator("eol_versions", "site_tier", "multi_version_sites", mode="before")
+    @field_validator("tenant_registry", "eol_versions", "site_tier", "multi_version_sites", mode="before")
     @classmethod
     def _parse_json_env(cls, v: object) -> object:
         # env var는 문자열로 들어오므로 JSON 파싱 (dict/list 기본값·직접 주입은 그대로 통과)

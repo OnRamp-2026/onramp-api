@@ -9,7 +9,7 @@ from app.api.deps import decode_tenant_token, get_current_tenant
 from app.config import Settings
 
 SECRET = "test-auth-secret-with-at-least-32-bytes"
-COOKIE_NAME = Settings().auth_cookie_name
+COOKIE_NAME = Settings(_env_file=None, debug=False).auth_cookie_name
 
 
 def _token(**claims: object) -> str:
@@ -45,7 +45,7 @@ def _request(
 
 
 def test_decode_tenant_token_uses_verified_claim() -> None:
-    settings = Settings(auth_jwt_secret=SECRET)
+    settings = Settings(_env_file=None, debug=False, auth_jwt_secret=SECRET)
 
     assert decode_tenant_token(_token(), settings) == "tenant-a"
 
@@ -67,7 +67,7 @@ def test_decode_tenant_token_uses_verified_claim() -> None:
     ],
 )
 def test_decode_tenant_token_rejects_invalid_tokens(token: str) -> None:
-    settings = Settings(auth_jwt_secret=SECRET)
+    settings = Settings(_env_file=None, debug=False, auth_jwt_secret=SECRET)
 
     with pytest.raises(HTTPException) as exc_info:
         decode_tenant_token(token, settings)
@@ -77,12 +77,15 @@ def test_decode_tenant_token_rejects_invalid_tokens(token: str) -> None:
 
 def test_decode_tenant_token_requires_auth_configuration() -> None:
     with pytest.raises(HTTPException) as exc_info:
-        decode_tenant_token(_token(), Settings(auth_jwt_secret=""))
+        decode_tenant_token(_token(), Settings(_env_file=None, debug=False, auth_jwt_secret=""))
 
     assert exc_info.value.status_code == 503
 
 
-def test_get_current_tenant_requires_cookie_or_bearer() -> None:
+def test_get_current_tenant_requires_cookie_or_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings(_env_file=None, debug=False, auth_jwt_secret=SECRET)
+    monkeypatch.setattr("app.api.deps.get_settings", lambda: settings)
+
     with pytest.raises(HTTPException) as exc_info:
         get_current_tenant(_request(), None)
 
@@ -90,7 +93,7 @@ def test_get_current_tenant_requires_cookie_or_bearer() -> None:
 
 
 def test_get_current_tenant_accepts_bearer_without_origin(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = Settings(auth_jwt_secret=SECRET)
+    settings = Settings(_env_file=None, debug=False, auth_jwt_secret=SECRET)
     monkeypatch.setattr("app.api.deps.get_settings", lambda: settings)
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=_token())
 
@@ -99,6 +102,8 @@ def test_get_current_tenant_accepts_bearer_without_origin(monkeypatch: pytest.Mo
 
 def test_get_current_tenant_accepts_session_cookie(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(
+        _env_file=None,
+        debug=False,
         auth_jwt_secret=SECRET,
         auth_base_url="https://onramp.example.com",
     )
@@ -119,6 +124,8 @@ def test_get_current_tenant_accepts_session_cookie(monkeypatch: pytest.MonkeyPat
 
 def test_get_current_tenant_skips_origin_check_for_safe_methods(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(
+        _env_file=None,
+        debug=False,
         auth_jwt_secret=SECRET,
         auth_base_url="https://onramp.example.com",
     )
@@ -129,6 +136,8 @@ def test_get_current_tenant_skips_origin_check_for_safe_methods(monkeypatch: pyt
 
 def test_get_current_tenant_normalizes_origin_case(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(
+        _env_file=None,
+        debug=False,
         auth_jwt_secret=SECRET,
         auth_base_url="HTTPS://OnRamp.Example.Com",
     )
@@ -150,7 +159,7 @@ def test_get_current_tenant_normalizes_origin_case(monkeypatch: pytest.MonkeyPat
 def test_get_current_tenant_returns_503_when_origin_not_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    settings = Settings(auth_jwt_secret=SECRET, auth_base_url="")
+    settings = Settings(_env_file=None, debug=False, auth_jwt_secret=SECRET, auth_base_url="")
     monkeypatch.setattr("app.api.deps.get_settings", lambda: settings)
 
     with pytest.raises(HTTPException) as exc_info:
@@ -168,6 +177,8 @@ def test_get_current_tenant_rejects_untrusted_cookie_origin(
     origin: str | None,
 ) -> None:
     settings = Settings(
+        _env_file=None,
+        debug=False,
         auth_jwt_secret=SECRET,
         auth_base_url="https://onramp.example.com",
     )
