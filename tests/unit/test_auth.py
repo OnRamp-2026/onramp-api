@@ -22,7 +22,7 @@ def _token(**claims: object) -> str:
 
 
 def test_decode_tenant_token_uses_verified_claim() -> None:
-    settings = Settings(auth_jwt_secret=SECRET)
+    settings = Settings(_env_file=None, debug=False, auth_jwt_secret=SECRET)
 
     assert decode_tenant_token(_token(), settings) == "tenant-a"
 
@@ -44,7 +44,7 @@ def test_decode_tenant_token_uses_verified_claim() -> None:
     ],
 )
 def test_decode_tenant_token_rejects_invalid_tokens(token: str) -> None:
-    settings = Settings(auth_jwt_secret=SECRET)
+    settings = Settings(_env_file=None, debug=False, auth_jwt_secret=SECRET)
 
     with pytest.raises(HTTPException) as exc_info:
         decode_tenant_token(token, settings)
@@ -54,7 +54,7 @@ def test_decode_tenant_token_rejects_invalid_tokens(token: str) -> None:
 
 def test_decode_tenant_token_requires_auth_configuration() -> None:
     with pytest.raises(HTTPException) as exc_info:
-        decode_tenant_token(_token(), Settings(auth_jwt_secret=""))
+        decode_tenant_token(_token(), Settings(_env_file=None, debug=False, auth_jwt_secret=""))
 
     assert exc_info.value.status_code == 503
 
@@ -67,7 +67,7 @@ def test_get_current_tenant_requires_bearer_credentials() -> None:
 
 
 def test_get_current_tenant_does_not_accept_client_tenant_header(monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = Settings(auth_jwt_secret=SECRET)
+    settings = Settings(_env_file=None, debug=False, auth_jwt_secret=SECRET)
     monkeypatch.setattr("app.api.deps.get_settings", lambda: settings)
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=_token())
 

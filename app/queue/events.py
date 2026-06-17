@@ -5,7 +5,16 @@ from datetime import datetime
 from typing import Any, Literal, cast
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+def _tenant_prefix(tenant_id: str) -> str:
+    return f"tenants/{tenant_id}/"
+
+
+def _ensure_tenant_scoped_key(tenant_id: str, object_key: str, *, field_name: str) -> None:
+    if not object_key.startswith(_tenant_prefix(tenant_id)):
+        raise ValueError(f"{field_name} must start with '{_tenant_prefix(tenant_id)}'")
 
 
 class StreamEnvelope(BaseModel):
@@ -31,6 +40,11 @@ class TranscriptCompleted(BaseModel):
     tenant_id: str
     result_object_key: str
 
+    @model_validator(mode="after")
+    def _validate_result_object_key(self) -> "TranscriptCompleted":
+        _ensure_tenant_scoped_key(self.tenant_id, self.result_object_key, field_name="result_object_key")
+        return self
+
 
 class TranscriptionCompleted(BaseModel):
     transcription_id: UUID
@@ -40,6 +54,11 @@ class TranscriptionCompleted(BaseModel):
     dictionary_version: str = Field(min_length=1, max_length=32)
     result_object_key: str = Field(min_length=1)
     completed_at: datetime
+
+    @model_validator(mode="after")
+    def _validate_result_object_key(self) -> "TranscriptionCompleted":
+        _ensure_tenant_scoped_key(self.tenant_id, self.result_object_key, field_name="result_object_key")
+        return self
 
 
 def encode_envelope(envelope: StreamEnvelope) -> dict[str, str]:

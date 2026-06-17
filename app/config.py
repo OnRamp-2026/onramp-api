@@ -17,6 +17,16 @@ class Settings(BaseSettings):
     auth_jwt_secret: SecretStr = SecretStr("")
     auth_jwt_issuer: str = ""
     auth_jwt_audience: str = "onramp-api"
+    auth_enable_slack_login: bool = False
+    auth_session_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
+    auth_state_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+    auth_slack_client_id: str = ""
+    auth_slack_client_secret: SecretStr = SecretStr("")
+    auth_slack_redirect_uri: str = ""
+    auth_slack_authorize_url: str = "https://slack.com/openid/connect/authorize"
+    auth_slack_token_url: str = "https://slack.com/api/openid.connect.token"
+    auth_slack_issuer: str = "https://slack.com"
+    tenant_registry: dict[str, object] = Field(default_factory=dict)
 
     # LLM Provider: "openai" | "azure" | "self_hosted"
     llm_provider: str = ""
@@ -201,7 +211,7 @@ class Settings(BaseSettings):
     trust_eol_cap: float = Field(default=0.3, ge=0.0, le=1.0)  # EOL 버전 version_fit 상한
     trust_single_lineage_cap: float = Field(default=0.7, ge=0.0, le=1.0)  # 다버전 site 단일계보 보수 캡
 
-    @field_validator("eol_versions", "site_tier", "multi_version_sites", mode="before")
+    @field_validator("tenant_registry", "eol_versions", "site_tier", "multi_version_sites", mode="before")
     @classmethod
     def _parse_json_env(cls, v: object) -> object:
         # env var는 문자열로 들어오므로 JSON 파싱 (dict/list 기본값·직접 주입은 그대로 통과)
