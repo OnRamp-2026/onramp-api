@@ -20,6 +20,7 @@ from app.services.stt_result_client import (
 from app.services.transcription_service import (
     TranscriptionConflictError,
     TranscriptionNotFoundError,
+    TranscriptionStorageError,
     complete_upload,
     create_workflow,
     get_workflow,
@@ -28,10 +29,18 @@ from app.services.transcription_service import (
 
 
 class FakeSttResultClient:
-    def __init__(self, *, fail_complete: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail_create: Exception | None = None,
+        fail_complete: Exception | None = None,
+        complete_status: str = "queued",
+    ) -> None:
         self.create_calls: int = 0
         self.complete_calls: int = 0
+        self.fail_create = fail_create
         self.fail_complete = fail_complete
+        self.complete_status = complete_status
 
     async def create_transcription(
         self,
@@ -43,6 +52,8 @@ class FakeSttResultClient:
         size_bytes: int,
         idempotency_key: str | None = None,
     ) -> SttCreateTranscriptionResponse:
+        if self.fail_create is not None:
+            raise self.fail_create
         self.create_calls += 1
         object_key = f"tenants/{tenant_id}/transcriptions/{transcription_id}/source/{filename}"
         return SttCreateTranscriptionResponse(
@@ -61,17 +72,14 @@ class FakeSttResultClient:
         self,
         transcription_id: UUID,
         *,
+        tenant_id: str,
         etag: str | None,
         size_bytes: int,
     ) -> SttCompleteUploadResponse:
-        if self.fail_complete:
-            raise httpx.HTTPStatusError(
-                "409 Conflict",
-                request=httpx.Request("POST", "http://stt"),
-                response=httpx.Response(409),
-            )
+        if self.fail_complete is not None:
+            raise self.fail_complete
         self.complete_calls += 1
-        return SttCompleteUploadResponse(transcription_id=transcription_id, status="queued")
+        return SttCompleteUploadResponse(transcription_id=transcription_id, status=self.complete_status)
 
 
 @pytest.fixture
@@ -282,12 +290,98 @@ async def test_complete_upload_raises_conflict_when_stt_returns_409(
         )
         await session.commit()
 
-    stt_client_fail = FakeSttResultClient(fail_complete=True)
+    stt_client_fail = FakeSttResultClient(
+        fail_complete=httpx.HTTPStatusError(
+            "409 Conflict",
+            request=httpx.Request("POST", "http://stt"),
+            response=httpx.Response(409),
+        )
+    )
     async with session_factory() as session:
         with pytest.raises(TranscriptionConflictError):
             await complete_upload(
                 session,
                 stt_client_fail,
+                tenant_id="tenant-a",
+                transcription_id=created.workflow.transcription_id,
+                request=UploadCompleteRequest(etag='"abc123"', size_bytes=1024),
+            )
+
+
+@pytest.mark.asyncio
+async def test_create_workflow_rolls_back_when_stt_request_fails(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    stt_client = FakeSttResultClient(
+        fail_create=httpx.RequestError("connection failed", request=httpx.Request("POST", "http://stt"))
+    )
+    async with session_factory() as session:
+        with pytest.raises(TranscriptionStorageError):
+            await create_workflow(
+                session,
+                stt_client,
+                tenant_id="tenant-a",
+                idempotency_key=None,
+                request=create_request(),
+            )
+        await session.rollback()
+
+    async with session_factory() as session:
+        count = len(list(await session.scalars(select(TranscriptionWorkflow))))
+
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_complete_upload_maps_request_error_to_storage_error(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    stt_client_ok = FakeSttResultClient()
+    async with session_factory() as session:
+        created, _ = await create_workflow(
+            session,
+            stt_client_ok,
+            tenant_id="tenant-a",
+            idempotency_key=None,
+            request=create_request(),
+        )
+        await session.commit()
+
+    stt_client_fail = FakeSttResultClient(
+        fail_complete=httpx.RequestError("timeout", request=httpx.Request("POST", "http://stt"))
+    )
+    async with session_factory() as session:
+        with pytest.raises(TranscriptionStorageError):
+            await complete_upload(
+                session,
+                stt_client_fail,
+                tenant_id="tenant-a",
+                transcription_id=created.workflow.transcription_id,
+                request=UploadCompleteRequest(etag='"abc123"', size_bytes=1024),
+            )
+
+
+@pytest.mark.asyncio
+async def test_complete_upload_rejects_unexpected_stt_status(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    stt_client_ok = FakeSttResultClient()
+    async with session_factory() as session:
+        created, _ = await create_workflow(
+            session,
+            stt_client_ok,
+            tenant_id="tenant-a",
+            idempotency_key=None,
+            request=create_request(),
+        )
+        await session.commit()
+
+    stt_client_unexpected = FakeSttResultClient(complete_status="awaiting_upload")
+    async with session_factory() as session:
+        with pytest.raises(TranscriptionStorageError):
+            await complete_upload(
+                session,
+                stt_client_unexpected,
                 tenant_id="tenant-a",
                 transcription_id=created.workflow.transcription_id,
                 request=UploadCompleteRequest(etag='"abc123"', size_bytes=1024),

@@ -88,7 +88,7 @@ async def _call_stt_create(
             size_bytes=workflow.source_size_bytes,
             idempotency_key=idempotency_key,
         )
-    except httpx.HTTPStatusError as exc:
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
         raise TranscriptionStorageError("STT API 업로드 URL 발급에 실패했습니다.") from exc
     workflow.source_object_key = result.source_object_key
     return _stt_upload_to_presigned(result)
@@ -201,8 +201,9 @@ async def complete_upload(
         raise TranscriptionConflictError(f"현재 상태에서는 업로드를 완료할 수 없습니다: {workflow.status}")
 
     try:
-        await stt_client.complete_upload(
+        result = await stt_client.complete_upload(
             transcription_id,
+            tenant_id=tenant_id,
             etag=request.etag,
             size_bytes=request.size_bytes,
         )
@@ -210,6 +211,11 @@ async def complete_upload(
         if exc.response.status_code == 409:
             raise TranscriptionConflictError("업로드 검증에 실패했습니다.") from exc
         raise TranscriptionStorageError("STT API 업로드 완료 처리에 실패했습니다.") from exc
+    except httpx.RequestError as exc:
+        raise TranscriptionStorageError("STT API 업로드 완료 처리에 실패했습니다.") from exc
+
+    if result.status != WorkflowStatus.queued.value:
+        raise TranscriptionStorageError("STT API 업로드 완료 응답 상태가 올바르지 않습니다.")
 
     workflow.status = WorkflowStatus.queued
     workflow.source_etag = request.etag

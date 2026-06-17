@@ -96,6 +96,7 @@ class SttResultClient:
         self,
         transcription_id: UUID,
         *,
+        tenant_id: str,
         etag: str | None,
         size_bytes: int,
     ) -> SttCompleteUploadResponse:
@@ -103,7 +104,7 @@ class SttResultClient:
             response = await client.post(
                 f"{self.base_url}/v1/internal/transcriptions/{transcription_id}/upload-complete",
                 headers=self._headers,
-                json={"etag": etag, "size_bytes": size_bytes},
+                json={"tenant_id": tenant_id, "etag": etag, "size_bytes": size_bytes},
             )
         response.raise_for_status()
         return SttCompleteUploadResponse.model_validate(response.json())
