@@ -282,6 +282,9 @@ class Settings(BaseSettings):
     # 114문항·재색인 코퍼스 보정: Youden 최대, precision 1.000 / recall 0.704.
     # eval_retrieval.ANSWERABILITY_FLOOR 와 동일 유지. 골든셋·코퍼스·리랭커 갱신 시 재보정.
     trust_rerank_floor: float = Field(default=0.8681, ge=0.0)
+    # 리랭커 폴백 시 coverage용 good 판정 — top 검색점수 대비 비율(모드-독립; #202).
+    # 0.0=생존 전부 신뢰(가장 관대, 답변 보장). 좋은 골든셋 확보 후 상향 튜닝.
+    trust_fallback_score_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
     # ── Trust 4축 재설계 (#108, 설계 4·5장) ──
     # 구 5축 가중치(trust_w_recency/owner/verification/duplication/sensitivity)와
     # trust_min_docs·중립 상수는 제거 — 죽은 축이 overall을 부풀리던 왜곡 제거(설계 1.3).

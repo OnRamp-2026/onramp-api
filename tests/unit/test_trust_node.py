@@ -348,6 +348,23 @@ def test_coverage_waiver_single_survivor_no_top2() -> None:
     assert waiver is True and coverage == 1.0
 
 
+def test_coverage_rerank_fallback_does_not_collapse_to_zero() -> None:
+    """리랭커 폴백 시 raw rerank=0이어도 coverage가 0으로 무너지지 않는다 (#202).
+
+    정상 모드: raw 0 → floor 미달 → good 0 → coverage 0 (이게 답변 보류를 유발하던 버그).
+    폴백 모드: ratio=0 기본 → 검색 생존 전부 good → distinct 주제 수로 coverage 산정.
+    """
+    docs = [
+        _doc(raw=0.0, page_id="a1", doc_key="k8s:a", site="kubernetes"),
+        _doc(raw=0.0, page_id="a2", doc_key="k8s:b", site="kubernetes"),
+    ]
+    cov_normal, _, _, n_normal = compute_coverage(docs, [], S, rerank_fallback=False)
+    assert cov_normal == 0.0 and n_normal == 0  # 기존: rerank 없으면 0 → 보류
+
+    cov_fb, waiver, _, n_fb = compute_coverage(docs, [], S, rerank_fallback=True)
+    assert cov_fb == 1.0 and n_fb == 2 and waiver is False  # 폴백: vector 검색 신뢰 → 답변 가능
+
+
 def test_residual_duplication_counts_unexempt_siblings() -> None:
     """비교 질의가 아니면 형제 혼입이 잔여 중복으로 잡힌다 (collapse 전 호출 가정 검증)."""
     docs = [

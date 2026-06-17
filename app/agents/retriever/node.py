@@ -113,7 +113,8 @@ async def retrieve_node(state: AgentState) -> dict:
         _to_source_doc(payload, ranking_score, raw_score, vec_score.get(payload.get("chunk_id"), 0.0), settings)
         for ranking_score, raw_score, payload in ranked[: settings.retriever_top_n]
     ]
-    return {"documents": docs, "agent_trace": ["retriever"]}
+    # 리랭커 폴백 여부를 Trust로 전달 — coverage 산정이 raw rerank τ 대신 검색점수 비율을 쓰게 한다 (#202)
+    return {"documents": docs, "rerank_fallback": fallback_reason is not None, "agent_trace": ["retriever"]}
 
 
 def _domain_values(domains: Sequence[Domain | str] | None) -> list[str]:
