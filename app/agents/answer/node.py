@@ -19,7 +19,8 @@ from app.agents.answer.answerability import (
 )
 from app.agents.answer.formatter import format_answer, format_freeform
 from app.agents.answer.prompts import ANSWER_SYSTEM_PROMPT, FREEFORM_SYSTEM_PROMPT
-from app.agents.state import AgentState, AnswerabilityStatus, Domain, FiveElements, SourceDocument
+from app.agents.format_policy import decide_answer_format
+from app.agents.state import AgentState, AnswerabilityStatus, FiveElements, SourceDocument
 from app.config import get_settings
 from app.services.llm_selector import call_llm
 
@@ -31,15 +32,6 @@ _HOLD_STATUSES = {
     AnswerabilityStatus.CONFLICTING_EVIDENCE,
     AnswerabilityStatus.OUTDATED_EVIDENCE,
 }
-
-
-def _decide_answer_format(domains: list[Domain], structured_domains: set[str]) -> str:
-    """라우터 domains가 structured 집합과 교집합이면 'structured', 아니면 'freeform' (#191).
-
-    포맷은 사용자 의도(라우터)로만 결정한다 — 검색 근거 도메인은 포맷에 쓰지 않는다(answerability로 처리).
-    domains가 비었거나(라우터 애매) 교집합이 없으면 freeform(안전한 기본).
-    """
-    return "structured" if any(d in structured_domains for d in domains) else "freeform"
 
 
 def _result(
@@ -74,7 +66,11 @@ async def answer_node(state: AgentState) -> dict:
     """문서 근거로 답변을 생성하고 Answerability Status를 판정한다 (포맷은 라우터 domains 기준)."""
     documents = state.get("documents", [])
     query = state.get("refined_query") or state.get("query", "")
-    answer_format = _decide_answer_format(state.get("domains") or [], get_settings().structured_answer_domains)
+    # 포맷은 라우터가 의도-time에 박은 값을 우선 사용한다 (Trust가 domains를 변형해도 불변, #191).
+    # 라우터 미경유 경로(직접 호출 등)를 위해 domains 기반 계산을 fallback으로 둔다.
+    answer_format = state.get("answer_format") or decide_answer_format(
+        state.get("domains") or [], get_settings().structured_answer_domains
+    )
     is_structured = answer_format == "structured"
 
     # 결정론 floor: 문서 0건 → 보류 (LLM 호출 안 함)

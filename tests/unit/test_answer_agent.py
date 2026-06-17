@@ -7,7 +7,8 @@ import pytest
 from app.agents.answer import node as node_mod
 from app.agents.answer.answerability import GateFlags, decide_answerability
 from app.agents.answer.formatter import format_answer, format_freeform
-from app.agents.answer.node import _decide_answer_format, answer_node
+from app.agents.answer.node import answer_node
+from app.agents.format_policy import decide_answer_format
 from app.agents.state import AnswerabilityStatus, Domain, FiveElements, SourceDocument
 
 # 포맷은 라우터 domains 기준(#191). 구조화 경로 테스트는 incident를 명시한다.
@@ -56,11 +57,20 @@ def _free_json(status: str = "answerable", indices: tuple[int, ...] = (0,), text
 
 def test_decide_answer_format_router_only():
     s = {"incident"}
-    assert _decide_answer_format([Domain.INCIDENT], s) == "structured"
-    assert _decide_answer_format([Domain.MANUAL], s) == "freeform"
-    assert _decide_answer_format([Domain.PLANNING, Domain.MEETING_NOTE], s) == "freeform"
-    assert _decide_answer_format([Domain.INCIDENT, Domain.MANUAL], s) == "structured"  # 교집합 있으면 structured
-    assert _decide_answer_format([], s) == "freeform"  # 라우터 애매 → freeform
+    assert decide_answer_format([Domain.INCIDENT], s) == "structured"
+    assert decide_answer_format([Domain.MANUAL], s) == "freeform"
+    assert decide_answer_format([Domain.PLANNING, Domain.MEETING_NOTE], s) == "freeform"
+    assert decide_answer_format([Domain.INCIDENT, Domain.MANUAL], s) == "structured"  # 교집합 있으면 structured
+    assert decide_answer_format([], s) == "freeform"  # 라우터 애매 → freeform
+
+
+@pytest.mark.asyncio
+async def test_answer_format_uses_router_value_over_mutated_domains(monkeypatch):
+    # 라우터가 박은 answer_format이 우선 — Trust가 domains를 비워도(EXPAND_TOPICS) 포맷 불변 (#191 E2E 버그)
+    monkeypatch.setattr(node_mod, "call_llm", _mock_llm(_ans_json("answerable", (0,))))
+    out = await answer_node({"refined_query": "q", "documents": [_doc()], "domains": [], "answer_format": "structured"})
+    assert out["answer_format"] == "structured"  # domains=[] 인데도 라우터 값(structured) 유지
+    assert out["answer"].situation != ""
 
 
 def test_structured_answer_domains_normalized():
