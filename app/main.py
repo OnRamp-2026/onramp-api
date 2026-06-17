@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.slack import router as slack_router
-from app.api.v1.auth import public_router as public_auth_router
+from app.api.v1.auth_browser import browser_router as browser_auth_router
 from app.api.v1.router import build_v1_router
 from app.config import get_settings
 from app.db.opensearch import close_opensearch
@@ -71,7 +71,8 @@ def create_app() -> FastAPI:
     # Routers
     app.include_router(build_v1_router(enable_slack_auth=settings.auth_enable_slack_login), prefix="/v1")
     if settings.auth_enable_slack_login:
-        app.include_router(public_auth_router)
+        # 브라우저 SPA = 쿠키 세션 + redirect(/auth/login·callback·me·logout). API/토큰은 /v1/auth/slack/*.
+        app.include_router(browser_auth_router)
     app.include_router(slack_router, prefix="/slack", tags=["Slack"])
 
     return app
