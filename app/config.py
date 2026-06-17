@@ -264,6 +264,12 @@ class Settings(BaseSettings):
     # 포맷은 "사용자 의도(라우터)"로만 결정한다 — 근거 품질은 answerability가 별도로 처리.
     structured_answer_domains: set[str] = {"incident"}
 
+    @field_validator("structured_answer_domains", mode="after")
+    @classmethod
+    def _normalize_structured_answer_domains(cls, v: set[str]) -> set[str]:
+        # env 오설정(대소문자·공백)으로 Domain 키와 교집합이 깨져 조용히 freeform 되는 것 방지.
+        return {d.strip().lower() for d in v if d and d.strip()}
+
     # ── Trust Agent (Evidence Confidence, P1) ──
     trust_max_retries: int = Field(default=1, ge=0)  # 재검색 최대 횟수 (무한루프 방지)
     # 재검색 트리거 τ (calibrate_answerability 보정값; top raw rerank<floor → 재검색)

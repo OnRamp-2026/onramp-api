@@ -63,6 +63,14 @@ def test_decide_answer_format_router_only():
     assert _decide_answer_format([], s) == "freeform"  # 라우터 애매 → freeform
 
 
+def test_structured_answer_domains_normalized():
+    # env 오설정(대소문자·공백)이 들어와도 Domain 키와 교집합이 깨지지 않도록 정규화 (CodeRabbit #192)
+    from app.config import Settings
+
+    s = Settings(structured_answer_domains={" Incident ", "MANUAL", ""})
+    assert s.structured_answer_domains == {"incident", "manual"}
+
+
 @pytest.mark.asyncio
 async def test_incident_uses_structured(monkeypatch):
     monkeypatch.setattr(node_mod, "call_llm", _mock_llm(_ans_json("answerable", (0,))))
