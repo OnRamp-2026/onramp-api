@@ -4,46 +4,82 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import httpx
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db.base import Base
-from app.db.models import EventOutbox, TranscriptionWorkflow, WorkflowStatus
+from app.db.models import TranscriptionWorkflow, WorkflowStatus
 from app.models.transcription import TranscriptionCreateRequest, UploadCompleteRequest
+from app.services.stt_result_client import (
+    SttCompleteUploadResponse,
+    SttCreateTranscriptionResponse,
+    SttUploadInstruction,
+)
 from app.services.transcription_service import (
     TranscriptionConflictError,
     TranscriptionNotFoundError,
+    TranscriptionStorageError,
     complete_upload,
     create_workflow,
     get_workflow,
     status_response,
 )
-from app.storage.base import ObjectMetadata, PresignedUpload
 
 
-class FakeObjectStorage:
-    def __init__(self) -> None:
-        self.objects: dict[str, ObjectMetadata] = {}
-        self.presigned_keys: list[str] = []
-
-    async def create_presigned_upload(
+class FakeSttResultClient:
+    def __init__(
         self,
-        object_key: str,
         *,
+        fail_create: Exception | None = None,
+        fail_complete: Exception | None = None,
+        complete_status: str = "queued",
+    ) -> None:
+        self.create_calls: int = 0
+        self.complete_calls: int = 0
+        self.fail_create = fail_create
+        self.fail_complete = fail_complete
+        self.complete_status = complete_status
+
+    async def create_transcription(
+        self,
+        *,
+        tenant_id: str,
+        transcription_id: UUID,
+        filename: str,
         content_type: str,
-        expires_in_seconds: int,
-    ) -> PresignedUpload:
-        self.presigned_keys.append(object_key)
-        return PresignedUpload(
-            method="PUT",
-            url=f"https://storage.test/{object_key}",
-            headers={"Content-Type": content_type},
-            expires_at=datetime.now(UTC) + timedelta(seconds=expires_in_seconds),
+        size_bytes: int,
+        idempotency_key: str | None = None,
+    ) -> SttCreateTranscriptionResponse:
+        if self.fail_create is not None:
+            raise self.fail_create
+        self.create_calls += 1
+        object_key = f"tenants/{tenant_id}/transcriptions/{transcription_id}/source/{filename}"
+        return SttCreateTranscriptionResponse(
+            transcription_id=transcription_id,
+            status="awaiting_upload",
+            source_object_key=object_key,
+            upload=SttUploadInstruction(
+                url=f"https://storage.test/{object_key}",
+                method="PUT",
+                headers={"Content-Type": content_type},
+                expires_at=datetime.now(UTC) + timedelta(seconds=900),
+            ),
         )
 
-    async def head(self, object_key: str) -> ObjectMetadata:
-        return self.objects[object_key]
+    async def complete_upload(
+        self,
+        transcription_id: UUID,
+        *,
+        tenant_id: str,
+        etag: str | None,
+        size_bytes: int,
+    ) -> SttCompleteUploadResponse:
+        if self.fail_complete is not None:
+            raise self.fail_complete
+        self.complete_calls += 1
+        return SttCompleteUploadResponse(transcription_id=transcription_id, status=self.complete_status)
 
 
 @pytest.fixture
@@ -71,61 +107,57 @@ def create_request() -> TranscriptionCreateRequest:
 async def test_create_workflow_is_idempotent_per_tenant(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    storage = FakeObjectStorage()
+    stt_client = FakeSttResultClient()
 
     async with session_factory() as session:
         first, first_created = await create_workflow(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-a",
             idempotency_key="same-key",
             request=create_request(),
-            upload_ttl_seconds=900,
         )
         await session.commit()
 
     async with session_factory() as session:
         second, second_created = await create_workflow(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-a",
             idempotency_key="same-key",
             request=create_request(),
-            upload_ttl_seconds=900,
         )
 
     assert first_created is True
     assert second_created is False
     assert second.workflow.id == first.workflow.id
     assert second.workflow.transcription_id == first.workflow.transcription_id
-    assert len(storage.presigned_keys) == 2
+    assert stt_client.create_calls == 2
 
 
 @pytest.mark.asyncio
 async def test_same_idempotency_key_isolated_by_tenant(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    storage = FakeObjectStorage()
+    stt_client = FakeSttResultClient()
 
     async with session_factory() as session:
         first, _ = await create_workflow(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-a",
             idempotency_key="same-key",
             request=create_request(),
-            upload_ttl_seconds=900,
         )
         await session.commit()
 
     async with session_factory() as session:
         second, created = await create_workflow(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-b",
             idempotency_key="same-key",
             request=create_request(),
-            upload_ttl_seconds=900,
         )
 
     assert created is True
@@ -133,32 +165,24 @@ async def test_same_idempotency_key_isolated_by_tenant(
 
 
 @pytest.mark.asyncio
-async def test_complete_upload_queues_workflow_and_stores_outbox(
+async def test_complete_upload_queues_workflow(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    storage = FakeObjectStorage()
+    stt_client = FakeSttResultClient()
     async with session_factory() as session:
         created, _ = await create_workflow(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-a",
             idempotency_key=None,
             request=create_request(),
-            upload_ttl_seconds=900,
         )
         await session.commit()
-
-    storage.objects[created.workflow.source_object_key] = ObjectMetadata(
-        object_key=created.workflow.source_object_key,
-        size_bytes=1024,
-        content_type="audio/mp4",
-        etag='"abc123"',
-    )
 
     async with session_factory() as session:
         workflow = await complete_upload(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-a",
             transcription_id=created.workflow.transcription_id,
             request=UploadCompleteRequest(etag='"abc123"', size_bytes=1024),
@@ -166,47 +190,35 @@ async def test_complete_upload_queues_workflow_and_stores_outbox(
         await session.commit()
 
     async with session_factory() as session:
-        outbox = await session.scalar(select(EventOutbox))
         persisted = await session.scalar(select(TranscriptionWorkflow).where(TranscriptionWorkflow.id == workflow.id))
 
     assert persisted is not None
     assert persisted.status == WorkflowStatus.queued
     assert persisted.source_etag == '"abc123"'
-    assert outbox is not None
-    assert outbox.event_type == "transcription.requested"
-    assert outbox.stream_name == "onramp:stt:requests:v1"
-    assert outbox.payload_json["transcription_id"] == str(workflow.transcription_id)
-    assert outbox.payload_json["tenant_id"] == "tenant-a"
+    assert stt_client.complete_calls == 1
 
 
 @pytest.mark.asyncio
-async def test_complete_upload_does_not_duplicate_outbox(
+async def test_complete_upload_is_idempotent_when_already_queued(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    storage = FakeObjectStorage()
+    stt_client = FakeSttResultClient()
     async with session_factory() as session:
         created, _ = await create_workflow(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-a",
             idempotency_key=None,
             request=create_request(),
-            upload_ttl_seconds=900,
         )
         await session.commit()
 
-    storage.objects[created.workflow.source_object_key] = ObjectMetadata(
-        object_key=created.workflow.source_object_key,
-        size_bytes=1024,
-        content_type="audio/mp4",
-        etag='"abc123"',
-    )
     complete_request = UploadCompleteRequest(etag='"abc123"', size_bytes=1024)
 
     async with session_factory() as session:
         await complete_upload(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-a",
             transcription_id=created.workflow.transcription_id,
             request=complete_request,
@@ -216,45 +228,36 @@ async def test_complete_upload_does_not_duplicate_outbox(
     async with session_factory() as session:
         workflow = await complete_upload(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-a",
             transcription_id=created.workflow.transcription_id,
             request=complete_request,
         )
         await session.commit()
-        outbox_count = await session.scalar(select(func.count()).select_from(EventOutbox))
 
     assert workflow.status == WorkflowStatus.queued
-    assert outbox_count == 1
+    assert stt_client.complete_calls == 1  # second call skipped (already queued)
 
 
 @pytest.mark.asyncio
-async def test_complete_upload_rollback_keeps_workflow_and_outbox_atomic(
+async def test_complete_upload_rollback_keeps_workflow_awaiting(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    storage = FakeObjectStorage()
+    stt_client = FakeSttResultClient()
     async with session_factory() as session:
         created, _ = await create_workflow(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-a",
             idempotency_key=None,
             request=create_request(),
-            upload_ttl_seconds=900,
         )
         await session.commit()
-
-    storage.objects[created.workflow.source_object_key] = ObjectMetadata(
-        object_key=created.workflow.source_object_key,
-        size_bytes=1024,
-        content_type="audio/mp4",
-        etag='"abc123"',
-    )
 
     async with session_factory() as session:
         await complete_upload(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-a",
             transcription_id=created.workflow.transcription_id,
             request=UploadCompleteRequest(etag='"abc123"', size_bytes=1024),
@@ -267,41 +270,118 @@ async def test_complete_upload_rollback_keeps_workflow_and_outbox_atomic(
                 TranscriptionWorkflow.transcription_id == created.workflow.transcription_id
             )
         )
-        outbox_count = await session.scalar(select(func.count()).select_from(EventOutbox))
 
     assert workflow is not None
     assert workflow.status == WorkflowStatus.awaiting_upload
-    assert outbox_count == 0
 
 
 @pytest.mark.asyncio
-async def test_complete_upload_rejects_metadata_mismatch(
+async def test_complete_upload_raises_conflict_when_stt_returns_409(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    storage = FakeObjectStorage()
+    stt_client_ok = FakeSttResultClient()
     async with session_factory() as session:
         created, _ = await create_workflow(
             session,
-            storage,
+            stt_client_ok,
             tenant_id="tenant-a",
             idempotency_key=None,
             request=create_request(),
-            upload_ttl_seconds=900,
         )
         await session.commit()
 
-    storage.objects[created.workflow.source_object_key] = ObjectMetadata(
-        object_key=created.workflow.source_object_key,
-        size_bytes=999,
-        content_type="audio/mp4",
-        etag='"abc123"',
+    stt_client_fail = FakeSttResultClient(
+        fail_complete=httpx.HTTPStatusError(
+            "409 Conflict",
+            request=httpx.Request("POST", "http://stt"),
+            response=httpx.Response(409),
+        )
     )
-
     async with session_factory() as session:
         with pytest.raises(TranscriptionConflictError):
             await complete_upload(
                 session,
-                storage,
+                stt_client_fail,
+                tenant_id="tenant-a",
+                transcription_id=created.workflow.transcription_id,
+                request=UploadCompleteRequest(etag='"abc123"', size_bytes=1024),
+            )
+
+
+@pytest.mark.asyncio
+async def test_create_workflow_rolls_back_when_stt_request_fails(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    stt_client = FakeSttResultClient(
+        fail_create=httpx.RequestError("connection failed", request=httpx.Request("POST", "http://stt"))
+    )
+    async with session_factory() as session:
+        with pytest.raises(TranscriptionStorageError):
+            await create_workflow(
+                session,
+                stt_client,
+                tenant_id="tenant-a",
+                idempotency_key=None,
+                request=create_request(),
+            )
+        await session.rollback()
+
+    async with session_factory() as session:
+        count = len(list(await session.scalars(select(TranscriptionWorkflow))))
+
+    assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_complete_upload_maps_request_error_to_storage_error(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    stt_client_ok = FakeSttResultClient()
+    async with session_factory() as session:
+        created, _ = await create_workflow(
+            session,
+            stt_client_ok,
+            tenant_id="tenant-a",
+            idempotency_key=None,
+            request=create_request(),
+        )
+        await session.commit()
+
+    stt_client_fail = FakeSttResultClient(
+        fail_complete=httpx.RequestError("timeout", request=httpx.Request("POST", "http://stt"))
+    )
+    async with session_factory() as session:
+        with pytest.raises(TranscriptionStorageError):
+            await complete_upload(
+                session,
+                stt_client_fail,
+                tenant_id="tenant-a",
+                transcription_id=created.workflow.transcription_id,
+                request=UploadCompleteRequest(etag='"abc123"', size_bytes=1024),
+            )
+
+
+@pytest.mark.asyncio
+async def test_complete_upload_rejects_unexpected_stt_status(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    stt_client_ok = FakeSttResultClient()
+    async with session_factory() as session:
+        created, _ = await create_workflow(
+            session,
+            stt_client_ok,
+            tenant_id="tenant-a",
+            idempotency_key=None,
+            request=create_request(),
+        )
+        await session.commit()
+
+    stt_client_unexpected = FakeSttResultClient(complete_status="awaiting_upload")
+    async with session_factory() as session:
+        with pytest.raises(TranscriptionStorageError):
+            await complete_upload(
+                session,
+                stt_client_unexpected,
                 tenant_id="tenant-a",
                 transcription_id=created.workflow.transcription_id,
                 request=UploadCompleteRequest(etag='"abc123"', size_bytes=1024),
@@ -312,15 +392,14 @@ async def test_complete_upload_rejects_metadata_mismatch(
 async def test_get_workflow_enforces_tenant_ownership(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    storage = FakeObjectStorage()
+    stt_client = FakeSttResultClient()
     async with session_factory() as session:
         created, _ = await create_workflow(
             session,
-            storage,
+            stt_client,
             tenant_id="tenant-a",
             idempotency_key=None,
             request=create_request(),
-            upload_ttl_seconds=900,
         )
         await session.commit()
 
