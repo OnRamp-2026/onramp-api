@@ -150,6 +150,9 @@ class TrustScore:
     residual_duplication: float = 0.0  # collapse 후 잔여 중복
     authority_mean: float = 0.0  # site 권위 평균
     waiver_applied: bool = False  # strong-single-topic waiver 발동 여부
+    # raw rerank τ를 넘은 distinct topic 수. -1은 구형/테스트 경로의 unknown.
+    # 0이면 검색 문서는 있어도 리랭커 기반 관련성 신호가 없다는 뜻이므로 Answer에서 answerable 과신을 막는다.
+    n_good_topics: int = -1
 
 
 @dataclass

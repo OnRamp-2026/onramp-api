@@ -304,6 +304,25 @@ async def test_answer_uses_trust_overall_as_evidence_score(monkeypatch, overall,
 
 
 @pytest.mark.asyncio
+async def test_answer_caps_answerable_when_trust_has_no_good_topics(monkeypatch):
+    """리랭커 fallback(raw=0)처럼 good topic이 없으면 overall이 높아도 answerable로 과신하지 않는다."""
+    from app.agents.state import TrustScore
+
+    monkeypatch.setattr(node_mod, "call_llm", _mock_llm(_ans_json("answerable", (0,))))
+    out = await answer_node(
+        {
+            "refined_query": "q",
+            "documents": [_doc()],
+            "domains": _INCIDENT,
+            "trust_score": TrustScore(overall=0.95, n_good_topics=0),
+        }
+    )
+    assert out["answerability_status"] == AnswerabilityStatus.PARTIALLY_ANSWERABLE
+    assert out["answer"].situation != ""  # 보류가 아니라 제한 답변
+    assert "리랭커" in out["answerability_reason"]
+
+
+@pytest.mark.asyncio
 async def test_answer_gate_takes_priority_over_evidence_score(monkeypatch):
     from app.agents.state import TrustScore
 

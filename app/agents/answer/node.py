@@ -32,6 +32,7 @@ _HOLD_STATUSES = {
     AnswerabilityStatus.CONFLICTING_EVIDENCE,
     AnswerabilityStatus.OUTDATED_EVIDENCE,
 }
+_NO_RERANK_RELEVANCE_REASON = "리랭커 기반 관련성 신호가 없어 검색된 문서 기준으로만 제한적으로 답변합니다."
 
 
 def _result(
@@ -136,6 +137,10 @@ async def answer_node(state: AgentState) -> dict:
     # 인용 guard: ANSWERABLE인데 인용 출처 0건 → PARTIALLY로 강등
     if status == AnswerabilityStatus.ANSWERABLE and not sources:
         status, reason = AnswerabilityStatus.PARTIALLY_ANSWERABLE, NO_SOURCE_REASON
+    # 리랭커 fallback/raw=0 경로: Trust overall이 version/authority/dup만으로 높아져도
+    # "관련성 신호 충분"으로 과신하지 않는다. 답변은 유지하되 최대 PARTIALLY로 cap.
+    elif status == AnswerabilityStatus.ANSWERABLE and trust is not None and getattr(trust, "n_good_topics", -1) == 0:
+        status, reason = AnswerabilityStatus.PARTIALLY_ANSWERABLE, _NO_RERANK_RELEVANCE_REASON
     else:
         reason = reason_for(status)
 

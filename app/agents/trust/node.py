@@ -431,6 +431,7 @@ async def trust_node(state: AgentState) -> dict:
             residual_duplication=output.residual_duplication,
             authority_mean=output.authority_mean,
             waiver_applied=output.waiver_applied,
+            n_good_topics=output.n_good_topics,
         ),
         "missing_versions": missing_versions,
         "agent_trace": ["trust"],

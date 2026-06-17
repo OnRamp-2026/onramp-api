@@ -390,6 +390,7 @@ async def test_trust_node_emits_trust_score_and_trace(monkeypatch) -> None:
     assert isinstance(out["trust_score"], TrustScore)
     assert out["agent_trace"] == ["trust"]
     assert out["trust_score"].sensitivity_risk == 0.0  # 게이트 전용 관측값
+    assert out["trust_score"].n_good_topics == 1
 
 
 async def test_trust_node_empty_documents_rewrites(monkeypatch) -> None:
