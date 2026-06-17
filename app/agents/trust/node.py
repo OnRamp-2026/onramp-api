@@ -163,14 +163,26 @@ def compute_coverage(
     survivors: list[SourceDocument],
     target_versions: list[str],
     settings: Settings,
+    rerank_fallback: bool = False,
 ) -> tuple[float, bool, list[str], int]:
     """반환: (coverage, waiver_applied, missing_versions, n_good_topics).
 
     비교 질의(복수 target)는 회수율 = 회수된 target 버전 수 / 요청 버전 수 (설계 v1.5) —
     min_topics 기준이면 한 버전만 회수돼도 통과해 비교 불가 컨텍스트로 답하는 오답 경로가 있다.
-    그 외는 min(1, n_good_topics / trust_min_topics). τ 비교는 **raw 점수** 기준.
+    그 외는 min(1, n_good_topics / trust_min_topics).
+
+    rerank 정상: τ 비교는 **raw rerank 점수** 기준.
+    rerank_fallback(리랭커 다운): raw가 전부 0이라 그 임계로는 못 거른다. 점수 스케일이 모드별로
+    달라(dense cosine vs hybrid RRF) **절대 임계 대신 top 검색점수 대비 비율**(trust_fallback_score_ratio)
+    로 good을 정한다 — 모드-독립. ratio=0이면 검색 생존 전부를 good으로 신뢰('측정 불가 ≠ 관련 없음').
+    과신은 LLM 자기판정·인용 guard·version/authority 축이 견제한다.
     """
-    good = [d for d in survivors if d.raw_rerank_score >= settings.trust_rerank_floor]
+    if rerank_fallback:
+        top_score = max((d.score for d in survivors), default=0.0)
+        floor = settings.trust_fallback_score_ratio * top_score
+        good = [d for d in survivors if d.score >= floor]
+    else:
+        good = [d for d in survivors if d.raw_rerank_score >= settings.trust_rerank_floor]
     n_good_topics = len({_group_key(d) for d in good})
 
     if len(target_versions) >= 2:
@@ -178,12 +190,13 @@ def compute_coverage(
         missing = [t for t in target_versions if t not in retrieved]
         return len(retrieved) / len(target_versions), False, missing, n_good_topics
 
-    # strong-single-topic waiver (설계 4.4, collapse 후 raw 기준 — v1.5 시점 명세)
-    tops = sorted((d.raw_rerank_score for d in survivors), reverse=True)
-    if tops and tops[0] >= settings.trust_tau_strong:
-        gap_ok = len(tops) == 1 or (tops[0] - tops[1]) >= settings.trust_gap_strong  # top2 부재 → 자동 충족
-        if gap_ok:
-            return 1.0, True, [], n_good_topics
+    # strong-single-topic waiver (설계 4.4) — raw rerank 신뢰도 기반이라 폴백(rerank 부재)에선 미적용.
+    if not rerank_fallback:
+        tops = sorted((d.raw_rerank_score for d in survivors), reverse=True)
+        if tops and tops[0] >= settings.trust_tau_strong:
+            gap_ok = len(tops) == 1 or (tops[0] - tops[1]) >= settings.trust_gap_strong  # top2 부재 → 자동 충족
+            if gap_ok:
+                return 1.0, True, [], n_good_topics
 
     return min(1.0, n_good_topics / settings.trust_min_topics), False, [], n_good_topics
 
@@ -230,13 +243,16 @@ def score_survivors(
     survivors: list[SourceDocument],
     target_versions: list[str],
     settings: Settings,
+    rerank_fallback: bool = False,
 ) -> TrustOutput:
     """collapse 생존 집합을 4축으로 채점한다 (순수 함수 — 게이트는 evaluate_gates 별도)."""
     if not survivors:
         return TrustOutput(
             version_fit_mean=0.0, coverage=0.0, residual_duplication=0.0, authority_mean=0.0, overall=0.0
         )
-    coverage, waiver, missing, n_good_topics = compute_coverage(survivors, target_versions, settings)
+    coverage, waiver, missing, n_good_topics = compute_coverage(
+        survivors, target_versions, settings, rerank_fallback=rerank_fallback
+    )
     dup = residual_duplication(survivors, target_versions)
     evidence_mean = sum(d.per_doc_evidence for d in survivors) / len(survivors)
     fit_mean = sum(d.version_fit for d in survivors) / len(survivors)
@@ -399,6 +415,8 @@ async def trust_node(state: AgentState) -> dict:
     retry = state.get("retry_count", 0)
     max_retries = state.get("max_retries", settings.trust_max_retries)
     target_versions = [str(v) for v in state.get("target_versions", [])]
+    # 리랭커 폴백 여부 — coverage 산정 시 raw rerank τ 대신 검색점수 비율을 쓰게 한다 (#202)
+    rerank_fallback = bool(state.get("rerank_fallback", False))
 
     # ① 재검색 진입이면 합집합 병합 (교체 금지 — 설계 v1.4)
     if first_pass:
@@ -411,9 +429,11 @@ async def trust_node(state: AgentState) -> dict:
 
     # ③ collapse → ④⑤ 채점
     survivors, _removed = collapse_siblings(documents, target_versions, settings) if documents else ([], {})
-    output = score_survivors(survivors, target_versions, settings)
+    output = score_survivors(survivors, target_versions, settings, rerank_fallback=rerank_fallback)
     if survivors:
-        _coverage, _waiver, missing_versions, _n = compute_coverage(survivors, target_versions, settings)
+        _coverage, _waiver, missing_versions, _n = compute_coverage(
+            survivors, target_versions, settings, rerank_fallback=rerank_fallback
+        )
     else:  # 빈 결과: 비교 질의면 전 버전 미회수, 아니면 missing 개념 없음
         missing_versions = list(target_versions) if len(target_versions) >= 2 else []
 

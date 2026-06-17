@@ -193,6 +193,7 @@ class AgentState(TypedDict, total=False):
 
     # ── Retriever Agent 출력 ──
     documents: list[SourceDocument]
+    rerank_fallback: bool  # 리랭커 폴백(미설치·OOM·remote 실패) 여부 → Trust coverage 산정 분기(#202)
 
     # ── Trust Agent 출력 (Evidence Confidence, #108 재설계) ──
     #    병합 → per-doc 채점 → collapse → coverage → overall → 재검색 사다리 → (소진 후) 게이트
