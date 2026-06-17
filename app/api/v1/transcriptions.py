@@ -5,8 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Header, Response, status
 
-from app.api.deps import CurrentTenant, DatabaseSession, StorageDependency
-from app.config import get_settings
+from app.api.deps import CurrentTenant, DatabaseSession, SttClientDependency
 from app.models.transcription import (
     TranscriptionCreateRequest,
     TranscriptionCreateResponse,
@@ -30,7 +29,7 @@ async def create_transcription(
     request: TranscriptionCreateRequest,
     response: Response,
     session: DatabaseSession,
-    storage: StorageDependency,
+    stt_client: SttClientDependency,
     tenant_id: CurrentTenant,
     idempotency_key: Annotated[
         str | None,
@@ -39,11 +38,10 @@ async def create_transcription(
 ) -> TranscriptionCreateResponse:
     creation, created = await create_workflow(
         session,
-        storage,
+        stt_client,
         tenant_id=tenant_id,
         idempotency_key=idempotency_key,
         request=request,
-        upload_ttl_seconds=get_settings().storage_upload_expires_seconds,
     )
     await session.commit()
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
@@ -59,12 +57,12 @@ async def mark_upload_complete(
     transcription_id: UUID,
     request: UploadCompleteRequest,
     session: DatabaseSession,
-    storage: StorageDependency,
+    stt_client: SttClientDependency,
     tenant_id: CurrentTenant,
 ) -> UploadCompleteResponse:
     workflow = await complete_upload(
         session,
-        storage,
+        stt_client,
         tenant_id=tenant_id,
         transcription_id=transcription_id,
         request=request,

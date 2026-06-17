@@ -16,6 +16,7 @@ from app.auth.session import (
 )
 from app.config import Settings, get_settings
 from app.db.postgres import session_scope
+from app.services.stt_result_client import SttResultClient
 from app.storage.base import ObjectStorage
 from app.storage.factory import get_storage
 
@@ -96,8 +97,20 @@ def get_object_storage() -> ObjectStorage:
     return get_storage()
 
 
+def get_stt_client() -> SttResultClient:
+    from app.config import get_settings
+
+    settings = get_settings()
+    return SttResultClient(
+        base_url=settings.stt_service_base_url,
+        token=settings.stt_service_token.get_secret_value(),
+        timeout_seconds=settings.stt_result_timeout_seconds,
+    )
+
+
 DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
 CurrentTenant = Annotated[str, Depends(get_current_tenant)]
 CurrentUser = Annotated[SessionUser, Depends(get_current_user)]
 OptionalUser = Annotated[SessionUser | None, Depends(get_optional_user)]
 StorageDependency = Annotated[ObjectStorage, Depends(get_object_storage)]
+SttClientDependency = Annotated[SttResultClient, Depends(get_stt_client)]

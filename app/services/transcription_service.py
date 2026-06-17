@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from pathlib import PurePath
 from uuid import UUID
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import EventOutbox, TranscriptionWorkflow, WorkflowStatus, utcnow
+from app.db.models import TranscriptionWorkflow, WorkflowStatus, utcnow
 from app.middleware.error_handler import OnRampError
 from app.models.transcription import (
     ReportStatus,
@@ -22,8 +23,8 @@ from app.models.transcription import (
     UploadCompleteRequest,
     UploadInstruction,
 )
-from app.queue.constants import STT_REQUEST_STREAM, TRANSCRIPTION_REQUESTED_EVENT
-from app.storage.base import ObjectNotFoundError, ObjectStorage, ObjectStorageError, PresignedUpload
+from app.services.stt_result_client import SttCreateTranscriptionResponse, SttResultClient
+from app.storage.base import PresignedUpload
 
 
 class TranscriptionNotFoundError(OnRampError):
@@ -60,46 +61,46 @@ def _safe_filename(filename: str) -> str:
     return safe[:255]
 
 
-def _object_key(tenant_id: str, transcription_id: UUID, filename: str) -> str:
-    return f"tenants/{tenant_id}/transcriptions/{transcription_id}/source/{_safe_filename(filename)}"
-
-
 def _normalize_content_type(value: str) -> str:
     return value.split(";", 1)[0].strip().lower()
 
 
-def _normalize_etag(value: str | None) -> str:
-    if not value:
-        return ""
-    normalized = value.strip()
-    if normalized.startswith("W/"):
-        normalized = normalized[2:]
-    return normalized.strip('"')
+def _stt_upload_to_presigned(stt: SttCreateTranscriptionResponse) -> PresignedUpload:
+    return PresignedUpload(
+        method=stt.upload.method,
+        url=stt.upload.url,
+        headers=stt.upload.headers,
+        expires_at=stt.upload.expires_at,
+    )
 
 
-async def _presign(
-    storage: ObjectStorage,
+async def _call_stt_create(
+    stt_client: SttResultClient,
     workflow: TranscriptionWorkflow,
-    upload_ttl_seconds: int,
+    idempotency_key: str | None,
 ) -> PresignedUpload:
     try:
-        return await storage.create_presigned_upload(
-            workflow.source_object_key,
+        result = await stt_client.create_transcription(
+            tenant_id=workflow.tenant_id,
+            transcription_id=workflow.transcription_id,
+            filename=workflow.source_filename,
             content_type=workflow.source_content_type,
-            expires_in_seconds=upload_ttl_seconds,
+            size_bytes=workflow.source_size_bytes,
+            idempotency_key=idempotency_key,
         )
-    except ObjectStorageError as exc:
-        raise TranscriptionStorageError("업로드 URL 발급에 실패했습니다.") from exc
+    except httpx.HTTPStatusError as exc:
+        raise TranscriptionStorageError("STT API 업로드 URL 발급에 실패했습니다.") from exc
+    workflow.source_object_key = result.source_object_key
+    return _stt_upload_to_presigned(result)
 
 
 async def create_workflow(
     session: AsyncSession,
-    storage: ObjectStorage,
+    stt_client: SttResultClient,
     *,
     tenant_id: str,
     idempotency_key: str | None,
     request: TranscriptionCreateRequest,
-    upload_ttl_seconds: int,
 ) -> tuple[WorkflowCreation, bool]:
     if re.fullmatch(r"[0-9A-Za-z_-]+", tenant_id) is None:
         raise OnRampError("유효하지 않은 tenant 식별자입니다.", status_code=400)
@@ -115,7 +116,7 @@ async def create_workflow(
         )
         if existing is not None:
             upload = (
-                await _presign(storage, existing, upload_ttl_seconds)
+                await _call_stt_create(stt_client, existing, normalized_key)
                 if existing.status == WorkflowStatus.awaiting_upload
                 else None
             )
@@ -127,7 +128,7 @@ async def create_workflow(
         tenant_id=tenant_id,
         idempotency_key=normalized_key,
         status=WorkflowStatus.awaiting_upload,
-        source_object_key=_object_key(tenant_id, transcription_id, request.filename),
+        source_object_key="",  # will be set by STT API response
         source_filename=_source_filename(request.filename),
         source_content_type=_normalize_content_type(request.content_type),
         source_size_bytes=request.size_bytes,
@@ -151,13 +152,13 @@ async def create_workflow(
         if existing is None:
             raise
         upload = (
-            await _presign(storage, existing, upload_ttl_seconds)
+            await _call_stt_create(stt_client, existing, normalized_key)
             if existing.status == WorkflowStatus.awaiting_upload
             else None
         )
         return WorkflowCreation(existing, upload), False
 
-    upload = await _presign(storage, workflow, upload_ttl_seconds)
+    upload = await _call_stt_create(stt_client, workflow, normalized_key)
     return WorkflowCreation(workflow, upload), True
 
 
@@ -182,38 +183,12 @@ async def get_workflow(
 
 async def complete_upload(
     session: AsyncSession,
-    storage: ObjectStorage,
+    stt_client: SttResultClient,
     *,
     tenant_id: str,
     transcription_id: UUID,
     request: UploadCompleteRequest,
 ) -> TranscriptionWorkflow:
-    workflow = await get_workflow(
-        session,
-        tenant_id=tenant_id,
-        transcription_id=transcription_id,
-    )
-    if workflow.status == WorkflowStatus.queued:
-        return workflow
-    if workflow.status != WorkflowStatus.awaiting_upload:
-        raise TranscriptionConflictError(f"현재 상태에서는 업로드를 완료할 수 없습니다: {workflow.status}")
-
-    try:
-        metadata = await storage.head(workflow.source_object_key)
-    except ObjectNotFoundError as exc:
-        raise TranscriptionConflictError("업로드된 음성 파일을 찾을 수 없습니다.") from exc
-    except ObjectStorageError as exc:
-        raise TranscriptionStorageError("업로드 파일 검증에 실패했습니다.") from exc
-
-    if metadata.object_key != workflow.source_object_key:
-        raise TranscriptionConflictError("업로드 object key가 workflow와 일치하지 않습니다.")
-    if metadata.size_bytes != workflow.source_size_bytes or metadata.size_bytes != request.size_bytes:
-        raise TranscriptionConflictError("업로드 파일 크기가 요청 정보와 일치하지 않습니다.")
-    if _normalize_content_type(metadata.content_type) != _normalize_content_type(workflow.source_content_type):
-        raise TranscriptionConflictError("업로드 파일 Content-Type이 요청 정보와 일치하지 않습니다.")
-    if _normalize_etag(metadata.etag) != _normalize_etag(request.etag):
-        raise TranscriptionConflictError("업로드 파일 ETag가 요청 정보와 일치하지 않습니다.")
-
     workflow = await get_workflow(
         session,
         tenant_id=tenant_id,
@@ -225,33 +200,20 @@ async def complete_upload(
     if workflow.status != WorkflowStatus.awaiting_upload:
         raise TranscriptionConflictError(f"현재 상태에서는 업로드를 완료할 수 없습니다: {workflow.status}")
 
-    requested_at = utcnow()
-    workflow.status = WorkflowStatus.queued
-    workflow.source_etag = metadata.etag
-    workflow.updated_at = requested_at
-    event_id = f"evt_{uuid.uuid4().hex}"
-    session.add(
-        EventOutbox(
-            id=event_id,
-            aggregate_type="transcription",
-            aggregate_id=str(workflow.transcription_id),
-            event_type=TRANSCRIPTION_REQUESTED_EVENT,
-            stream_name=STT_REQUEST_STREAM,
-            payload_json={
-                "schema_version": "1.0",
-                "transcription_id": str(workflow.transcription_id),
-                "tenant_id": workflow.tenant_id,
-                "source_object_key": workflow.source_object_key,
-                "source_etag": workflow.source_etag,
-                "source_filename": workflow.source_filename,
-                "source_content_type": workflow.source_content_type,
-                "source_size_bytes": workflow.source_size_bytes,
-                "title": workflow.title,
-                "language": workflow.language,
-                "requested_at": requested_at.isoformat(),
-            },
+    try:
+        await stt_client.complete_upload(
+            transcription_id,
+            etag=request.etag,
+            size_bytes=request.size_bytes,
         )
-    )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 409:
+            raise TranscriptionConflictError("업로드 검증에 실패했습니다.") from exc
+        raise TranscriptionStorageError("STT API 업로드 완료 처리에 실패했습니다.") from exc
+
+    workflow.status = WorkflowStatus.queued
+    workflow.source_etag = request.etag
+    workflow.updated_at = utcnow()
     await session.flush()
     return workflow
 
