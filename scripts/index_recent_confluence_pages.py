@@ -17,12 +17,14 @@ from app.services.index_service import IndexService  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
-async def run(hours: int, limit: int, all_pages: bool = False) -> None:
+async def run(hours: int, limit: int, all_pages: bool = False, force: bool = False) -> None:
     """Run recent (or full) Confluence indexing."""
 
     service = IndexService()
     result = await (
-        service.index_all_pages(limit=limit) if all_pages else service.index_recent_pages(hours=hours, limit=limit)
+        service.index_all_pages(limit=limit, force=force)
+        if all_pages
+        else service.index_recent_pages(hours=hours, limit=limit, force=force)
     )
     logger.info("Indexed %s child chunks from %s Confluence pages", result.chunks_indexed, result.pages_indexed)
 
@@ -37,12 +39,17 @@ def main() -> None:
         "--all", action="store_true", dest="all_pages", help="전체: 스페이스 전체를 색인(증분 lastmodified 무시)"
     )
     parser.add_argument("--limit", type=int, default=50, help="Maximum number of Confluence pages to fetch.")
+    parser.add_argument(
+        "--reindex",
+        action="store_true",
+        help="content-hash dedup 무시하고 전체 재색인(도메인 분류만 바꿔 다시 분류·임베딩할 때). 전체 wipe 불필요.",
+    )
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
     hours = 24 if args.hours is None else args.hours
 
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s - %(message)s")
-    asyncio.run(run(hours=hours, limit=args.limit, all_pages=args.all_pages))
+    asyncio.run(run(hours=hours, limit=args.limit, all_pages=args.all_pages, force=args.reindex))
 
 
 if __name__ == "__main__":

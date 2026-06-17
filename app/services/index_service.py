@@ -58,16 +58,22 @@ class IndexService:
         self.index_children_fn = index_children_fn
         self._session_factory = session_factory or _default_session_scope
 
-    async def index_recent_pages(self, hours: int = 24, limit: int = 50) -> IndexResult:
+    async def index_recent_pages(self, hours: int = 24, limit: int = 50, *, force: bool = False) -> IndexResult:
         pages = await self.ingest_service.prepare_recent_pages_for_embedding(hours=hours, limit=limit)
-        return await self.index_prepared(pages)
+        return await self.index_prepared(pages, force=force)
 
-    async def index_all_pages(self, limit: int = 50) -> IndexResult:
+    async def index_all_pages(self, limit: int = 50, *, force: bool = False) -> IndexResult:
         pages = await self.ingest_service.prepare_all_pages_for_embedding(limit=limit)
-        return await self.index_prepared(pages)
+        return await self.index_prepared(pages, force=force)
 
-    async def index_prepared(self, pages: list[ChunkedConfluencePage], *, source: str = "confluence") -> IndexResult:
-        """Index already-prepared chunks. ``source`` 는 멀티소스 원장 식별키 (confluence|github)."""
+    async def index_prepared(
+        self, pages: list[ChunkedConfluencePage], *, source: str = "confluence", force: bool = False
+    ) -> IndexResult:
+        """Index already-prepared chunks. ``source`` 는 멀티소스 원장 식별키 (confluence|github).
+
+        ``force=True`` 면 content-hash dedup(should_index_page)을 건너뛰고 모든 페이지를 재색인한다
+        (도메인 분류 방식만 바꿔 다시 분류·임베딩할 때 사용 — 전체 wipe 없이 재색인).
+        """
         settings = self.settings or get_settings()
         tenant_id = settings.auth_default_tenant
 
@@ -85,7 +91,7 @@ class IndexService:
                         raw_html_hash = hashlib.sha256(pg.html.encode()).hexdigest()
                         cleaned_markdown_hash = hashlib.sha256(pg.markdown.encode()).hexdigest()
 
-                        if not await repo.should_index_page(
+                        if not force and not await repo.should_index_page(
                             db,
                             tenant_id=tenant_id,
                             page_id=pg.page_id,

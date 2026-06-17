@@ -43,7 +43,7 @@ class _FakeIndex:
     def __init__(self) -> None:
         self.calls: list[tuple[int, str]] = []
 
-    async def index_prepared(self, pages, *, source: str = "confluence") -> IndexResult:  # noqa: ANN001
+    async def index_prepared(self, pages, *, source: str = "confluence", force: bool = False) -> IndexResult:  # noqa: ANN001
         self.calls.append((len(pages), source))
         return IndexResult(pages_indexed=len(pages), chunks_indexed=len(pages) * 2)
 

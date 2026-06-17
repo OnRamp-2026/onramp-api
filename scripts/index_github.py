@@ -25,10 +25,10 @@ from app.services.github_index_service import GithubIndexService  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
-async def run(repos: list[str], *, docs: bool, issues: bool, include_pr: bool) -> None:
+async def run(repos: list[str], *, docs: bool, issues: bool, include_pr: bool, force: bool = False) -> None:
     service = GithubIndexService()
     result = await service.index_repos(
-        repos, include_docs=docs, include_issues=issues, include_pr=include_pr
+        repos, include_docs=docs, include_issues=issues, include_pr=include_pr, force=force
     )
     logger.info(
         "GitHub 색인 완료: %s pages, %s chunks (repos=%s)",
@@ -44,11 +44,16 @@ def main() -> None:
     parser.add_argument("--no-docs", action="store_false", dest="docs", help="README·docs 제외")
     parser.add_argument("--no-issues", action="store_false", dest="issues", help="이슈/PR 제외")
     parser.add_argument("--no-pr", action="store_false", dest="include_pr", help="PR 제외(이슈만)")
+    parser.add_argument(
+        "--reindex",
+        action="store_true",
+        help="content-hash dedup 무시하고 전체 재색인(도메인 분류만 바꿔 다시 분류·임베딩). 전체 wipe 불필요.",
+    )
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
 
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s - %(message)s")
-    asyncio.run(run(args.repos, docs=args.docs, issues=args.issues, include_pr=args.include_pr))
+    asyncio.run(run(args.repos, docs=args.docs, issues=args.issues, include_pr=args.include_pr, force=args.reindex))
 
 
 if __name__ == "__main__":
