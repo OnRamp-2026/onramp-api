@@ -18,9 +18,11 @@ from dataclasses import dataclass, field
 
 from pydantic import ValidationError
 
+from app.agents.format_policy import decide_answer_format
 from app.agents.router.prompts import ROUTER_SYSTEM_PROMPT
 from app.agents.router.schema import RouterOutput
 from app.agents.state import AgentState, Domain, UseCase
+from app.config import get_settings
 from app.services.llm_selector import call_llm
 
 logger = logging.getLogger(__name__)
@@ -133,6 +135,8 @@ def _fallback(query: str, error: str = "") -> dict:
         "domain": None,  # 하위호환: domains[0] 파생 (빈 리스트 → None)
         "refined_query": query,
         "target_versions": _versions_from_text(query),
+        # 포맷은 의도-time에 고정 — domains 비면 freeform (Trust가 이후 domains를 비워도 불변, #191)
+        "answer_format": decide_answer_format([], get_settings().structured_answer_domains),
         "agent_trace": ["router"],
     }
     if error:
@@ -161,6 +165,8 @@ async def route_node(state: AgentState) -> dict:
         "domain": domains[0] if domains else None,  # 하위호환: 항상 domains[0] 파생(불일치 금지)
         "refined_query": diag.refined_query,
         "target_versions": diag.target_versions,  # 1차 추출값 — 재작성 재검색에도 고정(모드 보존)
+        # 포맷은 라우터 의도-time에 고정 — Trust가 이후 domains를 변형(EXPAND_TOPICS 해제)해도 불변 (#191)
+        "answer_format": decide_answer_format(domains, get_settings().structured_answer_domains),
         "agent_trace": ["router"],
     }
     # UNANSWERABLE이면 LLM 출력과 무관하게 refined_query를 비우고 안내 사유를 채운다 (노드 계약 보장)
