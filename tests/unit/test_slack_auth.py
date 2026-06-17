@@ -154,12 +154,14 @@ async def test_slack_callback_issues_internal_session_token(
 
 
 @pytest.mark.asyncio
-async def test_public_callback_alias_issues_internal_session_token(
+async def test_public_auth_callback_sets_cookie_and_redirects(
     slack_auth_client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # /auth/callback = 브라우저 SPA용(쿠키 세션 + 화면 redirect). JSON 토큰 콜백은 /v1/auth/slack/callback.
     settings = _settings()
     monkeypatch.setattr("app.api.v1.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("app.api.v1.auth_browser.get_settings", lambda: settings)
 
     authorize = await slack_auth_client.get("/v1/auth/slack/authorize")
     query = parse_qs(urlparse(authorize.json()["authorization_url"]).query)
@@ -189,8 +191,9 @@ async def test_public_callback_alias_issues_internal_session_token(
         params={"code": "test-code", "state": state},
     )
 
-    assert response.status_code == 200
-    assert response.json()["tenant_id"] == "tenant1-onramp"
+    # 브라우저 콜백: 세션 쿠키 set + 프론트로 redirect (JSON 본문 아님)
+    assert response.status_code == 303
+    assert "onramp_session=" in response.headers.get("set-cookie", "")
 
 
 @pytest.mark.asyncio
