@@ -66,18 +66,20 @@ def _build_context(documents: list[SourceDocument], parent_contexts: dict[str, s
         return "\n\n".join(
             f"[{i}] title: {doc.title}\ncontent: {doc.content_snippet}" for i, doc in enumerate(documents)
         )
+    # 인덱스는 **원본 documents 인덱스**를 유지한다([i]). formatter가 LLM 인용 [i]를 documents[i]로
+    # 역매핑하므로(재번호하면 잘못된 출처로 매핑됨). dedupe된 child는 블록을 건너뛰되 인덱스는 보존.
     blocks: list[str] = []
     seen_parents: set[str] = set()
-    for doc in documents:
+    for i, doc in enumerate(documents):
         pid = doc.parent_id
         if pid and pid in parent_contexts:
             if pid in seen_parents:
-                continue  # 같은 parent는 한 번만
+                continue  # 같은 parent는 한 번만 (그 parent는 먼저 나온 child 인덱스로 인용됨)
             seen_parents.add(pid)
             content = parent_contexts[pid]
         else:
             content = doc.content_snippet  # parent 없는 문서는 child snippet fallback
-        blocks.append(f"[{len(blocks)}] title: {doc.title}\ncontent: {content}")
+        blocks.append(f"[{i}] title: {doc.title}\ncontent: {content}")
     return "\n\n".join(blocks)
 
 

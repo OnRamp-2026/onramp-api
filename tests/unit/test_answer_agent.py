@@ -359,6 +359,9 @@ def test_build_context_parent_expanded_dedupes_by_parent_id() -> None:
     assert ctx.count("PARENT-ONE") == 1  # 같은 parent 1회만
     assert "PARENT-TWO" in ctx
     assert "child1" not in ctx and "child2" not in ctx  # parent로 대체
+    # 인덱스 계약: dedupe돼도 원본 documents 인덱스 유지 (formatter가 LLM 인용 [i]→documents[i] 역매핑).
+    # d2(p1 중복)는 건너뛰므로 블록은 [0](d1)·[2](d3), [1]은 없어야 한다.
+    assert "[0]" in ctx and "[2]" in ctx and "[1]" not in ctx
 
 
 def test_build_context_child_only_when_no_parent_contexts() -> None:

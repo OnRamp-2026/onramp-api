@@ -56,14 +56,14 @@ async def run(*, dry_run: bool, limit: int | None) -> None:
     rows_updated = 0
     async with session_scope() as db:
         stmt = select(SourceDocument).where(SourceDocument.cleaned_markdown.isnot(None))
-        if limit:
+        if limit is not None:  # limit=0 도 그대로 적용(무제한 아님)
             stmt = stmt.limit(limit)
         docs = (await db.scalars(stmt)).all()
         logger.info("대상 문서 %d개", len(docs))
-        for doc in docs:
+        for n, doc in enumerate(docs, start=1):
             pmap = _parents_for(ingest, doc)
-            if not pmap:
-                continue
+            if pmap:
+                docs_done += 1
             for parent_id, content in pmap.items():
                 if dry_run:
                     parents_updated += 1
@@ -79,15 +79,20 @@ async def run(*, dry_run: bool, limit: int | None) -> None:
                 )
                 rows_updated += getattr(result, "rowcount", 0) or 0
                 parents_updated += 1
-            docs_done += 1
-            if docs_done % 100 == 0:
-                logger.info("진행 %d/%d 문서", docs_done, len(docs))
+            if not dry_run and n % 200 == 0:
+                await db.commit()  # 주기적 커밋 — 장시간 단일 트랜잭션 롤백 리스크 완화
+            if n % 100 == 0:
+                logger.info("진행 %d/%d 문서 (parent 보유 %d)", n, len(docs), docs_done)
         if dry_run:
             logger.info("[dry-run] 문서 %d → parent %d개 채울 예정 (UPDATE 미실행)", len(docs), parents_updated)
         else:
             await db.commit()  # session_scope는 auto-commit 안 함
             logger.info(
-                "완료: 문서 %d, parent %d개, chunk_registry 행 %d개 갱신", docs_done, parents_updated, rows_updated
+                "완료: 처리 문서 %d (parent 보유 %d), parent %d개, chunk_registry 행 %d개 갱신",
+                len(docs),
+                docs_done,
+                parents_updated,
+                rows_updated,
             )
 
 

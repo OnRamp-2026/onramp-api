@@ -182,10 +182,13 @@ async def upsert_chunk_registry(
 ) -> None:
     if not children:
         return
+    if parents is None:
+        # parents 미전달 시 merge가 parent_content=None으로 기존 값을 조용히 덮어쓴다 → fail-fast.
+        raise ValueError("upsert_chunk_registry: parents must be provided (None이면 parent_content가 소거됨)")
     from app.rag.indexer import _point_id
 
     # parent expansion(#212 Phase 0-A): child row에 소속 parent 본문을 채운다(조회 시 parent_id로 dedupe).
-    parent_content = {p.parent_id: p.content for p in (parents or [])}
+    parent_content = {p.parent_id: p.content for p in parents}
     for c in children:
         await db.merge(
             ChunkRegistry(
