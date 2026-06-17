@@ -43,7 +43,7 @@ _SYSTEM_PROMPT = (
     + "\n".join(f"- {k}: {v}" for k, v in DOMAIN_DEFINITIONS.items())
     + "\n\n"
     + _TIE_BREAK
-    + '\n반드시 JSON만 출력: '
+    + "\n반드시 JSON만 출력: "
     + '{"domain": "<위 5개 중 하나>", "secondary": "<두번째로 맞는 도메인 또는 \\"\\">", '
     + '"confidence": <0~1 float>}'
 )

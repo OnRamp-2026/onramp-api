@@ -56,7 +56,9 @@ async def _sample_documents(source: str | None, limit: int) -> list[SourceDocume
     async with session_scope() as db:
         stmt = select(SourceDocument).order_by(func.random()).limit(limit * 3)
         if source:
-            stmt = select(SourceDocument).where(SourceDocument.source == source).order_by(func.random()).limit(limit * 3)
+            stmt = (
+                select(SourceDocument).where(SourceDocument.source == source).order_by(func.random()).limit(limit * 3)
+            )
         rows = (await db.execute(stmt)).scalars().all()
     return [r for r in rows if (r.cleaned_markdown or "").strip()][:limit]
 

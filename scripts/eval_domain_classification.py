@@ -55,7 +55,9 @@ async def _sample(client: httpx.AsyncClient, base: str, domain: str, per_domain:
     body = {
         "size": per_domain,
         "_source": ["chunk_id", "domain", "page_title", "heading_path", "content"],
-        "query": {"function_score": {"query": {"bool": {"must": must}}, "random_score": {"seed": 42, "field": "_seq_no"}}},
+        "query": {
+            "function_score": {"query": {"bool": {"must": must}}, "random_score": {"seed": 42, "field": "_seq_no"}}
+        },
     }
     r = await client.post(f"{base}/onramp-chunks/_search", json=body)
     r.raise_for_status()
@@ -64,11 +66,7 @@ async def _sample(client: httpx.AsyncClient, base: str, domain: str, per_domain:
 
 async def _classify(chunk: dict) -> str | None:
     heading = " > ".join(chunk.get("heading_path") or [])
-    user = (
-        f"제목: {chunk.get('page_title', '')}\n"
-        f"섹션 경로: {heading}\n"
-        f"본문:\n{(chunk.get('content') or '')[:1500]}"
-    )
+    user = f"제목: {chunk.get('page_title', '')}\n섹션 경로: {heading}\n본문:\n{(chunk.get('content') or '')[:1500]}"
     try:
         raw = await call_llm(SYSTEM_PROMPT, user, temperature=0.0, max_tokens=200, json_mode=True)
         label = json.loads(raw).get("domain", "").strip()

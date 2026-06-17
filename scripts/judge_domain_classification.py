@@ -51,7 +51,9 @@ async def _sample_documents(source: str | None, limit: int) -> list[SourceDocume
     async with session_scope() as db:
         stmt = select(SourceDocument).order_by(func.random()).limit(limit * 3)
         if source:
-            stmt = select(SourceDocument).where(SourceDocument.source == source).order_by(func.random()).limit(limit * 3)
+            stmt = (
+                select(SourceDocument).where(SourceDocument.source == source).order_by(func.random()).limit(limit * 3)
+            )
         rows = (await db.execute(stmt)).scalars().all()
     return [r for r in rows if (r.cleaned_markdown or "").strip()][:limit]
 
@@ -118,7 +120,9 @@ async def run(source: str | None, limit: int, judge_model: str, concurrency: int
     for d in DOMAINS:
         st, ac, tot = per_domain[d]
         if tot:
-            print(f"    {d:14s} strict {st:3d}/{tot:<3d} ({st / tot * 100:4.0f}%)  | acceptable {ac:3d}/{tot:<3d} ({ac / tot * 100:4.0f}%)")
+            print(
+                f"    {d:14s} strict {st:3d}/{tot:<3d} ({st / tot * 100:4.0f}%)  | acceptable {ac:3d}/{tot:<3d} ({ac / tot * 100:4.0f}%)"
+            )
 
     print("\n[부적합 판정 — 분류기 라벨 → 심사자 best : 횟수]")
     for (assigned, best), cnt in wrong_moves.most_common(12):
