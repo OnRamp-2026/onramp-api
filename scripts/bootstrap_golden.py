@@ -143,11 +143,17 @@ def _query_only(parsed: dict | None) -> str | None:
     return (parsed.get("query") or "").strip() or None
 
 
-def _answerable_query(parsed: dict | None) -> str | None:
-    """answerable 모드 — 자가검증(answerable_from_chunk=false)이면 폐기 (§5-A 공통 4)."""
+def _answerable_query(parsed: dict | None) -> tuple[str | None, str]:
+    """answerable 모드 — 자가검증(answerable_from_chunk=false)이면 폐기 (§5-A 공통 4).
+
+    (query, answer_span) 반환. answer_span = 정답 근거 문장 — splitter 무관 평가 기준(§1,
+    청킹 방식 비교 시 chunk_id 대신 "검색 청크가 이 문장을 담았나"로 채점).
+    """
     if not parsed or parsed.get("answerable_from_chunk") is False:
-        return None
-    return (parsed.get("query") or "").strip() or None
+        return None, ""
+    query = (parsed.get("query") or "").strip() or None
+    answer_span = (parsed.get("answer_span") or "").strip()
+    return query, answer_span
 
 
 def _scroll_payloads(limit: int) -> list[dict]:
@@ -274,8 +280,27 @@ def _neighbor_payloads(
     return neighbors
 
 
-def _record(qid: str, query: str, domain: str | None, *, answerable: bool, chunk_ids: list[str]) -> tuple[dict, dict]:
-    q = {"qid": qid, "query": query, "domain": domain, "is_answerable": answerable, "_draft": True}
+def _record(
+    qid: str,
+    query: str,
+    domain: str | None,
+    *,
+    answerable: bool,
+    chunk_ids: list[str],
+    page_ids: list[str] | None = None,
+    source_urls: list[str] | None = None,
+    answer_span: str = "",
+) -> tuple[dict, dict]:
+    # page_ids·source_urls·answer_span = splitter 무관 정답 기준(§1). 청킹 방식 비교(Token/MD/Recursive vs
+    # OnRamp)는 chunk_id가 scheme마다 달라 못 쓰므로 page/doc(URL)/span으로 채점한다. chunk_id는 OnRamp 내부용.
+    # page_id가 곧 doc 식별자(1 page = 1 source_document)이고, source_url은 원문 추적·교차확인용.
+    q: dict[str, object] = {"qid": qid, "query": query, "domain": domain, "is_answerable": answerable, "_draft": True}
+    if page_ids:
+        q["page_ids"] = [p for p in page_ids if p]
+    if source_urls:
+        q["source_urls"] = [u for u in source_urls if u]
+    if answer_span:
+        q["answer_span"] = answer_span
     return q, {"qid": qid, "relevant_chunk_ids": chunk_ids}
 
 
@@ -283,12 +308,21 @@ async def _build_single(sampled: list[dict], model: str, start: int, *, scope_ou
     out = []
     idx = start
     for payload in sampled:
-        query = _answerable_query(await _gen(_GEN_SYSTEM, f"문서 조각:\n{payload['content'][:1500]}", model))
+        query, span = _answerable_query(await _gen(_GEN_SYSTEM, f"문서 조각:\n{payload['content'][:1500]}", model))
         if not query:
             continue
         idx += 1
         out.append(
-            _record(f"d{idx:03d}", query, payload.get("domain"), answerable=True, chunk_ids=[payload["chunk_id"]])
+            _record(
+                f"d{idx:03d}",
+                query,
+                payload.get("domain"),
+                answerable=True,
+                chunk_ids=[payload["chunk_id"]],
+                page_ids=[payload.get("page_id", "")],
+                source_urls=[payload.get("source_url", "")],
+                answer_span=span,
+            )
         )
     for seed in _UNANSWERABLE_SEEDS[:scope_out]:  # 범위 밖 unanswerable (scope-out)
         idx += 1
@@ -301,13 +335,20 @@ async def _build_multi_hop(groups: list[list[dict]], model: str, start: int) -> 
     idx = start
     for group in groups:
         parts = "\n\n".join(f"[조각 {i + 1}]\n{c['content'][:900]}" for i, c in enumerate(group))
-        query = _answerable_query(await _gen(_GEN_SYSTEM_MULTI_HOP, f"같은 문서의 연속 조각들:\n{parts}", model))
+        query, span = _answerable_query(await _gen(_GEN_SYSTEM_MULTI_HOP, f"같은 문서의 연속 조각들:\n{parts}", model))
         if not query:
             continue
         idx += 1
         out.append(
             _record(
-                f"h{idx:03d}", query, group[0].get("domain"), answerable=True, chunk_ids=[c["chunk_id"] for c in group]
+                f"h{idx:03d}",
+                query,
+                group[0].get("domain"),
+                answerable=True,
+                chunk_ids=[c["chunk_id"] for c in group],
+                page_ids=list(dict.fromkeys(c.get("page_id", "") for c in group)),
+                source_urls=list(dict.fromkeys(c.get("source_url", "") for c in group)),
+                answer_span=span,
             )
         )
     return out
@@ -332,13 +373,22 @@ async def _build_multi_domain(sampled: list[dict], model: str, start: int, count
             f"[조각 {i + 1}] ({c.get('domain', '')}) {c.get('page_title', '')}\n{c['content'][:800]}"
             for i, c in enumerate(group)
         )
-        query = _answerable_query(await _gen(_GEN_SYSTEM_MULTI_DOMAIN, f"서로 다른 영역의 조각들:\n{parts}", model))
+        query, span = _answerable_query(
+            await _gen(_GEN_SYSTEM_MULTI_DOMAIN, f"서로 다른 영역의 조각들:\n{parts}", model)
+        )
         if not query:
             continue
         idx += 1
         out.append(
             _record(
-                f"m{idx:03d}", query, payload.get("domain"), answerable=True, chunk_ids=[c["chunk_id"] for c in group]
+                f"m{idx:03d}",
+                query,
+                payload.get("domain"),
+                answerable=True,
+                chunk_ids=[c["chunk_id"] for c in group],
+                page_ids=list(dict.fromkeys(c.get("page_id", "") for c in group)),
+                source_urls=list(dict.fromkeys(c.get("source_url", "") for c in group)),
+                answer_span=span,
             )
         )
     return out
@@ -372,12 +422,21 @@ async def _build_confusable(sampled: list[dict], model: str, start: int, min_nei
             f"[유사 문서 {i + 1}] {n.get('page_title', '')}\n{n['content'][:500]}" for i, n in enumerate(neighbors)
         )
         user = f"[타깃 문서] {payload.get('page_title', '')}\n{payload['content'][:1200]}\n\n{sim}"
-        query = _answerable_query(await _gen(_GEN_SYSTEM_CONFUSABLE, user, model))
+        query, span = _answerable_query(await _gen(_GEN_SYSTEM_CONFUSABLE, user, model))
         if not query:
             continue
         idx += 1
         out.append(
-            _record(f"c{idx:03d}", query, payload.get("domain"), answerable=True, chunk_ids=[payload["chunk_id"]])
+            _record(
+                f"c{idx:03d}",
+                query,
+                payload.get("domain"),
+                answerable=True,
+                chunk_ids=[payload["chunk_id"]],
+                page_ids=[payload.get("page_id", "")],
+                source_urls=[payload.get("source_url", "")],
+                answer_span=span,
+            )
         )
     return out
 
