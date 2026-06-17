@@ -31,7 +31,9 @@ class FiveElementsResponse(BaseModel):
 class ChatResponse(BaseModel):
     """POST /v1/chat 응답."""
 
-    answer: FiveElementsResponse
+    answer_format: str = "structured"  # "structured" | "freeform" (#191) — 렌더 분기
+    answer: FiveElementsResponse  # structured일 때 채움 (freeform이면 빈 5요소 — 하위호환)
+    answer_text: str = ""  # freeform일 때 채움
     sources: list[SourceDoc] = Field(default_factory=list)
     answerability_status: str  # AnswerabilityStatus.value
     answerability_reason: str = ""

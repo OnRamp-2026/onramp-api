@@ -210,7 +210,9 @@ class AgentState(TypedDict, total=False):
     missing_versions: list[str]  # 비교 질의에서 회수 못 한 target 버전 (PARTIALLY 사유용)
 
     # ── Answer Agent 출력 ──
-    answer: FiveElements
+    answer: FiveElements  # structured 포맷일 때 채움 (freeform이면 빈값)
+    answer_text: str  # freeform 포맷일 때 채움 (structured면 "")
+    answer_format: str  # "structured" | "freeform" — 라우터 도메인 기준(#191)
     sources: list[SourceDocument]  # 답변에 인용된 문서
     answerability_status: AnswerabilityStatus
     answerability_reason: str  # 상태별 사용자 안내 메시지
