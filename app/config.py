@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     # 기본 모델
     default_model: str = ""
 
+    # 도메인 분류 — 기본 on: 적재 시 문서 단위 LLM 분류로 도메인 부여(실패·키없음 시 룰 fallback).
+    # 룰만 쓰려면 LLM_CLASSIFY_ENABLED=false.
+    llm_classify_enabled: bool = True
+
     # ── Observability (Langfuse, LLMOps) ──
     # kill-switch: false(기본)면 관측 전부 no-op — 키 없이도 앱이 기동한다.
     langfuse_enabled: bool = False

@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, replace
 
 from app.config import Settings, get_settings
 from app.db.confluence import ConfluenceClient, ConfluencePage
 from app.rag.chunker import ChildChunk, ControlDocChunker, MarkdownPage, ParentChunk, SemanticChunker
-from app.rag.classifier import ChunkMetadataClassifier, DocumentProfileClassifier
+from app.rag.classifier import ChunkingProfile, ChunkMetadataClassifier, DocumentProfileClassifier
 from app.rag.cleaner import TextCleaner
 from app.rag.labels import is_eol, make_doc_key, parse_product_version, parse_site
+from app.rag.llm_classifier import DocumentDomainClassifier, DomainResult
 from app.rag.masker import MarkdownMasker
 
 
@@ -53,6 +55,7 @@ class IngestService:
         control_chunker: ControlDocChunker | None = None,
         profile_classifier: DocumentProfileClassifier | None = None,
         metadata_classifier: ChunkMetadataClassifier | None = None,
+        domain_classifier: DocumentDomainClassifier | None = None,
         settings: Settings | None = None,
     ) -> None:
         self.confluence = confluence or ConfluenceClient()
@@ -62,7 +65,9 @@ class IngestService:
         self.control_chunker = control_chunker or ControlDocChunker()
         self.profile_classifier = profile_classifier or DocumentProfileClassifier()
         self.metadata_classifier = metadata_classifier or ChunkMetadataClassifier()
+        self.domain_classifier = domain_classifier or DocumentDomainClassifier()
         self.settings = settings or get_settings()
+        self._classify_concurrency = 8  # 문서 단위 LLM 분류 동시 호출 상한
 
     # ── recent (증분, lastmodified 기준) ──────────────────────────────────
     async def clean_recent_pages(self, hours: int = 24, limit: int = 50) -> list[CleanedConfluencePage]:
@@ -79,7 +84,7 @@ class IngestService:
     async def prepare_recent_pages_for_embedding(self, hours: int = 24, limit: int = 50) -> list[ChunkedConfluencePage]:
         """Fetch, clean, mask, chunk, and classify recent pages before embedding."""
 
-        return self._prepare(await self.clean_recent_pages(hours=hours, limit=limit))
+        return await self._prepare(await self.clean_recent_pages(hours=hours, limit=limit))
 
     # ── all (전체 적재, lastmodified 무시) ────────────────────────────────
     async def clean_all_pages(self, limit: int = 50) -> list[CleanedConfluencePage]:
@@ -96,16 +101,16 @@ class IngestService:
     async def prepare_all_pages_for_embedding(self, limit: int = 50) -> list[ChunkedConfluencePage]:
         """Fetch, clean, mask, chunk, and classify all pages before embedding."""
 
-        return self._prepare(await self.clean_all_pages(limit=limit))
+        return await self._prepare(await self.clean_all_pages(limit=limit))
 
     # ── GitHub 소스 (이미 Markdown — clean 불필요, 동일한 mask→chunk→classify 재사용) ──
-    def prepare_github_pages(self, pages: list[MarkdownPage]) -> list[ChunkedConfluencePage]:
+    async def prepare_github_pages(self, pages: list[MarkdownPage]) -> list[ChunkedConfluencePage]:
         """GitHub MarkdownPage(README·docs·이슈/PR)를 confluence와 동일한 파이프라인으로 준비.
 
         GitHub 원문은 이미 Markdown이라 HTML cleaning을 건너뛰고, mask→profile→chunk→metadata
         분류는 그대로 재사용한다. ``html``에는 원문 Markdown을 보존(원장 raw_html).
         """
-        return self._prepare([self._github_to_cleaned(page) for page in pages])
+        return await self._prepare([self._github_to_cleaned(page) for page in pages])
 
     def _github_to_cleaned(self, page: MarkdownPage) -> CleanedConfluencePage:
         return CleanedConfluencePage(
@@ -149,25 +154,56 @@ class IngestService:
     def _chunk(self, cleaned_pages: list[CleanedConfluencePage]) -> list[ChunkedConfluencePage]:
         return [self._chunk_cleaned_page(self._mask_page(page)) for page in cleaned_pages]
 
-    def _prepare(self, cleaned_pages: list[CleanedConfluencePage]) -> list[ChunkedConfluencePage]:
-        prepared_pages: list[ChunkedConfluencePage] = []
+    async def _prepare(self, cleaned_pages: list[CleanedConfluencePage]) -> list[ChunkedConfluencePage]:
+        # 1) 마스킹·청킹(동기)은 먼저 스테이징한다.
+        staged: list[tuple[CleanedConfluencePage, ChunkingProfile, ChunkedConfluencePage]] = []
         for page in cleaned_pages:
             masked_page = self._mask_page(page)
             chunking_profile = self.profile_classifier.classify_page(masked_page.title, masked_page.markdown)
             chunked_page = self._chunk_cleaned_page(masked_page, chunking_profile=chunking_profile)
-            # child가 자기 추론이 아니라 소속 parent의 domain을 상속하도록 parent domain 맵 전달
-            parent_domains = {parent.parent_id: parent.domain for parent in chunked_page.parents}
+            staged.append((masked_page, chunking_profile, chunked_page))
+
+        # 2) 문서 단위 LLM 분류는 bounded concurrency로 병렬화(순차 시 문서 수만큼 지연 누적).
+        #    LLM 옵션이 꺼져 있으면 _classify_domain이 즉시 None → gather가 사실상 no-op.
+        sem = asyncio.Semaphore(self._classify_concurrency)
+
+        async def _classify(masked_page: CleanedConfluencePage) -> DomainResult | None:
+            async with sem:
+                return await self._classify_domain(masked_page)
+
+        llm_results = await asyncio.gather(*(_classify(masked) for masked, _, _ in staged))
+
+        # 3) 도메인 상속(LLM 또는 룰) + 메타 반영.
+        prepared_pages: list[ChunkedConfluencePage] = []
+        for (_, chunking_profile, chunked_page), llm_result in zip(staged, llm_results, strict=True):
+            if llm_result is not None:
+                parent_domains = {parent.parent_id: llm_result.domain for parent in chunked_page.parents}
+            else:
+                # child가 자기 추론이 아니라 소속 parent의 domain을 상속하도록 parent domain 맵 전달
+                parent_domains = {parent.parent_id: parent.domain for parent in chunked_page.parents}
+
+            children = self.metadata_classifier.classify_batch(chunked_page.children, chunking_profile, parent_domains)
+            if llm_result is not None:
+                children = [self._apply_llm_domain_meta(child, llm_result) for child in children]
+
             prepared_pages.append(
-                ChunkedConfluencePage(
-                    page=chunked_page.page,
-                    parents=chunked_page.parents,
-                    children=self.metadata_classifier.classify_batch(
-                        chunked_page.children, chunking_profile, parent_domains
-                    ),
-                )
+                ChunkedConfluencePage(page=chunked_page.page, parents=chunked_page.parents, children=children)
             )
 
         return prepared_pages
+
+    async def _classify_domain(self, page: CleanedConfluencePage) -> DomainResult | None:
+        """LLM 옵션이 켜져 있으면 문서 단위 도메인을 분류한다. off·실패 시 None(룰 fallback)."""
+        if not self.settings.llm_classify_enabled:
+            return None
+        return await self.domain_classifier.classify(page.title, page.markdown)
+
+    def _apply_llm_domain_meta(self, child: ChildChunk, result: DomainResult) -> ChildChunk:
+        """LLM 분류 출처·신뢰도를 청크에 기록하고, secondary는 ``domain2:{x}`` 보조 태그로 보존."""
+        tags = list(child.tags or [])
+        if result.secondary:
+            tags = [f"domain2:{result.secondary}", *tags]
+        return replace(child, domain_source="llm", domain_confidence=result.confidence, tags=tags)
 
     def _mask_page(self, page: CleanedConfluencePage) -> CleanedConfluencePage:
         return replace(page, markdown=self.masker.mask(page.markdown))

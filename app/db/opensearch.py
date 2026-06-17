@@ -47,6 +47,7 @@ class OpenSearchClient:
             timeout=self.settings.opensearch_timeout_seconds,
             auth=self._auth(),
         )
+        self._chunk_fields_ensured = False
 
     def _base_url(self) -> str:
         return f"{self.settings.opensearch_scheme}://{self.settings.opensearch_host}:{self.settings.opensearch_port}"
@@ -61,11 +62,26 @@ class OpenSearchClient:
         if self._owns_client:
             await self._http.aclose()
 
+    # 기존 인덱스(옛 매핑)에 뒤늦게 추가된 청크 필드 — additive PUT _mapping으로 자가치유.
+    # 새로 만든 인덱스는 _index_body에 이미 포함되므로 no-op. (재색인 시 domain_source 필터 가능하게)
+    _ADDED_CHUNK_FIELDS = {
+        "domain_source": {"type": "keyword"},
+        "domain_confidence": {"type": "float"},
+    }
+
+    async def _ensure_chunk_fields(self, alias: str) -> None:
+        if self._chunk_fields_ensured:
+            return
+        resp = await self._http.put(f"/{alias}/_mapping", json={"properties": self._ADDED_CHUNK_FIELDS})
+        resp.raise_for_status()
+        self._chunk_fields_ensured = True
+
     async def ensure_index(self) -> None:
         alias = self.settings.opensearch_index
         concrete = self.settings.opensearch_index_v1
         alias_resp = await self._http.get(f"/_alias/{alias}")
         if alias_resp.status_code == 200:
+            await self._ensure_chunk_fields(alias)
             return
         if alias_resp.status_code != 404:
             alias_resp.raise_for_status()
@@ -83,6 +99,8 @@ class OpenSearchClient:
             json={"actions": [{"add": {"index": concrete, "alias": alias}}]},
         )
         alias_create.raise_for_status()
+        # concrete 인덱스(옛 매핑)에 alias만 붙인 경로도 신규 청크 필드를 보장한다.
+        await self._ensure_chunk_fields(alias)
 
     async def upsert_chunks(self, documents: Sequence[Mapping[str, Any]]) -> None:
         if not documents:
@@ -218,6 +236,8 @@ def _index_body(alias: str) -> dict[str, Any]:
                 "embedding_text": {"type": "text", "analyzer": "onramp_ko"},
                 "heading_path": {"type": "text", "analyzer": "onramp_ko"},
                 "domain": {"type": "keyword"},
+                "domain_source": {"type": "keyword"},
+                "domain_confidence": {"type": "float"},
                 "section_type": {"type": "keyword"},
                 "chunking_profile": {"type": "keyword"},
                 "tags": {"type": "keyword"},

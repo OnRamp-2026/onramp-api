@@ -19,6 +19,10 @@ SKIP_MIGRATE="${SKIP_MIGRATE:-0}"
 SKIP_CONFLUENCE="${SKIP_CONFLUENCE:-0}"
 SKIP_GITHUB="${SKIP_GITHUB:-0}"
 SKIP_DOCS="${SKIP_DOCS:-0}"
+# REINDEX=1 → content-hash dedup 무시하고 전체 재색인(도메인 분류만 바꿔 재적재 시). 전체 wipe 불필요.
+REINDEX="${REINDEX:-0}"
+REINDEX_FLAG=""
+[ "$REINDEX" = "1" ] && REINDEX_FLAG="--reindex"
 
 log() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m! %s\033[0m\n' "$*"; }
@@ -38,7 +42,8 @@ fi
 # 2) Confluence
 if [ "$SKIP_CONFLUENCE" != "1" ]; then
   log "Confluence 적재 (limit=$CONFLUENCE_LIMIT)"
-  python scripts/index_recent_confluence_pages.py --all --limit "$CONFLUENCE_LIMIT" || warn "Confluence 적재 실패 — 계속"
+  # shellcheck disable=SC2086
+  python scripts/index_recent_confluence_pages.py --all --limit "$CONFLUENCE_LIMIT" $REINDEX_FLAG || warn "Confluence 적재 실패 — 계속"
 fi
 
 # 3) GitHub (유효 토큰 있을 때만)
@@ -46,7 +51,7 @@ if [ "$SKIP_GITHUB" != "1" ]; then
   if [ -n "${GITHUB_TOKEN:-}" ] || grep -qE '^GITHUB_TOKEN=("?)(ghp_|github_pat_)' .env 2>/dev/null; then
     log "GitHub 적재 (repos: $GITHUB_REPOS)"
     # shellcheck disable=SC2086
-    python scripts/index_github.py --repos $GITHUB_REPOS || warn "GitHub 적재 실패 — 계속"
+    python scripts/index_github.py --repos $GITHUB_REPOS $REINDEX_FLAG || warn "GitHub 적재 실패 — 계속"
   else
     warn "GitHub 스킵 — GITHUB_TOKEN 미설정(env 또는 .env)"
   fi

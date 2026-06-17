@@ -1,6 +1,24 @@
+from app.config import get_settings
 from app.db.confluence import ConfluencePage
 from app.rag.classifier import KOREAN_DOMAIN_MAP
+from app.rag.llm_classifier import DomainResult
 from app.services.ingest_service import IngestService
+
+
+class FakeDomainClassifier:
+    """문서 단위 LLM 분류기 대역 — 고정 결과(또는 None=실패) 반환."""
+
+    def __init__(self, result: DomainResult | None) -> None:
+        self._result = result
+        self.calls = 0
+
+    async def classify(self, title: str, markdown: str) -> DomainResult | None:
+        self.calls += 1
+        return self._result
+
+
+def _settings_with_llm(enabled: bool):
+    return get_settings().model_copy(update={"llm_classify_enabled": enabled})
 
 
 class FakeConfluenceClient:
@@ -61,7 +79,7 @@ class FakeControlConfluenceClient:
 
 
 async def test_clean_recent_pages_fetches_and_cleans_confluence_pages() -> None:
-    service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
+    service = IngestService(confluence=FakeConfluenceClient(), settings=_settings_with_llm(False))  # type: ignore[arg-type]
 
     pages = await service.clean_recent_pages(hours=1, limit=10)
 
@@ -74,7 +92,7 @@ async def test_clean_recent_pages_fetches_and_cleans_confluence_pages() -> None:
 
 
 async def test_chunk_recent_pages_fetches_cleans_and_chunks_confluence_pages() -> None:
-    service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
+    service = IngestService(confluence=FakeConfluenceClient(), settings=_settings_with_llm(False))  # type: ignore[arg-type]
 
     pages = await service.chunk_recent_pages(hours=24, limit=10)
 
@@ -91,7 +109,7 @@ async def test_chunk_recent_pages_fetches_cleans_and_chunks_confluence_pages() -
 
 
 async def test_prepare_recent_pages_for_embedding_masks_and_classifies_chunks() -> None:
-    service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
+    service = IngestService(confluence=FakeConfluenceClient(), settings=_settings_with_llm(False))  # type: ignore[arg-type]
 
     pages = await service.prepare_recent_pages_for_embedding(hours=24, limit=10)
 
@@ -112,7 +130,7 @@ async def test_prepare_recent_pages_for_embedding_masks_and_classifies_chunks() 
 
 
 async def test_prepare_recent_pages_for_embedding_uses_control_chunker_for_control_like_pages() -> None:
-    service = IngestService(confluence=FakeControlConfluenceClient())  # type: ignore[arg-type]
+    service = IngestService(confluence=FakeControlConfluenceClient(), settings=_settings_with_llm(False))  # type: ignore[arg-type]
 
     pages = await service.prepare_recent_pages_for_embedding(hours=24, limit=10)
 
@@ -124,7 +142,7 @@ async def test_prepare_recent_pages_for_embedding_uses_control_chunker_for_contr
 
 
 async def test_clean_all_pages_fetches_and_cleans_confluence_pages() -> None:
-    service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
+    service = IngestService(confluence=FakeConfluenceClient(), settings=_settings_with_llm(False))  # type: ignore[arg-type]
 
     pages = await service.clean_all_pages(limit=10)
 
@@ -136,7 +154,7 @@ async def test_clean_all_pages_fetches_and_cleans_confluence_pages() -> None:
 
 
 async def test_chunk_all_pages_fetches_cleans_and_chunks_confluence_pages() -> None:
-    service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
+    service = IngestService(confluence=FakeConfluenceClient(), settings=_settings_with_llm(False))  # type: ignore[arg-type]
 
     pages = await service.chunk_all_pages(limit=10)
 
@@ -150,7 +168,7 @@ async def test_chunk_all_pages_fetches_cleans_and_chunks_confluence_pages() -> N
 
 async def test_prepare_children_inherit_parent_domain() -> None:
     # prepare 경로에서 각 child는 소속 parent의 domain(영문 정규화)을 상속한다 (#51)
-    service = IngestService(confluence=FakeControlConfluenceClient())  # type: ignore[arg-type]
+    service = IngestService(confluence=FakeControlConfluenceClient(), settings=_settings_with_llm(False))  # type: ignore[arg-type]
 
     pages = await service.prepare_recent_pages_for_embedding(hours=24, limit=10)
 
@@ -162,7 +180,7 @@ async def test_prepare_children_inherit_parent_domain() -> None:
 
 
 async def test_prepare_all_pages_for_embedding_masks_and_classifies_chunks() -> None:
-    service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
+    service = IngestService(confluence=FakeConfluenceClient(), settings=_settings_with_llm(False))  # type: ignore[arg-type]
 
     pages = await service.prepare_all_pages_for_embedding(limit=10)
 
@@ -197,7 +215,7 @@ class FakeLabeledConfluenceClient:
 
 async def test_clean_derives_lineage_meta_from_labels() -> None:
     # eol_versions 기본값에 apache 2.2가 포함 — is_eol까지 파생되는지 본다
-    service = IngestService(confluence=FakeLabeledConfluenceClient())  # type: ignore[arg-type]
+    service = IngestService(confluence=FakeLabeledConfluenceClient(), settings=_settings_with_llm(False))  # type: ignore[arg-type]
 
     pages = await service.clean_all_pages(limit=10)
 
@@ -209,7 +227,7 @@ async def test_clean_derives_lineage_meta_from_labels() -> None:
 
 
 async def test_lineage_meta_flows_to_child_chunks() -> None:
-    service = IngestService(confluence=FakeLabeledConfluenceClient())  # type: ignore[arg-type]
+    service = IngestService(confluence=FakeLabeledConfluenceClient(), settings=_settings_with_llm(False))  # type: ignore[arg-type]
 
     pages = await service.prepare_all_pages_for_embedding(limit=10)
 
@@ -223,7 +241,7 @@ async def test_lineage_meta_flows_to_child_chunks() -> None:
 
 async def test_unlabeled_pages_get_neutral_lineage_meta() -> None:
     # 라벨 없는 페이지(내부 시드 문서 등) → 전부 빈 값/False — 중립 동작 보장
-    service = IngestService(confluence=FakeConfluenceClient())  # type: ignore[arg-type]
+    service = IngestService(confluence=FakeConfluenceClient(), settings=_settings_with_llm(False))  # type: ignore[arg-type]
 
     pages = await service.prepare_all_pages_for_embedding(limit=10)
 
@@ -232,3 +250,78 @@ async def test_unlabeled_pages_get_neutral_lineage_meta() -> None:
     assert all(child.product_version == "" for child in children)
     assert all(child.doc_key == "" for child in children)
     assert all(child.is_eol is False for child in children)
+
+
+async def test_prepare_uses_llm_domain_when_enabled() -> None:
+    classifier = FakeDomainClassifier(DomainResult(domain="meeting_note", secondary="planning", confidence=0.88))
+    service = IngestService(
+        confluence=FakeConfluenceClient(),  # type: ignore[arg-type]
+        domain_classifier=classifier,  # type: ignore[arg-type]
+        settings=_settings_with_llm(True),
+    )
+
+    pages = await service.prepare_recent_pages_for_embedding(hours=24, limit=10)
+
+    children = pages[0].children
+    assert children
+    assert classifier.calls == 1  # 문서 단위 1회만 호출
+    assert all(child.domain == "meeting_note" for child in children)
+    assert all(child.domain_source == "llm" for child in children)
+    assert all(child.domain_confidence == 0.88 for child in children)
+    assert all("domain2:planning" in (child.tags or []) for child in children)
+
+
+async def test_prepare_falls_back_to_rule_when_llm_returns_none() -> None:
+    service = IngestService(
+        confluence=FakeConfluenceClient(),  # type: ignore[arg-type]
+        domain_classifier=FakeDomainClassifier(None),  # type: ignore[arg-type]
+        settings=_settings_with_llm(True),
+    )
+
+    pages = await service.prepare_recent_pages_for_embedding(hours=24, limit=10)
+
+    children = pages[0].children
+    assert children
+    assert all(child.domain_source == "rule" for child in children)
+    assert all(child.domain_confidence == 1.0 for child in children)
+
+
+async def test_prepare_ignores_llm_when_disabled() -> None:
+    classifier = FakeDomainClassifier(DomainResult(domain="meeting_note", secondary="", confidence=0.9))
+    service = IngestService(
+        confluence=FakeConfluenceClient(),  # type: ignore[arg-type]
+        domain_classifier=classifier,  # type: ignore[arg-type]
+        settings=_settings_with_llm(False),
+    )
+
+    pages = await service.prepare_recent_pages_for_embedding(hours=24, limit=10)
+
+    assert classifier.calls == 0  # 플래그 off → 분류기 미호출
+    assert all(child.domain_source == "rule" for child in pages[0].children)
+
+
+async def test_prepare_github_pages_applies_llm_domain_when_enabled() -> None:
+    # Confluence/GitHub 공통 _prepare 계약 — GitHub MarkdownPage 입력도 LLM 메타가 동일하게 반영된다.
+    from app.rag.chunker import MarkdownPage
+
+    classifier = FakeDomainClassifier(DomainResult(domain="planning", secondary="manual", confidence=0.77))
+    service = IngestService(
+        domain_classifier=classifier,  # type: ignore[arg-type]
+        settings=_settings_with_llm(True),
+    )
+    page = MarkdownPage(
+        page_id="gh:onramp-api:README.md",
+        page_title="README",
+        markdown="# 온보딩 설계\n요구사항과 아키텍처 결정을 정리한다.",
+        source_url="https://github.com/OnRamp-2026/onramp-api",
+        space_key="onramp-api",
+    )
+
+    prepared = await service.prepare_github_pages([page])
+
+    children = prepared[0].children
+    assert children
+    assert all(child.domain == "planning" for child in children)
+    assert all(child.domain_source == "llm" for child in children)
+    assert all(child.domain_confidence == 0.77 for child in children)
+    assert all("domain2:manual" in (child.tags or []) for child in children)

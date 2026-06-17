@@ -159,3 +159,28 @@ async def test_index_recent_pages_handles_pages_without_children(
 
     assert result.pages_indexed == 1
     assert result.chunks_indexed == 0
+
+
+async def test_force_reindexes_unchanged_pages(
+    sqlite_session_factory: AsyncSession,
+) -> None:
+    async def fake_index_children(children: list[ChildChunk]) -> int:
+        return len(children)
+
+    ingest = _FakeIngestService([_page("p1", [_child("p1_000")])])
+    service = IndexService(
+        ingest_service=ingest,  # type: ignore[arg-type]
+        index_children_fn=fake_index_children,
+        session_factory=sqlite_session_factory,
+    )
+
+    first = await service.index_all_pages(limit=1)
+    assert first.pages_indexed == 1
+
+    # 내용 동일 재실행 → content-hash dedup으로 스킵
+    again = await service.index_all_pages(limit=1)
+    assert again.pages_indexed == 0
+
+    # force=True → dedup 무시하고 재색인 (도메인 분류만 바꿔 재적재하는 경로)
+    forced = await service.index_all_pages(limit=1, force=True)
+    assert forced.pages_indexed == 1

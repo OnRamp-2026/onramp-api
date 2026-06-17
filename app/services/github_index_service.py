@@ -45,8 +45,9 @@ class GithubIndexService:
         include_docs: bool = True,
         include_issues: bool = True,
         include_pr: bool = True,
+        force: bool = False,
     ) -> IndexResult:
-        """repos 목록의 문서/이슈를 모아 한 번의 index_run으로 적재."""
+        """repos 목록의 문서/이슈를 모아 한 번의 index_run으로 적재. ``force``=재색인(dedup 무시)."""
         pages: list[MarkdownPage] = []
         docs_dirs = tuple(self.settings.github_docs_dirs)
         for repo in repos:
@@ -63,5 +64,5 @@ class GithubIndexService:
             logger.warning("github: 적재할 페이지 없음 (repos=%s)", list(repos))
             return IndexResult(pages_indexed=0, chunks_indexed=0)
 
-        prepared = self.ingest.prepare_github_pages(pages)
-        return await self.index.index_prepared(prepared, source="github")
+        prepared = await self.ingest.prepare_github_pages(pages)
+        return await self.index.index_prepared(prepared, source="github", force=force)
