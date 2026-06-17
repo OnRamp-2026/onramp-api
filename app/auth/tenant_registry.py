@@ -64,6 +64,8 @@ def _validate_allowed_hosts(value: object) -> tuple[str, ...]:
             continue
         if "://" in normalized:
             parsed = urlparse(normalized)
+            if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+                raise ValueError("allowed_hosts 항목은 host 또는 host:port 형식이어야 합니다.")
             normalized = parsed.netloc.lower().rstrip(".")
         if "/" in normalized or not normalized:
             raise ValueError("allowed_hosts 항목은 host 또는 host:port 형식이어야 합니다.")

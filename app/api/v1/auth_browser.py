@@ -86,9 +86,7 @@ async def callback(
 
 
 def _request_host(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-host")
-    raw = forwarded.split(",", 1)[0].strip() if forwarded else request.headers.get("host", "")
-    return raw.lower().rstrip(".")
+    return request.headers.get("host", "").strip().lower().rstrip(".")
 
 
 @browser_router.get("/me", response_model=MeResponse)

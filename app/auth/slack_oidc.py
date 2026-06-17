@@ -108,15 +108,17 @@ async def authenticate_with_slack_callback(
 
 
 def _validate_tenant_host(tenant_context: TenantContext, *, expected_host: str, callback_host: str) -> None:
-    if not tenant_context.allowed_hosts:
-        return
     normalized_expected = _normalize_host(expected_host)
     normalized_callback = _normalize_host(callback_host)
-    tenant_host = normalized_expected or normalized_callback
-    if tenant_host and tenant_host not in tenant_context.allowed_hosts:
-        raise OnRampError("로그인 요청 host가 tenant registry와 일치하지 않습니다.", status_code=403)
     if normalized_callback and normalized_expected and normalized_callback != normalized_expected:
         raise OnRampError("로그인 callback host가 state와 일치하지 않습니다.", status_code=403)
+
+    if not tenant_context.allowed_hosts:
+        return
+
+    tenant_host = normalized_expected or normalized_callback
+    if not tenant_host or tenant_host not in tenant_context.allowed_hosts:
+        raise OnRampError("로그인 요청 host가 tenant registry와 일치하지 않습니다.", status_code=403)
 
 
 def _normalize_host(value: str) -> str:
