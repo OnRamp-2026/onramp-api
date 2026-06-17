@@ -99,9 +99,11 @@ async def run(*, dry_run: bool, limit: int | None) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="chunk_registry.parent_content 백필 (#212).")
     parser.add_argument("--dry-run", action="store_true", help="UPDATE 없이 채울 parent 수만 계산")
-    parser.add_argument("--limit", type=int, default=None, help="처리할 문서 수(검증용)")
+    parser.add_argument("--limit", type=int, default=None, help="처리할 문서 수(검증용, 1 이상)")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
+    if args.limit is not None and args.limit < 1:
+        parser.error("--limit 은 1 이상이어야 합니다")
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s - %(message)s")
     asyncio.run(run(dry_run=args.dry_run, limit=args.limit))
 
