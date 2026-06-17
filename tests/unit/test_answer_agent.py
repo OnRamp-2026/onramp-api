@@ -345,3 +345,34 @@ async def test_answer_sources_sorted_by_per_doc_evidence(monkeypatch):
     monkeypatch.setattr(node_mod, "call_llm", _mock_llm(_ans_json("answerable", (0, 1))))
     out = await answer_node({"refined_query": "q", "documents": [weak, strong], "domains": _INCIDENT})
     assert [s.title for s in out["sources"]] == ["강한", "약한"]
+
+
+# ── #212 parent expansion — _build_context parent dedupe ──────────────────────
+
+
+def test_build_context_parent_expanded_dedupes_by_parent_id() -> None:
+    """두 child가 같은 parent면 parent 본문은 한 번만, child snippet 대신 parent로 대체."""
+    d1 = SourceDocument(title="A", content_snippet="child1", parent_id="p1")
+    d2 = SourceDocument(title="B", content_snippet="child2", parent_id="p1")
+    d3 = SourceDocument(title="C", content_snippet="child3", parent_id="p2")
+    ctx = node_mod._build_context([d1, d2, d3], {"p1": "PARENT-ONE", "p2": "PARENT-TWO"})
+    assert ctx.count("PARENT-ONE") == 1  # 같은 parent 1회만
+    assert "PARENT-TWO" in ctx
+    assert "child1" not in ctx and "child2" not in ctx  # parent로 대체
+    # 인덱스 계약: dedupe돼도 원본 documents 인덱스 유지 (formatter가 LLM 인용 [i]→documents[i] 역매핑).
+    # d2(p1 중복)는 건너뛰므로 블록은 [0](d1)·[2](d3), [1]은 없어야 한다.
+    assert "[0]" in ctx and "[2]" in ctx and "[1]" not in ctx
+
+
+def test_build_context_child_only_when_no_parent_contexts() -> None:
+    """parent_contexts 비면 현행 child-only(=baseline)."""
+    d1 = SourceDocument(title="A", content_snippet="child1", parent_id="p1")
+    assert "child1" in node_mod._build_context([d1], {})
+    assert "child1" in node_mod._build_context([d1], None)
+
+
+def test_build_context_falls_back_to_snippet_when_parent_missing() -> None:
+    """parent_content 없는 문서는 child snippet으로 fallback."""
+    d1 = SourceDocument(title="A", content_snippet="child1", parent_id="p9")
+    ctx = node_mod._build_context([d1], {"p1": "PARENT-ONE"})
+    assert "child1" in ctx

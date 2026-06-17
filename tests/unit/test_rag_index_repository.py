@@ -47,6 +47,12 @@ class _Chunk:
 
 
 @dataclass(frozen=True)
+class _Parent:
+    parent_id: str = "p"
+    content: str = "부모 본문"
+
+
+@dataclass(frozen=True)
 class _Page:
     page_id: str = "pg1"
     space_key: str = "ONR"
@@ -224,9 +230,16 @@ async def test_upsert_chunk_registry(db: AsyncSession) -> None:
     )
     run = await repo.create_index_run(db, tenant_id="onramp")
     chunks = [_Chunk(chunk_id="pg1_000"), _Chunk(chunk_id="pg1_001")]
-    await repo.upsert_chunk_registry(db, children=chunks, run_id=run.run_id, tenant_id="onramp")
+    await repo.upsert_chunk_registry(
+        db,
+        children=chunks,
+        run_id=run.run_id,
+        tenant_id="onramp",
+        parents=[_Parent(parent_id="p", content="부모 본문")],
+    )
 
     row = await db.get(ChunkRegistry, "pg1_000")
+    assert row is not None and row.parent_content == "부모 본문"  # parent_content 채워짐 (#212)
     assert row is not None
     assert row.run_id == run.run_id
 
@@ -245,10 +258,14 @@ async def test_collect_and_delete_stale_chunks(db: AsyncSession) -> None:
     run2 = await repo.create_index_run(db, tenant_id="onramp")
 
     old_chunks = [_Chunk(chunk_id="pg1_old")]
-    await repo.upsert_chunk_registry(db, children=old_chunks, run_id=run1.run_id, tenant_id="onramp")
+    await repo.upsert_chunk_registry(
+        db, children=old_chunks, run_id=run1.run_id, tenant_id="onramp", parents=[_Parent()]
+    )
 
     new_chunks = [_Chunk(chunk_id="pg1_new")]
-    await repo.upsert_chunk_registry(db, children=new_chunks, run_id=run2.run_id, tenant_id="onramp")
+    await repo.upsert_chunk_registry(
+        db, children=new_chunks, run_id=run2.run_id, tenant_id="onramp", parents=[_Parent()]
+    )
 
     stale = await repo.collect_stale_chunks(db, tenant_id="onramp", page_id="pg1", run_id=run2.run_id)
     assert len(stale) == 1

@@ -58,8 +58,48 @@ def _result(
     return out
 
 
-def _build_context(documents: list[SourceDocument]) -> str:
-    return "\n\n".join(f"[{i}] title: {doc.title}\ncontent: {doc.content_snippet}" for i, doc in enumerate(documents))
+def _build_context(documents: list[SourceDocument], parent_contexts: dict[str, str] | None = None) -> str:
+    """LLM 컨텍스트 구성. parent_contexts가 있으면(#212 parent-expanded) child snippet 대신
+    parent 본문을 parent_id 기준 **한 번만** 주입한다(여러 child가 같은 parent면 중복 제거).
+    parent_contexts가 비면 현행 child-only(=baseline)."""
+    if not parent_contexts:
+        return "\n\n".join(
+            f"[{i}] title: {doc.title}\ncontent: {doc.content_snippet}" for i, doc in enumerate(documents)
+        )
+    # 인덱스는 **원본 documents 인덱스**를 유지한다([i]). formatter가 LLM 인용 [i]를 documents[i]로
+    # 역매핑하므로(재번호하면 잘못된 출처로 매핑됨). dedupe된 child는 블록을 건너뛰되 인덱스는 보존.
+    blocks: list[str] = []
+    seen_parents: set[str] = set()
+    for i, doc in enumerate(documents):
+        pid = doc.parent_id
+        if pid and pid in parent_contexts:
+            if pid in seen_parents:
+                continue  # 같은 parent는 한 번만 (그 parent는 먼저 나온 child 인덱스로 인용됨)
+            seen_parents.add(pid)
+            content = parent_contexts[pid]
+        else:
+            content = doc.content_snippet  # parent 없는 문서는 child snippet fallback
+        blocks.append(f"[{i}] title: {doc.title}\ncontent: {content}")
+    return "\n\n".join(blocks)
+
+
+async def _fetch_parent_contexts(documents: list[SourceDocument]) -> dict[str, str]:
+    """parent_context_enabled일 때 검색 문서의 parent 본문을 Postgres에서 조회(parent_id dedupe)."""
+    settings = get_settings()
+    if not settings.parent_context_enabled:
+        return {}
+    parent_ids = [d.parent_id for d in documents if d.parent_id]
+    if not parent_ids:
+        return {}
+    from app.db.postgres import session_scope
+    from app.services import rag_index_repository as repo
+
+    try:
+        async with session_scope() as db:
+            return await repo.get_parent_contexts(db, tenant_id=settings.auth_default_tenant, parent_ids=parent_ids)
+    except Exception:  # 조회 실패 → child-only로 graceful degrade (답변은 계속 나옴)
+        logger.warning("parent context 조회 실패 — child-only로 진행", exc_info=True)
+        return {}
 
 
 async def answer_node(state: AgentState) -> dict:
@@ -85,8 +125,9 @@ async def answer_node(state: AgentState) -> dict:
             reason=reason_for(status),
         )
 
+    parent_contexts = await _fetch_parent_contexts(documents)  # #212: parent-expanded면 채워짐, 아니면 {}
     system_prompt = ANSWER_SYSTEM_PROMPT if is_structured else FREEFORM_SYSTEM_PROMPT
-    user_prompt = f"문서 컨텍스트:\n{_build_context(documents)}\n\n질문: {query}"
+    user_prompt = f"문서 컨텍스트:\n{_build_context(documents, parent_contexts)}\n\n질문: {query}"
     try:
         raw = await call_llm(system_prompt, user_prompt, model=state.get("model", ""), json_mode=True)
     except Exception as exc:  # LLM 호출 실패 → 보류

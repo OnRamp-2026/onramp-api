@@ -121,6 +121,7 @@ class IndexService:
                             run_id=run.run_id,
                             tenant_id=tenant_id,
                             source=source,
+                            parents=chunked_page.parents,
                         )
 
                         # 4. delete stale chunks from search + registry

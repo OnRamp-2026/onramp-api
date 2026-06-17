@@ -19,7 +19,7 @@ from app.db.models import (
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.rag.chunker import ChildChunk
+    from app.rag.chunker import ChildChunk, ParentChunk
     from app.services.ingest_service import CleanedConfluencePage
 
 
@@ -178,11 +178,17 @@ async def upsert_chunk_registry(
     run_id: uuid.UUID,
     tenant_id: str,
     source: str = "confluence",
+    parents: list[ParentChunk] | None = None,
 ) -> None:
     if not children:
         return
+    if parents is None:
+        # parents 미전달 시 merge가 parent_content=None으로 기존 값을 조용히 덮어쓴다 → fail-fast.
+        raise ValueError("upsert_chunk_registry: parents must be provided (None이면 parent_content가 소거됨)")
     from app.rag.indexer import _point_id
 
+    # parent expansion(#212 Phase 0-A): child row에 소속 parent 본문을 채운다(조회 시 parent_id로 dedupe).
+    parent_content = {p.parent_id: p.content for p in parents}
     for c in children:
         await db.merge(
             ChunkRegistry(
@@ -196,9 +202,32 @@ async def upsert_chunk_registry(
                 domain=c.domain,
                 token_count=c.token_count,
                 hash=c.hash,
+                parent_content=parent_content.get(c.parent_id),
             )
         )
     await db.flush()
+
+
+async def get_parent_contexts(db: AsyncSession, *, tenant_id: str, parent_ids: list[str]) -> dict[str, str]:
+    """parent_id → parent_content 조회 (#212 Phase 0-A).
+
+    chunk_registry는 child별 row라 같은 parent가 여러 행에 중복된다 → parent_id로 dedupe.
+    저장 위치를 호출부에서 감추는 wrapper — Phase 0-B에서 전용 parent 테이블로 바꿔도 시그니처는 유지한다.
+    """
+    if not parent_ids:
+        return {}
+    rows = await db.execute(
+        select(ChunkRegistry.parent_id, ChunkRegistry.parent_content).where(
+            ChunkRegistry.tenant_id == tenant_id,
+            ChunkRegistry.parent_id.in_(set(parent_ids)),
+            ChunkRegistry.parent_content.isnot(None),
+        )
+    )
+    out: dict[str, str] = {}
+    for parent_id, content in rows.all():
+        if content and parent_id not in out:
+            out[parent_id] = content
+    return out
 
 
 async def collect_stale_chunks(

@@ -251,6 +251,9 @@ class Settings(BaseSettings):
     retriever_top_k: int = 20  # Qdrant 후보 풀
     retriever_top_n: int = 5  # 리랭킹 후 최종
     snippet_max_chars: int = 500  # SourceDocument content_snippet 길이
+    # parent expansion(#212 Phase 0-A): child 검색 → parent 문맥 복원해 Answer context에 주입.
+    # 기본 off = 현행 child-only(=baseline). on = parent-expanded. ablation으로 둘을 분리 측정.
+    parent_context_enabled: bool = False
     rerank_recency_weight: float = 0.1  # 최신성 가산값 (additive, rerank 순서 우선)
     rerank_recency_half_life_days: int = 180
     # 도메인 필터 모드 — soft 확정(#49 router-in-the-loop: 라우터 33%라 hard/hybrid 붕괴, soft 0.711)
