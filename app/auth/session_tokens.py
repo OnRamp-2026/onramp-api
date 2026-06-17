@@ -19,6 +19,7 @@ class AuthState:
     provider: str
     nonce: str
     expires_at: datetime
+    expected_host: str = ""
 
 
 @dataclass(frozen=True)
@@ -27,23 +28,25 @@ class IssuedSessionToken:
     expires_at: datetime
 
 
-def issue_auth_state(*, provider: str, settings: Settings) -> tuple[str, AuthState]:
+def issue_auth_state(*, provider: str, settings: Settings, expected_host: str = "") -> tuple[str, AuthState]:
     secret = _auth_secret(settings)
     now = datetime.now(UTC)
     expires_at = now + timedelta(seconds=settings.auth_state_ttl_seconds)
     nonce = secrets.token_urlsafe(24)
+    normalized_host = expected_host.strip().lower().rstrip(".")
     token = jwt.encode(
         {
             "purpose": STATE_PURPOSE,
             "provider": provider,
             "nonce": nonce,
+            "expected_host": normalized_host,
             "iat": int(now.timestamp()),
             "exp": int(expires_at.timestamp()),
         },
         secret,
         algorithm="HS256",
     )
-    return token, AuthState(provider=provider, nonce=nonce, expires_at=expires_at)
+    return token, AuthState(provider=provider, nonce=nonce, expires_at=expires_at, expected_host=normalized_host)
 
 
 def decode_auth_state(state_token: str, *, provider: str, settings: Settings) -> AuthState:
@@ -65,10 +68,12 @@ def decode_auth_state(state_token: str, *, provider: str, settings: Settings) ->
     exp = claims.get("exp")
     if not isinstance(exp, int):
         raise OnRampError("유효하지 않은 로그인 state입니다.", status_code=401)
+    expected_host = claims.get("expected_host")
     return AuthState(
         provider=provider,
         nonce=nonce,
         expires_at=datetime.fromtimestamp(exp, UTC),
+        expected_host=expected_host if isinstance(expected_host, str) else "",
     )
 
 

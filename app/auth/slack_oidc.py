@@ -9,7 +9,7 @@ import httpx
 import jwt
 
 from app.auth.session_tokens import decode_auth_state, issue_auth_state, issue_session_token
-from app.auth.tenant_registry import resolve_tenant_context
+from app.auth.tenant_registry import TenantContext, resolve_tenant_context
 from app.config import Settings
 from app.middleware.error_handler import OnRampError
 from app.models.auth import AuthSessionResponse, SlackAuthorizeResponse
@@ -26,9 +26,18 @@ class SlackTokenExchange:
     id_token: str
 
 
-def build_slack_authorization(settings: Settings, *, team: str | None = None) -> SlackAuthorizeResponse:
+def build_slack_authorization(
+    settings: Settings,
+    *,
+    team: str | None = None,
+    expected_host: str = "",
+) -> SlackAuthorizeResponse:
     _validate_slack_config(settings, require_client_secret=False)
-    state_token, state = issue_auth_state(provider=SLACK_PROVIDER, settings=settings)
+    state_token, state = issue_auth_state(
+        provider=SLACK_PROVIDER,
+        settings=settings,
+        expected_host=expected_host,
+    )
     params = {
         "response_type": "code",
         "client_id": settings.auth_slack_client_id,
@@ -50,6 +59,7 @@ async def authenticate_with_slack_callback(
     code: str,
     state: str,
     settings: Settings,
+    callback_host: str = "",
 ) -> AuthSessionResponse:
     _validate_slack_config(settings, require_client_secret=True)
     auth_state = decode_auth_state(state, provider=SLACK_PROVIDER, settings=settings)
@@ -69,6 +79,11 @@ async def authenticate_with_slack_callback(
         )
     except ValueError as exc:
         raise OnRampError("등록되지 않은 Slack workspace입니다.", status_code=403) from exc
+    _validate_tenant_host(
+        tenant_context,
+        expected_host=auth_state.expected_host,
+        callback_host=callback_host,
+    )
     tenant_id = tenant_context.tenant_id
 
     session = issue_session_token(
@@ -90,6 +105,24 @@ async def authenticate_with_slack_callback(
         email_verified=bool(claims.get("email_verified", False)),
         name=_optional_string_claim(claims, "name"),
     )
+
+
+def _validate_tenant_host(tenant_context: TenantContext, *, expected_host: str, callback_host: str) -> None:
+    normalized_expected = _normalize_host(expected_host)
+    normalized_callback = _normalize_host(callback_host)
+    if normalized_callback and normalized_expected and normalized_callback != normalized_expected:
+        raise OnRampError("로그인 callback host가 state와 일치하지 않습니다.", status_code=403)
+
+    if not tenant_context.allowed_hosts:
+        return
+
+    tenant_host = normalized_expected or normalized_callback
+    if not tenant_host or tenant_host not in tenant_context.allowed_hosts:
+        raise OnRampError("로그인 요청 host가 tenant registry와 일치하지 않습니다.", status_code=403)
+
+
+def _normalize_host(value: str) -> str:
+    return value.strip().lower().rstrip(".")
 
 
 async def _exchange_code_for_token(*, code: str, settings: Settings) -> SlackTokenExchange:

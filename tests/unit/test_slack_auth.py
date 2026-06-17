@@ -8,6 +8,7 @@ import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.auth.tenant_registry import resolve_tenant_context
 from app.config import Settings
 
 JWT_SECRET = "test-auth-secret-with-at-least-32-bytes"
@@ -300,3 +301,206 @@ async def test_slack_callback_returns_tenant_api_base_url_when_registered(
 
     assert response.status_code == 200
     assert response.json()["tenant_api_base_url"] == "https://tenant1.example.com"
+
+
+@pytest.mark.asyncio
+async def test_slack_callback_accepts_allowed_host(
+    slack_auth_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(
+        registry={
+            "slack:T12345": {
+                "tenant_id": "tenant1-onramp",
+                "tenant_api_base_url": "https://tenant1.example.com",
+                "allowed_hosts": ["test"],
+            }
+        }
+    )
+    monkeypatch.setattr("app.api.v1.auth.get_settings", lambda: settings)
+
+    authorize = await slack_auth_client.get("/v1/auth/slack/authorize")
+    query = parse_qs(urlparse(authorize.json()["authorization_url"]).query)
+    state = query["state"][0]
+    nonce = query["nonce"][0]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "ok": True,
+                "access_token": "xoxp-test",
+                "token_type": "Bearer",
+                "id_token": _slack_id_token(nonce=nonce),
+            },
+        )
+
+    class MockAsyncClient(httpx.AsyncClient):
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.auth.slack_oidc.httpx.AsyncClient", MockAsyncClient)
+
+    response = await slack_auth_client.get(
+        "/v1/auth/slack/callback",
+        params={"code": "test-code", "state": state},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["tenant_id"] == "tenant1-onramp"
+
+
+@pytest.mark.asyncio
+async def test_slack_callback_rejects_host_mismatch(
+    slack_auth_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(
+        registry={
+            "slack:T12345": {
+                "tenant_id": "tenant1-onramp",
+                "tenant_api_base_url": "https://tenant1.example.com",
+                "allowed_hosts": ["tenant1.example.com"],
+            }
+        }
+    )
+    monkeypatch.setattr("app.api.v1.auth.get_settings", lambda: settings)
+
+    authorize = await slack_auth_client.get("/v1/auth/slack/authorize")
+    query = parse_qs(urlparse(authorize.json()["authorization_url"]).query)
+    state = query["state"][0]
+    nonce = query["nonce"][0]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "ok": True,
+                "access_token": "xoxp-test",
+                "token_type": "Bearer",
+                "id_token": _slack_id_token(nonce=nonce),
+            },
+        )
+
+    class MockAsyncClient(httpx.AsyncClient):
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.auth.slack_oidc.httpx.AsyncClient", MockAsyncClient)
+
+    response = await slack_auth_client.get(
+        "/v1/auth/slack/callback",
+        params={"code": "test-code", "state": state},
+    )
+
+    assert response.status_code == 403
+    assert "host" in response.json()["error"]
+
+
+@pytest.mark.asyncio
+async def test_slack_callback_rejects_state_callback_host_mismatch_without_allowed_hosts(
+    slack_auth_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings()
+    monkeypatch.setattr("app.api.v1.auth.get_settings", lambda: settings)
+
+    authorize = await slack_auth_client.get("/v1/auth/slack/authorize")
+    query = parse_qs(urlparse(authorize.json()["authorization_url"]).query)
+    state = query["state"][0]
+    nonce = query["nonce"][0]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "ok": True,
+                "access_token": "xoxp-test",
+                "token_type": "Bearer",
+                "id_token": _slack_id_token(nonce=nonce),
+            },
+        )
+
+    class MockAsyncClient(httpx.AsyncClient):
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.auth.slack_oidc.httpx.AsyncClient", MockAsyncClient)
+
+    response = await slack_auth_client.get(
+        "/v1/auth/slack/callback",
+        params={"code": "test-code", "state": state},
+        headers={"host": "other.example.com"},
+    )
+
+    assert response.status_code == 403
+    assert "callback host" in response.json()["error"]
+
+
+@pytest.mark.asyncio
+async def test_slack_callback_ignores_untrusted_forwarded_host(
+    slack_auth_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(
+        registry={
+            "slack:T12345": {
+                "tenant_id": "tenant1-onramp",
+                "tenant_api_base_url": "https://tenant1.example.com",
+                "allowed_hosts": ["tenant1.example.com"],
+            }
+        }
+    )
+    monkeypatch.setattr("app.api.v1.auth.get_settings", lambda: settings)
+
+    authorize = await slack_auth_client.get(
+        "/v1/auth/slack/authorize",
+        headers={"x-forwarded-host": "tenant1.example.com"},
+    )
+    query = parse_qs(urlparse(authorize.json()["authorization_url"]).query)
+    state = query["state"][0]
+    nonce = query["nonce"][0]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            request=request,
+            json={
+                "ok": True,
+                "access_token": "xoxp-test",
+                "token_type": "Bearer",
+                "id_token": _slack_id_token(nonce=nonce),
+            },
+        )
+
+    class MockAsyncClient(httpx.AsyncClient):
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr("app.auth.slack_oidc.httpx.AsyncClient", MockAsyncClient)
+
+    response = await slack_auth_client.get(
+        "/v1/auth/slack/callback",
+        params={"code": "test-code", "state": state},
+        headers={"x-forwarded-host": "tenant1.example.com"},
+    )
+
+    assert response.status_code == 403
+    assert "tenant registry" in response.json()["error"]
+
+
+def test_tenant_registry_rejects_allowed_host_url_with_path() -> None:
+    settings = _settings(
+        registry={
+            "slack:T12345": {
+                "tenant_id": "tenant1-onramp",
+                "allowed_hosts": ["https://tenant1.example.com/path"],
+            }
+        }
+    )
+
+    with pytest.raises(ValueError, match="allowed_hosts"):
+        resolve_tenant_context(provider="slack", external_tenant="T12345", settings=settings)

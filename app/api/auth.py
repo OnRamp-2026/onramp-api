@@ -25,6 +25,7 @@ from app.auth.session import (
     get_current_user,
     issue_session_token,
 )
+from app.auth.tenant_registry import resolve_tenant_context
 from app.config import Settings, get_settings
 
 router = APIRouter()
@@ -180,9 +181,15 @@ async def callback(request: Request, code: str = Query(...), state: str = Query(
     if not isinstance(team_id, str) or not team_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="team_id(테넌트) 클레임 없음.")
 
-    # 인가 L1: 워크스페이스(team_id) = 회사 = 테넌트
+    try:
+        tenant_context = resolve_tenant_context(provider="slack", external_tenant=team_id, settings=settings)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="등록되지 않은 Slack workspace입니다."
+        ) from exc
+
     token, ttl = issue_session_token(
-        tenant_id=team_id,
+        tenant_id=tenant_context.tenant_id,
         subject=str(claims.get("sub", "")),
         settings=settings,
         provider="slack",

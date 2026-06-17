@@ -43,14 +43,18 @@ def _set_session_cookie(response: Response, token: str, ttl: int, settings: Sett
 
 
 @browser_router.get("/login")
-async def login(team: str | None = Query(default=None, max_length=128)) -> RedirectResponse:
+async def login(
+    request: Request,
+    team: str | None = Query(default=None, max_length=128),
+) -> RedirectResponse:
     """Slack authorize URL로 브라우저를 보낸다(307). 프론트 진입점."""
-    authorization = build_slack_authorization(get_settings(), team=team)
+    authorization = build_slack_authorization(get_settings(), team=team, expected_host=_request_host(request))
     return RedirectResponse(authorization.authorization_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 @browser_router.get("/callback")
 async def callback(
+    request: Request,
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
@@ -61,7 +65,12 @@ async def callback(
         raise OnRampError(f"Slack 로그인에 실패했습니다: {error}", status_code=401)
     if not code or not state:
         raise OnRampError("Slack callback에 code/state가 없습니다.", status_code=400)
-    session = await authenticate_with_slack_callback(code=code, state=state, settings=settings)
+    session = await authenticate_with_slack_callback(
+        code=code,
+        state=state,
+        settings=settings,
+        callback_host=_request_host(request),
+    )
     # 쿠키 토큰은 deps 호환 issuer로 재발급(name/email 포함 → /me·사이드바 표시)
     token, ttl = issue_session_token(
         tenant_id=session.tenant_id,
@@ -74,6 +83,10 @@ async def callback(
     response = RedirectResponse(settings.frontend_post_login_redirect, status_code=status.HTTP_303_SEE_OTHER)
     _set_session_cookie(response, token, ttl, settings)
     return response
+
+
+def _request_host(request: Request) -> str:
+    return request.headers.get("host", "").strip().lower().rstrip(".")
 
 
 @browser_router.get("/me", response_model=MeResponse)

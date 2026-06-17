@@ -34,7 +34,7 @@ def test_login_redirects_to_slack(monkeypatch):
     monkeypatch.setattr(
         ab,
         "build_slack_authorization",
-        lambda settings, team=None: SlackAuthorizeResponse(
+        lambda settings, team=None, expected_host="": SlackAuthorizeResponse(
             authorization_url="https://slack.com/openid/connect/authorize?client_id=x",
             state_expires_at=datetime.now(UTC) + timedelta(minutes=5),
         ),
@@ -47,7 +47,7 @@ def test_login_redirects_to_slack(monkeypatch):
 def test_callback_sets_cookie_and_redirects_to_frontend(monkeypatch):
     client, _ = _build(monkeypatch)
 
-    async def fake_auth(*, code, state, settings):
+    async def fake_auth(*, code, state, settings, callback_host=""):
         return AuthSessionResponse(
             access_token="ignored",
             expires_at=datetime.now(UTC) + timedelta(hours=1),
