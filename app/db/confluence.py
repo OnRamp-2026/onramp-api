@@ -218,8 +218,11 @@ class ConfluenceClient:
             return ""
         if webui.startswith("http"):
             return webui
-        base = self.settings.confluence_base_url.removesuffix("/wiki")
-        return f"{base}/wiki{webui}"
+        # base의 trailing slash·/wiki 접미사, webui의 leading slash를 정규화해 슬래시 중복(//, /wiki 중복)을 방지한다.
+        base = self.settings.confluence_base_url.rstrip("/")
+        if base.endswith("/wiki"):
+            base = base[: -len("/wiki")]
+        return f"{base}/wiki/{webui.lstrip('/')}"
 
     def _quote_cql_value(self, value: str) -> str:
         return value.replace('"', '\\"')
