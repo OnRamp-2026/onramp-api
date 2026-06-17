@@ -104,6 +104,7 @@ class SourceDocument:
     hash: str = ""  # 중복 content 탐지
     # 버전 계보 메타 (#94 payload → #103 전달)
     chunk_id: str = ""  # 재검색 병합 dedupe 키
+    parent_id: str = ""  # 소속 parent 청크 id (#212 — parent context 복원 조회 키)
     site: str = ""
     product_version: str = ""
     doc_key: str = ""  # 버전 형제 묶음 키 (빈 값 = 계보 없음)

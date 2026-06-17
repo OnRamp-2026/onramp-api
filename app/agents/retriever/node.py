@@ -158,6 +158,7 @@ def _to_source_doc(
         last_modified=payload.get("last_modified", ""),
         hash=payload.get("hash", ""),
         chunk_id=payload.get("chunk_id", "") or "",
+        parent_id=payload.get("parent_id", "") or "",
         site=payload.get("site", "") or "",
         product_version=payload.get("product_version", "") or "",
         doc_key=payload.get("doc_key", "") or "",
