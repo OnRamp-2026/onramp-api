@@ -51,8 +51,14 @@
 
 ## 구축 워크플로우
 
-1. **초안 부트스트랩** — `python scripts/bootstrap_golden.py --mode <single|multi-hop|near-miss|confusable>`
+> **샘플링·구성 기준은 [`GOLDENSET_CRITERIA.md`](GOLDENSET_CRITERIA.md)** (#206 재설계) — 층화(floor)+코퍼스
+> 비례 quota, 티어별 목표 수, 프롬프트 규칙. 본 README는 포맷·필드·운영 평가를 다룬다.
+
+1. **초안 부트스트랩** — `python scripts/bootstrap_golden.py --mode <single|multi-domain|multi-hop|near-miss|confusable>`
    (Qdrant 색인분에서 샘플링해 LLM으로 질문 생성, `_draft:true`로 모드별 `*.{mode}.draft.jsonl` 출력)
+   - `single`: 청크 1개가 정답. **도메인 균등이 아니라 floor+코퍼스 비례 quota**(`--total-answerable`/`--floor`,
+     기본 50/8) + 범위 밖 unanswerable 시드(`--scope-out`, 기본 10).
+   - `multi-domain`: 서로 다른 도메인의 벡터 이웃을 정답으로 묶는 질문 (`m0xx`) → 도메인 교차 recall 측정
    - `multi-hop`: 같은 페이지 인접 청크 2~3개 종합 질문 → 멀티청크 qrels (Recall이 Hit Rate와 분리)
    - `near-miss`: 도메인 안 주제지만 코퍼스가 답하지 않는 unanswerable — '점심 메뉴'류보다 answerability 변별력 높음
    - `confusable`: 벡터 이웃(타 페이지 유사 청크) 많은 타깃 저격 질문 — 유사 문서 변별 측정

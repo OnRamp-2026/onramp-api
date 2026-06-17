@@ -34,6 +34,8 @@ _GEN_SYSTEM = (
     "근거에 없는 내용은 추측하지 말고, 핵심만 3~5문장으로 요약한다. "
     "근거에 [MASKED_...] 같은 마스킹된 비밀값이 있으면 그 토큰을 그대로 쓰지 말고 "
     "일반적인 설명(예: '해당 키링 파일', 'signed-by 옵션')으로 대체한다. "
+    "근거가 질문에 답하기 불충분하면(질문과 무관하거나 정보가 없으면) 지어내지 말고 "
+    "ground_truth_answer 를 빈 문자열로 반환한다. "
     '반드시 JSON 하나만 반환: {"ground_truth_answer": "..."}'
 )
 
@@ -79,8 +81,11 @@ def _scroll_all(limit: int) -> list:
     return all_points
 
 
+_CONTEXT_CHARS = 2400  # 근거 청크 절단 상한 — 정답 문장이 뒤쪽에 있어도 포함 (§5-A)
+
+
 async def _gen_answer(query: str, contexts: list[str], model: str) -> str | None:
-    joined = "\n\n".join(f"[근거 {i + 1}]\n{c[:1200]}" for i, c in enumerate(contexts))
+    joined = "\n\n".join(f"[근거 {i + 1}]\n{c[:_CONTEXT_CHARS]}" for i, c in enumerate(contexts))
     try:
         raw = await call_llm(_GEN_SYSTEM, f"질문: {query}\n\n{joined}", model=model, json_mode=True)
         answer = json.loads(raw).get("ground_truth_answer", "").strip()
