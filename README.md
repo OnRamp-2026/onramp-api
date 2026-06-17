@@ -168,6 +168,11 @@ Response:
     QDRANT_HOST=localhost
     QDRANT_PORT=6333
 
+    # Search (Hybrid: dense + BM25) — BM25는 '적재 시 색인', HYBRID는 '검색 시 융합'(별개 플래그)
+    OPENSEARCH_HOST=localhost
+    BM25_SEARCH_ENABLED=true        # 적재 시 OpenSearch 청크 BM25 색인
+    HYBRID_SEARCH_ENABLED=true      # 검색 시 dense+BM25 RRF 융합 (off면 dense-only)
+
     # Database
     DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/onramp
 
