@@ -7,9 +7,9 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
-from sqlalchemy import select
+from sqlalchemy import CursorResult, delete, select
 
 from app.db.models import Conversation, Message
 
@@ -128,3 +128,23 @@ async def get_conversation_messages(
         return None
     result = await db.scalars(select(Message).where(Message.conversation_id == cid).order_by(Message.created_at))
     return list(result)
+
+
+async def delete_conversation(db: AsyncSession, *, tenant_id: str, user_id: str, conversation_id: str) -> bool:
+    """본인 소유 대화를 삭제한다. message는 FK ON DELETE CASCADE로 함께 제거.
+
+    반환: 삭제됐으면 True, 대화가 없거나 소유자가 아니면 False.
+    """
+    cid = _coerce_uuid(conversation_id)
+    if cid is None:
+        return False
+    # 소유권 조건을 DELETE WHERE에 직접 포함 — 검증+삭제 원자적(TOCTOU 경쟁 제거). rowcount로 실삭제 판단.
+    result = await db.execute(
+        delete(Conversation).where(
+            Conversation.conversation_id == cid,
+            Conversation.tenant_id == tenant_id,
+            Conversation.user_id == user_id,
+        )
+    )
+    await db.commit()
+    return cast(CursorResult, result).rowcount > 0
