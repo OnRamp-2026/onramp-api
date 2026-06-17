@@ -63,5 +63,5 @@ class GithubIndexService:
             logger.warning("github: 적재할 페이지 없음 (repos=%s)", list(repos))
             return IndexResult(pages_indexed=0, chunks_indexed=0)
 
-        prepared = self.ingest.prepare_github_pages(pages)
+        prepared = await self.ingest.prepare_github_pages(pages)
         return await self.index.index_prepared(prepared, source="github")

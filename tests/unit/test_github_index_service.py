@@ -49,7 +49,7 @@ class _FakeIndex:
 
 
 class _FakeIngest:
-    def prepare_github_pages(self, pages):  # noqa: ANN001
+    async def prepare_github_pages(self, pages):  # noqa: ANN001
         # 변환/청킹은 다른 테스트가 검증 — 여기선 길이 보존만
         return list(pages)
 

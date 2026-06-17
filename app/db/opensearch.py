@@ -218,6 +218,8 @@ def _index_body(alias: str) -> dict[str, Any]:
                 "embedding_text": {"type": "text", "analyzer": "onramp_ko"},
                 "heading_path": {"type": "text", "analyzer": "onramp_ko"},
                 "domain": {"type": "keyword"},
+                "domain_source": {"type": "keyword"},
+                "domain_confidence": {"type": "float"},
                 "section_type": {"type": "keyword"},
                 "chunking_profile": {"type": "keyword"},
                 "tags": {"type": "keyword"},

@@ -145,6 +145,9 @@ class ChildChunk:
     product_version: str = ""
     doc_key: str = ""  # 버전 형제 묶음 키 (빈 값 = 계보 없음)
     is_eol: bool = False
+    # 도메인 분류 출처 — "rule"(키워드 룰) | "llm"(문서 단위 LLM). confidence는 LLM일 때만 의미.
+    domain_source: str = "rule"
+    domain_confidence: float = 1.0
     content_vector: list[float] | None = None
 
 

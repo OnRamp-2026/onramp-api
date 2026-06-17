@@ -1,6 +1,24 @@
+from app.config import get_settings
 from app.db.confluence import ConfluencePage
 from app.rag.classifier import KOREAN_DOMAIN_MAP
+from app.rag.llm_classifier import DomainResult
 from app.services.ingest_service import IngestService
+
+
+class FakeDomainClassifier:
+    """문서 단위 LLM 분류기 대역 — 고정 결과(또는 None=실패) 반환."""
+
+    def __init__(self, result: DomainResult | None) -> None:
+        self._result = result
+        self.calls = 0
+
+    async def classify(self, title: str, markdown: str) -> DomainResult | None:
+        self.calls += 1
+        return self._result
+
+
+def _settings_with_llm(enabled: bool):
+    return get_settings().model_copy(update={"llm_classify_enabled": enabled})
 
 
 class FakeConfluenceClient:
@@ -232,3 +250,51 @@ async def test_unlabeled_pages_get_neutral_lineage_meta() -> None:
     assert all(child.product_version == "" for child in children)
     assert all(child.doc_key == "" for child in children)
     assert all(child.is_eol is False for child in children)
+
+
+async def test_prepare_uses_llm_domain_when_enabled() -> None:
+    classifier = FakeDomainClassifier(DomainResult(domain="meeting_note", secondary="planning", confidence=0.88))
+    service = IngestService(
+        confluence=FakeConfluenceClient(),  # type: ignore[arg-type]
+        domain_classifier=classifier,  # type: ignore[arg-type]
+        settings=_settings_with_llm(True),
+    )
+
+    pages = await service.prepare_recent_pages_for_embedding(hours=24, limit=10)
+
+    children = pages[0].children
+    assert children
+    assert classifier.calls == 1  # 문서 단위 1회만 호출
+    assert all(child.domain == "meeting_note" for child in children)
+    assert all(child.domain_source == "llm" for child in children)
+    assert all(child.domain_confidence == 0.88 for child in children)
+    assert all("domain2:planning" in (child.tags or []) for child in children)
+
+
+async def test_prepare_falls_back_to_rule_when_llm_returns_none() -> None:
+    service = IngestService(
+        confluence=FakeConfluenceClient(),  # type: ignore[arg-type]
+        domain_classifier=FakeDomainClassifier(None),  # type: ignore[arg-type]
+        settings=_settings_with_llm(True),
+    )
+
+    pages = await service.prepare_recent_pages_for_embedding(hours=24, limit=10)
+
+    children = pages[0].children
+    assert children
+    assert all(child.domain_source == "rule" for child in children)
+    assert all(child.domain_confidence == 1.0 for child in children)
+
+
+async def test_prepare_ignores_llm_when_disabled() -> None:
+    classifier = FakeDomainClassifier(DomainResult(domain="meeting_note", secondary="", confidence=0.9))
+    service = IngestService(
+        confluence=FakeConfluenceClient(),  # type: ignore[arg-type]
+        domain_classifier=classifier,  # type: ignore[arg-type]
+        settings=_settings_with_llm(False),
+    )
+
+    pages = await service.prepare_recent_pages_for_embedding(hours=24, limit=10)
+
+    assert classifier.calls == 0  # 플래그 off → 분류기 미호출
+    assert all(child.domain_source == "rule" for child in pages[0].children)
