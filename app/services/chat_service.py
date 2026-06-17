@@ -59,6 +59,7 @@ def _to_response(state: dict, request: ChatRequest) -> ChatResponse:
     status = state.get("answerability_status") or AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
     domain = state.get("domain")
     return ChatResponse(
+        answer_format=state.get("answer_format") or "structured",
         answer=FiveElementsResponse(
             situation=answer.situation,
             cause=answer.cause,
@@ -66,6 +67,7 @@ def _to_response(state: dict, request: ChatRequest) -> ChatResponse:
             solution=answer.solution,
             infra_context=answer.infra_context,
         ),
+        answer_text=state.get("answer_text", ""),
         sources=[_to_source(doc) for doc in state.get("sources", [])],
         answerability_status=status.value if isinstance(status, AnswerabilityStatus) else str(status),
         answerability_reason=state.get("answerability_reason", ""),

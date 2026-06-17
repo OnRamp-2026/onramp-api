@@ -6,6 +6,32 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.agents.state import AnswerabilityStatus
 
+# P0 LLM 자기판정은 answerable/partially/not_enough만 유효 (conflicting/outdated는 P1 Trust 게이트가 결정).
+_SELF_JUDGE_STATUSES = {
+    AnswerabilityStatus.ANSWERABLE.value,
+    AnswerabilityStatus.PARTIALLY_ANSWERABLE.value,
+    AnswerabilityStatus.NOT_ENOUGH_EVIDENCE.value,
+}
+
+
+def _coerce_text(value: object) -> str:
+    # LLM이 단계 목록을 배열로 주는 경우가 흔함 → 줄바꿈으로 합쳐 문자열로 수용
+    if isinstance(value, list):
+        return "\n".join(str(item) for item in value)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _coerce_self_judge_status(value: object) -> object:
+    # 오탈자·대소문자, 그리고 LLM이 임의로 낸 conflicting/outdated는 보수적으로 NOT_ENOUGH로 매핑해
+    # status 한 글자 때문에 본문이 통째로 버려지지 않게 한다.
+    if isinstance(value, AnswerabilityStatus):
+        value = value.value
+    if isinstance(value, str) and value.strip().lower() in _SELF_JUDGE_STATUSES:
+        return value.strip().lower()
+    return AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
+
 
 class AnswerOutput(BaseModel):
     """Answer LLM 응답(JSON) 파싱 결과 — 5요소 + LLM 자기판정.
@@ -26,26 +52,31 @@ class AnswerOutput(BaseModel):
     @field_validator("situation", "cause", "evidence", "solution", "infra_context", mode="before")
     @classmethod
     def _coerce_str(cls, value: object) -> str:
-        # LLM이 단계 목록을 배열로 주는 경우가 흔함 → 줄바꿈으로 합쳐 문자열로 수용
-        if isinstance(value, list):
-            return "\n".join(str(item) for item in value)
-        if value is None:
-            return ""
-        return str(value)
+        return _coerce_text(value)
 
     @field_validator("answerability_status", mode="before")
     @classmethod
     def _coerce_status(cls, value: object) -> object:
-        # P0 LLM 자기판정은 answerable/partially/not_enough만 유효하다.
-        # 오탈자·대소문자, 그리고 LLM이 임의로 낸 conflicting/outdated(이건 P1 Trust 게이트가 결정)는
-        # 보수적으로 NOT_ENOUGH로 매핑해 status 한 글자 때문에 5요소가 통째로 버려지지 않게 한다.
-        allowed = {
-            AnswerabilityStatus.ANSWERABLE.value,
-            AnswerabilityStatus.PARTIALLY_ANSWERABLE.value,
-            AnswerabilityStatus.NOT_ENOUGH_EVIDENCE.value,
-        }
-        if isinstance(value, AnswerabilityStatus):
-            value = value.value
-        if isinstance(value, str) and value.strip().lower() in allowed:
-            return value.strip().lower()
-        return AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
+        return _coerce_self_judge_status(value)
+
+
+class FreeformOutput(BaseModel):
+    """Freeform 답변 LLM 응답(JSON) 파싱 결과 — 산문 본문 + LLM 자기판정.
+
+    grounding·answerability·source_indices 계약은 AnswerOutput과 동일하며 본문만 answer_text 하나다(#191).
+    """
+
+    answer_text: str = ""
+    answerability_status: AnswerabilityStatus = AnswerabilityStatus.ANSWERABLE
+    answerability_reason: str = ""
+    source_indices: list[int] = Field(default_factory=list)
+
+    @field_validator("answer_text", mode="before")
+    @classmethod
+    def _coerce_str(cls, value: object) -> str:
+        return _coerce_text(value)
+
+    @field_validator("answerability_status", mode="before")
+    @classmethod
+    def _coerce_status(cls, value: object) -> object:
+        return _coerce_self_judge_status(value)
