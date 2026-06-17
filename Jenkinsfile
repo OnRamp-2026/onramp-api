@@ -36,7 +36,7 @@ spec:
   environment {
     IMAGE_REPOSITORY = 'amdp-registry.skala-ai.com/skala26a-cloud/onramp-api'
     GITOPS_REPOSITORY = 'https://github.com/OnRamp-2026/gitops.git'
-    GITOPS_VALUES_FILE = 'apps/onramp-api/values-dev.yaml'
+    GITOPS_VALUES_FILES = 'apps/onramp-api/values-dev.yaml apps/onramp-api/values-tenant1.yaml'
   }
 
   stages {
@@ -46,7 +46,7 @@ spec:
           set -eu
           apt-get update
           apt-get install -y --no-install-recommends git ca-certificates curl
-          # yq(mikefarah) — values-dev.yaml의 .app.image 만 스코프 갱신(reranker.image 등 다른 블록 보존)
+          # yq(mikefarah) — GitOps values의 .app.image 만 스코프 갱신(reranker.image 등 다른 블록 보존)
           curl -sSL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           chmod +x /usr/local/bin/yq
           rm -rf /var/lib/apt/lists/*
@@ -181,17 +181,19 @@ EOF
 
             # .app.image 만 스코프 갱신 — 같은 파일의 reranker.image 등 다른 이미지 블록을 덮어쓰지 않는다.
             # (과거 naive 치환이 repository/tag/digest 모든 줄을 바꿔 reranker.image를 clobber한 버그 수정)
-            REPO="${IMAGE_REPOSITORY}" TAG="${IMAGE_TAG}" DIG="${IMAGE_DIGEST}" \
-              yq -i '.app.image.repository = strenv(REPO) | .app.image.tag = strenv(TAG) | .app.image.digest = strenv(DIG)' "${GITOPS_VALUES_FILE}"
+            for values_file in ${GITOPS_VALUES_FILES}; do
+              REPO="${IMAGE_REPOSITORY}" TAG="${IMAGE_TAG}" DIG="${IMAGE_DIGEST}" \
+                yq -i '.app.image.repository = strenv(REPO) | .app.image.tag = strenv(TAG) | .app.image.digest = strenv(DIG)' "${values_file}"
+            done
 
-            git diff -- "${GITOPS_VALUES_FILE}"
+            git diff -- ${GITOPS_VALUES_FILES}
 
-            if git diff --quiet -- "${GITOPS_VALUES_FILE}"; then
+            if git diff --quiet -- ${GITOPS_VALUES_FILES}; then
               echo "No GitOps image digest change."
               exit 0
             fi
 
-            git add "${GITOPS_VALUES_FILE}"
+            git add ${GITOPS_VALUES_FILES}
             git commit -m "chore: update onramp-api image ${IMAGE_TAG} [skip ci]"
             git push origin main
           '''
