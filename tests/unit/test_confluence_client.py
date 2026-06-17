@@ -46,6 +46,32 @@ def _settings() -> Settings:
     )
 
 
+def _settings_with_base(base_url: str) -> Settings:
+    return Settings(
+        confluence_base_url=base_url,
+        confluence_user_email="user@example.com",
+        confluence_api_token="token",
+        confluence_space_key="OnRamp",
+        confluence_timezone="Asia/Seoul",
+    )
+
+
+async def test_create_page_url_has_no_duplicate_slashes() -> None:
+    """confluence_base_url의 trailing slash·/wiki 중복이 있어도 페이지 URL은 단일 슬래시여야 한다."""
+    expected = "https://example.atlassian.net/wiki/spaces/OnRamp/pages/999"
+    payload = {"id": "999", "title": "보고서", "_links": {"webui": "/spaces/OnRamp/pages/999"}}
+    for base in (
+        "https://example.atlassian.net",
+        "https://example.atlassian.net/",
+        "https://example.atlassian.net/wiki",
+        "https://example.atlassian.net/wiki/",
+    ):
+        client = ConfluenceClient(settings=_settings_with_base(base), client=FakeAsyncClient(payload))  # type: ignore[arg-type]
+        page = await client.create_page(title="보고서", html="<p>x</p>")
+        assert page.url == expected, f"base={base!r} → {page.url!r}"
+        assert "//wiki" not in page.url and "/wiki/wiki" not in page.url
+
+
 def test_build_recent_pages_cql_uses_space_and_since_time() -> None:
     client = ConfluenceClient(settings=_settings(), client=FakeAsyncClient({"results": []}))  # type: ignore[arg-type]
 
