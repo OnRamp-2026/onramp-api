@@ -14,6 +14,7 @@ _PROVIDER_PATTERN = re.compile(r"^[0-9A-Za-z_-]{1,64}$")
 class TenantContext:
     tenant_id: str
     tenant_api_base_url: str = ""
+    allowed_hosts: tuple[str, ...] = ()
 
 
 def _validate_tenant_id(value: str, *, field_name: str) -> str:
@@ -49,6 +50,27 @@ def _validate_tenant_api_base_url(value: object) -> str:
     return normalized
 
 
+def _validate_allowed_hosts(value: object) -> tuple[str, ...]:
+    if value in ("", None):
+        return ()
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("allowed_hosts는 문자열 배열이어야 합니다.")
+    hosts: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError("allowed_hosts 항목은 문자열이어야 합니다.")
+        normalized = item.strip().lower().rstrip(".")
+        if not normalized:
+            continue
+        if "://" in normalized:
+            parsed = urlparse(normalized)
+            normalized = parsed.netloc.lower().rstrip(".")
+        if "/" in normalized or not normalized:
+            raise ValueError("allowed_hosts 항목은 host 또는 host:port 형식이어야 합니다.")
+        hosts.append(normalized)
+    return tuple(dict.fromkeys(hosts))
+
+
 def resolve_tenant_context(*, provider: str, external_tenant: str, settings: Settings) -> TenantContext:
     registry_key = make_registry_key(provider=provider, external_tenant=external_tenant)
     entry = settings.tenant_registry.get(registry_key)
@@ -61,9 +83,11 @@ def resolve_tenant_context(*, provider: str, external_tenant: str, settings: Set
 
     tenant_id = _validate_tenant_id(str(entry.get("tenant_id", "")), field_name="tenant_id")
     tenant_api_base_url = _validate_tenant_api_base_url(entry.get("tenant_api_base_url", ""))
+    allowed_hosts = _validate_allowed_hosts(entry.get("allowed_hosts", ()))
     return TenantContext(
         tenant_id=tenant_id,
         tenant_api_base_url=tenant_api_base_url,
+        allowed_hosts=allowed_hosts,
     )
 
 

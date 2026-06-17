@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from app.auth.slack_oidc import authenticate_with_slack_callback, build_slack_authorization
 from app.config import get_settings
@@ -13,12 +13,14 @@ public_router = APIRouter(prefix="/auth", tags=["Auth"])
 
 @router.get("/slack/authorize", response_model=SlackAuthorizeResponse)
 async def slack_authorize(
+    request: Request,
     team: str | None = Query(default=None, max_length=128, description="선택적 Slack workspace(team) 힌트"),
 ) -> SlackAuthorizeResponse:
-    return build_slack_authorization(get_settings(), team=team)
+    return build_slack_authorization(get_settings(), team=team, expected_host=_request_host(request))
 
 
 async def _slack_callback(
+    request: Request,
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
@@ -31,22 +33,31 @@ async def _slack_callback(
         code=code,
         state=state,
         settings=get_settings(),
+        callback_host=_request_host(request),
     )
 
 
 @router.get("/slack/callback", response_model=AuthSessionResponse)
 async def slack_callback(
+    request: Request,
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
 ) -> AuthSessionResponse:
-    return await _slack_callback(code=code, state=state, error=error)
+    return await _slack_callback(request=request, code=code, state=state, error=error)
 
 
 @public_router.get("/callback", response_model=AuthSessionResponse)
 async def public_callback(
+    request: Request,
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
 ) -> AuthSessionResponse:
-    return await _slack_callback(code=code, state=state, error=error)
+    return await _slack_callback(request=request, code=code, state=state, error=error)
+
+
+def _request_host(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-host")
+    raw = forwarded.split(",", 1)[0].strip() if forwarded else request.headers.get("host", "")
+    return raw.lower().rstrip(".")
