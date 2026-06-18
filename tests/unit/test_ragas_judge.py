@@ -208,3 +208,16 @@ async def test_score_generation_skips_failed_samples(monkeypatch) -> None:
     assert scores.answer_relevancy is None
     assert scores.n_evaluated == 0
     assert scores.n_skipped == 1
+
+
+async def test_score_generation_parallel_scores_all_samples(monkeypatch) -> None:
+    # 병렬화(#212): 샘플 수 > concurrency 여도 전부 채점되고 집계가 정확하다(gather 경로).
+    monkeypatch.setattr(judge_mod, "_build_evaluator", lambda _settings: (object(), object()))
+    _inject_fake_ragas(monkeypatch, Faithfulness=_const_metric(0.9), ResponseRelevancy=_const_metric(0.5))
+
+    results = [_result(query=f"q{i}") for i in range(6)]
+    scores = await score_generation(results, concurrency=2)  # 6 샘플 > 동시 2
+    assert scores.n_evaluated == 6
+    assert scores.n_skipped == 0
+    assert scores.faithfulness == 0.9
+    assert scores.answer_relevancy == 0.5

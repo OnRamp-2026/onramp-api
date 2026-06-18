@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from dataclasses import dataclass
@@ -103,27 +104,32 @@ def _is_invalid(v) -> bool:
     return v is None or (isinstance(v, float) and math.isnan(v))
 
 
-async def _score_pair(metric_a, metric_b, samples) -> tuple[list[float], list[float]]:
+async def _score_pair(metric_a, metric_b, samples, *, concurrency: int = 8) -> tuple[list[float], list[float]]:
     """샘플별로 두 지표를 함께 채점해 (a_scores, b_scores) 반환. 실패/NaN 샘플은 제외.
 
     한쪽이라도 실패·NaN이면 그 샘플을 통째로 빼므로, 반환 리스트 길이 = 실제 평균 기여 수.
     → 호출측의 n_evaluated/n_reference_evaluated 분모가 평균과 정확히 일치한다.
+    bounded 병렬(#212): RAGAS 지표는 샘플당 다수 judge LLM 호출이라 동시성으로 wall-clock을 줄인다.
+    gather가 입력 순서를 보존하므로 결과 정렬은 결정적이다.
     """
-    a_scores: list[float] = []
-    b_scores: list[float] = []
-    for r, sample in samples:
-        try:
-            a = await metric_a.single_turn_ascore(sample)
-            b = await metric_b.single_turn_ascore(sample)
-        except Exception:  # 개별 샘플 채점 실패 → 평균에서 제외(전체 중단 방지)
-            logger.warning("RAGAS 채점 실패 (query=%.40s) — 해당 샘플 제외", r.query, exc_info=True)
-            continue
+    sem = asyncio.Semaphore(max(1, concurrency))
+
+    async def _score_one(r, sample) -> tuple[float, float] | None:
+        async with sem:
+            try:
+                a = await metric_a.single_turn_ascore(sample)
+                b = await metric_b.single_turn_ascore(sample)
+            except Exception:  # 개별 샘플 채점 실패 → 평균에서 제외(전체 중단 방지)
+                logger.warning("RAGAS 채점 실패 (query=%.40s) — 해당 샘플 제외", r.query, exc_info=True)
+                return None
         if _is_invalid(a) or _is_invalid(b):  # NaN/None → 평균·건수 모두에서 제외
             logger.warning("RAGAS 채점 결과 NaN/None (query=%.40s) — 해당 샘플 제외", r.query)
-            continue
-        a_scores.append(a)
-        b_scores.append(b)
-    return a_scores, b_scores
+            return None
+        return (a, b)
+
+    scored = await asyncio.gather(*(_score_one(r, sample) for r, sample in samples))
+    pairs = [p for p in scored if p is not None]
+    return [a for a, _ in pairs], [b for _, b in pairs]
 
 
 async def score_generation(
@@ -131,6 +137,7 @@ async def score_generation(
     *,
     with_reference: bool = False,
     settings: Settings | None = None,
+    concurrency: int = 8,
 ) -> GenerationScores:
     """평가가능한 결과를 RAGAS로 채점·매크로 평균한다.
 
@@ -154,7 +161,7 @@ async def score_generation(
         for r in evaluable
     ]
     faith_scores, rel_scores = await _score_pair(
-        Faithfulness(llm=llm), ResponseRelevancy(llm=llm, embeddings=embeddings), rf_samples
+        Faithfulness(llm=llm), ResponseRelevancy(llm=llm, embeddings=embeddings), rf_samples, concurrency=concurrency
     )
     n_evaluated = len(faith_scores)
 
@@ -179,7 +186,7 @@ async def score_generation(
             for r in referable
         ]
         fc_scores, ss_scores = await _score_pair(
-            FactualCorrectness(llm=llm), SemanticSimilarity(embeddings=embeddings), ref_samples
+            FactualCorrectness(llm=llm), SemanticSimilarity(embeddings=embeddings), ref_samples, concurrency=concurrency
         )
         factual, similarity, n_ref = _mean(fc_scores), _mean(ss_scores), len(fc_scores)
 
