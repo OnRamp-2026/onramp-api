@@ -119,6 +119,12 @@ class OpenSearchClient:
             if resp.status_code not in (200, 404):
                 resp.raise_for_status()
 
+    async def delete_index(self, index: str) -> None:
+        """인덱스를 통째로 삭제한다 (eval 임시 인덱스 정리용). 없으면 무시."""
+        resp = await self._http.delete(f"/{index}")
+        if resp.status_code not in (200, 404):
+            resp.raise_for_status()
+
     async def search(
         self,
         query: str,
