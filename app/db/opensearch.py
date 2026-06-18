@@ -102,6 +102,15 @@ class OpenSearchClient:
         # concrete 인덱스(옛 매핑)에 alias만 붙인 경로도 신규 청크 필드를 보장한다.
         await self._ensure_chunk_fields(alias)
 
+    async def delete_index(self) -> None:
+        """현재 설정의 concrete 인덱스를 삭제한다(임시 평가 인덱스 정리용, #212). 없으면 no-op.
+
+        concrete 인덱스를 지우면 붙어있던 alias도 함께 제거된다.
+        """
+        resp = await self._http.delete(f"/{self.settings.opensearch_index_v1}")
+        if resp.status_code not in (200, 404):
+            resp.raise_for_status()
+
     async def upsert_chunks(self, documents: Sequence[Mapping[str, Any]]) -> None:
         if not documents:
             return

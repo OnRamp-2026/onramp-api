@@ -5,16 +5,18 @@
 page-level** 검색 지표(#212 §2-2)를 측정한다.
 
 설계 원칙:
-- production 컬렉션을 건드리지 않는다 — 임시 이름 + 끝나면 삭제(--keep로 보존).
-- **dense-only 게이트** — BM25/리랭커는 직교 레버라 분리(`bm25_search_enabled=false`, mode=dense).
+- production 인덱스를 건드리지 않는다 — 임시 이름(Qdrant 컬렉션 + OpenSearch 인덱스) + 끝나면 삭제.
+- **mode 선택**: dense(Qdrant) · hybrid(Dense+BM25) · **rerank(hybrid+리랭커=production 미러)**.
+  청킹은 BM25와도 상호작용하므로(키워드 밀도·청크 길이), production 결정은 rerank로 본다.
 - **domain 미적용**(domains=None) — 청킹 효과만 격리(도메인 가산은 별도 레버).
-- settings 싱글톤 override로 색인·검색 모두 임시 컬렉션을 가리키게 한다(코어 변경 없음).
+- settings 싱글톤 override로 색인·검색 모두 임시 인덱스를 가리키게 한다(코어 변경 없음).
 
-전제: 라이브 Qdrant + Postgres(cleaned_markdown) + OpenAI 임베딩 (비용 발생).
+전제: 라이브 Qdrant + OpenSearch(hybrid/rerank) + Postgres(cleaned_markdown) + OpenAI 임베딩.
+      rerank mode는 GPU 리랭커(RERANKER_BACKEND=remote·RERANKER_SERVICE_URL)가 떠 있어야 한다.
 사용:
-    python scripts/eval_chunking_ab.py --strategy token
-    python scripts/eval_chunking_ab.py --strategy onramp --doc-limit 50   # 소규모 먼저
-    python scripts/eval_chunking_ab.py --strategy recursive --keep        # 임시 컬렉션 보존
+    python scripts/eval_chunking_ab.py --strategy token --mode dense
+    python scripts/eval_chunking_ab.py --strategy onramp --mode rerank   # production 미러(GPU 필요)
+    python scripts/eval_chunking_ab.py --strategy recursive --doc-limit 50  # 소규모 먼저
 """
 
 from __future__ import annotations
@@ -77,13 +79,28 @@ async def _reindex(config: ChunkingConfig, doc_limit: int | None) -> int:
     return len(children)
 
 
-async def _eval_page_level(golden, *, top_k: int, top_n: int):
-    """임시 컬렉션을 dense로 검색해 page-level 매크로 평균을 반환(domain 미적용 — 청킹 격리)."""
+async def _eval_page_level(golden, *, mode: str, top_k: int, top_n: int):
+    """임시 인덱스를 주어진 mode로 검색해 page-level 매크로 평균을 반환(domain 미적용 — 청킹 격리).
+
+    mode: dense(Qdrant) · hybrid(Dense+BM25 RRF) · rerank(hybrid 후보 + 리랭커, production 미러).
+    """
     page_per_query: list[tuple[list[str], set[str]]] = []
     for g in golden:
-        result = await retrieve_for_eval(g.query, mode="dense", domains=None, top_k=top_k, top_n=top_n)
+        result = await retrieve_for_eval(g.query, mode=mode, domains=None, top_k=top_k, top_n=top_n)
         page_per_query.append((collapse_to_pages(result.chunk_ids), set(g.page_ids)))
     return aggregate(page_per_query)
+
+
+async def _cleanup(collection: str, *, bm25: bool) -> None:
+    """임시 Qdrant 컬렉션 + (bm25면) 임시 OpenSearch 인덱스를 삭제한다."""
+    from app.db.qdrant import get_qdrant
+
+    get_qdrant().delete_collection(collection_name=collection)
+    if bm25:
+        from app.db.opensearch import get_opensearch
+
+        await get_opensearch().delete_index()
+    logger.info("임시 인덱스 삭제: %s (Qdrant%s)", collection, " + OpenSearch" if bm25 else "")
 
 
 async def run(args) -> int:
@@ -92,36 +109,49 @@ async def run(args) -> int:
     collection = config.collection_name(args.collection_prefix)
     top_k = args.top_k if args.top_k is not None else settings.retriever_top_k
     top_n = args.top_n if args.top_n is not None else settings.retriever_top_n
+    bm25 = args.mode in ("hybrid", "rerank")  # hybrid/rerank는 BM25(OpenSearch) 후보가 필요
 
-    # 임시 컬렉션 + dense-only로 override (색인·검색이 모두 이 settings를 호출 시점에 읽는다).
+    # 임시 인덱스로 override (색인·검색이 모두 이 settings를 호출 시점에 읽는다 — 코어 변경 없음).
     settings.qdrant_collection = collection
-    settings.bm25_search_enabled = False
-    logger.info("임시 컬렉션=%s · config_hash=%s · dense-only", collection, config.hash)
+    settings.bm25_search_enabled = bm25
+    if bm25:  # 임시 OpenSearch 인덱스도 분리(ensure_index가 자동 생성)
+        settings.opensearch_index = collection
+        settings.opensearch_index_v1 = f"{collection}-v1"
+    logger.info(
+        "임시 인덱스=%s · config_hash=%s · mode=%s · reranker=%s",
+        collection,
+        config.hash,
+        args.mode,
+        settings.reranker_backend if args.mode == "rerank" else "n/a",
+    )
 
     n_chunks = await _reindex(config, args.doc_limit)
 
     golden = load_golden_set(args.queries, args.qrels)
-    summary = await _eval_page_level(golden, top_k=top_k, top_n=top_n)
+    summary = await _eval_page_level(golden, mode=args.mode, top_k=top_k, top_n=top_n)
 
-    print(f"\n=== 청킹 A/B (page-level, dense, domain 미적용) — {args.strategy} ===")
+    print(f"\n=== 청킹 A/B (page-level, {args.mode}, domain 미적용) — {args.strategy} ===")
     print(f"config_hash={config.hash}  collection={collection}  chunks={n_chunks}")
     for key, val in summary.as_dict().items():
         print(f"  {key:<14}: {val}")
     print(f"  n(page_ids 보유 평가질문) = {summary.n}")
 
     if not args.keep:
-        from app.db.qdrant import get_qdrant
-
-        get_qdrant().delete_collection(collection_name=collection)
-        logger.info("임시 컬렉션 삭제: %s (보존하려면 --keep)", collection)
+        await _cleanup(collection, bm25=bm25)
     else:
-        logger.info("임시 컬렉션 보존: %s", collection)
+        logger.info("임시 인덱스 보존: %s (--keep)", collection)
     return 0
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="청킹 방식 A/B — 임시 컬렉션 재색인 + page-level 게이트 (#212).")
     parser.add_argument("--strategy", required=True, choices=["onramp", "token", "markdown", "recursive"])
+    parser.add_argument(
+        "--mode",
+        default="dense",
+        choices=["dense", "hybrid", "rerank"],
+        help="검색 mode. dense=Qdrant, hybrid=Dense+BM25, rerank=hybrid+리랭커(production 미러, GPU 필요)",
+    )
     parser.add_argument("--chunk-tokens", type=int, default=400, help="비교군 splitter 청크 토큰 크기(onramp 무관)")
     parser.add_argument("--chunk-overlap", type=int, default=50, help="비교군 splitter 오버랩(onramp 무관)")
     parser.add_argument("--doc-limit", type=int, default=None, help="재색인 문서 수 제한(소규모 먼저)")
