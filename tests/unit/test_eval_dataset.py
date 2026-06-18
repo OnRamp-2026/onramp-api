@@ -48,8 +48,13 @@ def test_load_parses_page_evidence_fields(tmp_path: Path) -> None:
         tmp_path,
         [
             {
-                "qid": "q1", "query": "질문", "domain": "api_reference", "is_answerable": True,
-                "page_ids": ["107194"], "source_urls": ["https://x/107194"], "answer_span": "id => 66",
+                "qid": "q1",
+                "query": "질문",
+                "domain": "api_reference",
+                "is_answerable": True,
+                "page_ids": ["107194"],
+                "source_urls": ["https://x/107194"],
+                "answer_span": "id => 66",
             },
             {"qid": "q2", "query": "질문2", "is_answerable": False},  # 필드 없으면 빈 기본값
         ],
