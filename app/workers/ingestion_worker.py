@@ -7,12 +7,12 @@ from app.config import get_settings
 from app.db.models import IndexRun, IndexRunType
 from app.db.postgres import session_scope
 from app.services import rag_index_repository as repo
-from app.services.index_service import IndexService
+from app.services.index_service import IndexProgress, IndexService
 
 logger = logging.getLogger(__name__)
 
 
-async def _save_progress(run_id, values: dict[str, int | str]) -> None:
+async def _save_progress(run_id, values: IndexProgress) -> None:
     async with session_scope() as db:
         run = await db.get(IndexRun, run_id)
         if run is None:
@@ -39,7 +39,7 @@ async def process_next() -> bool:
         return True
     service = IndexService(settings=settings)
 
-    async def progress(values: dict[str, int | str]) -> None:
+    async def progress(values: IndexProgress) -> None:
         await _save_progress(run.run_id, values)
 
     try:

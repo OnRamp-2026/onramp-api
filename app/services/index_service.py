@@ -8,6 +8,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from functools import partial
+from typing import NotRequired, TypedDict
 
 import anyio
 from qdrant_client import QdrantClient
@@ -29,7 +30,20 @@ IndexChildrenFn = Callable[
     [list[ChildChunk]],
     Awaitable[int],
 ]
-ProgressFn = Callable[[dict[str, int | str]], Awaitable[None]]
+
+
+class IndexProgress(TypedDict):
+    stage: NotRequired[str]
+    pages_discovered: NotRequired[int]
+    pages_processed: NotRequired[int]
+    pages_indexed: NotRequired[int]
+    pages_skipped: NotRequired[int]
+    pages_failed: NotRequired[int]
+    chunks_indexed: NotRequired[int]
+    chunks_deleted: NotRequired[int]
+
+
+ProgressFn = Callable[[IndexProgress], Awaitable[None]]
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -98,14 +98,17 @@ async def claim_next_index_run(db: AsyncSession) -> IndexRun | None:
 
 
 async def get_active_index_run(db: AsyncSession, *, tenant_id: str) -> IndexRun | None:
-    return await db.scalar(
-        select(IndexRun)
-        .where(
-            IndexRun.tenant_id == tenant_id,
-            IndexRun.status.in_((IndexRunStatus.queued.value, IndexRunStatus.running.value)),
-        )
-        .order_by(IndexRun.created_at.desc())
-        .limit(1)
+    return cast(
+        IndexRun | None,
+        await db.scalar(
+            select(IndexRun)
+            .where(
+                IndexRun.tenant_id == tenant_id,
+                IndexRun.status.in_((IndexRunStatus.queued.value, IndexRunStatus.running.value)),
+            )
+            .order_by(IndexRun.created_at.desc())
+            .limit(1)
+        ),
     )
 
 
