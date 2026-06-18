@@ -69,10 +69,16 @@ class _Reranker:
     """리랭커 stub."""
 
     def rerank(self, query, candidates):
-        """후보를 τ(trust_rerank_floor) 위 점수로 통과시킨다 — 보정으로 τ가 바뀌어도 의도 유지."""
+        """후보를 answerable이 되도록 충분히 높은 점수로 통과시킨다.
+
+        answerable 단언은 Final Evidence Score 밴드(ANSWERABLE_THRESHOLD)가 결정하므로
+        τ(trust_rerank_floor) 뿐 아니라 ANSWERABLE_THRESHOLD도 함께 넘어야 한다
+        (τ 재보정으로 trust_rerank_floor가 낮아져도 의도=answerable 유지).
+        """
+        from app.agents.answer.answerability import ANSWERABLE_THRESHOLD
         from app.config import get_settings
 
-        passing = get_settings().trust_rerank_floor + 0.1
+        passing = max(get_settings().trust_rerank_floor, ANSWERABLE_THRESHOLD) + 0.1
         return [(passing, payload) for _, payload in candidates]
 
 
