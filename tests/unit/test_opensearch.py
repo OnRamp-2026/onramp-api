@@ -27,6 +27,34 @@ async def test_ensure_index_creates_index_with_alias_when_missing():
     assert requests[-1][2]["aliases"] == {"onramp-chunks": {}}
 
 
+async def test_delete_index_deletes_concrete(monkeypatch):
+    # #212: 임시 평가 인덱스 정리 — concrete 인덱스를 DELETE한다.
+    seen: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        return httpx.Response(200, json={"acknowledged": True})
+
+    client = OpenSearchClient(
+        settings=Settings(opensearch_index_v1="onramp-eval-token-abc-v1"),
+        http_client=httpx.AsyncClient(base_url="http://opensearch:9200", transport=httpx.MockTransport(handler)),
+    )
+
+    await client.delete_index()
+    assert ("DELETE", "/onramp-eval-token-abc-v1") in seen
+
+
+async def test_delete_index_missing_is_noop():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)  # 없는 인덱스 → 에러 아님
+
+    client = OpenSearchClient(
+        settings=Settings(),
+        http_client=httpx.AsyncClient(base_url="http://opensearch:9200", transport=httpx.MockTransport(handler)),
+    )
+    await client.delete_index()  # 예외 없이 통과해야 한다
+
+
 async def test_search_builds_tenant_and_ladder_filters():
     captured = {}
 
