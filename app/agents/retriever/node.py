@@ -145,10 +145,13 @@ def _vector_fallback(
     return [(0.0, 0.0, payload) for _, payload in ordered]
 
 
-def _clean_url(url: str) -> str:
-    """scheme(://) 뒤 중복 슬래시를 단일화 — #210 이전 적재분의 stale source_url('//wiki' 등) 교정(#225)."""
-    if "://" not in url:
-        return url
+def _clean_url(url: str | None) -> str:
+    """scheme(://) 뒤 중복 슬래시를 단일화 — #210 이전 적재분의 stale source_url('//wiki' 등) 교정(#225).
+
+    payload의 source_url이 None/빈값일 수 있으므로 falsy는 빈 문자열로 안전 처리한다.
+    """
+    if not url or "://" not in url:
+        return url or ""
     scheme, rest = url.split("://", 1)
     return f"{scheme}://{re.sub(r'/{2,}', '/', rest)}"
 
