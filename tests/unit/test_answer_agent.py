@@ -399,6 +399,15 @@ def test_window_parent_head_when_child_not_found() -> None:
     assert len(out) <= 100  # 못 찾으면 앞부분
 
 
+def test_window_parent_never_exceeds_budget_when_child_long() -> None:
+    # child(80자 이상) > window_chars여도 결과는 예산을 넘지 않아야 한다(경계 회귀, CodeRabbit #251).
+    child = "C" * 120
+    parent = "PRE " * 40 + child + " POST" * 40
+    out = node_mod._window_parent(parent, child, 50)
+    assert len(out) <= 50
+    assert "C" in out  # matched 영역 일부는 남음
+
+
 def test_select_contexts_applies_window_setting(monkeypatch) -> None:
     from app.config import Settings
 

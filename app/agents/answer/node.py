@@ -66,13 +66,13 @@ def _window_parent(parent: str, child: str, window_chars: int) -> str:
     """
     if window_chars <= 0 or len(parent) <= window_chars:
         return parent
-    probe = child.strip()[:80]
+    probe = child.strip()[: min(80, window_chars)]  # probe도 예산 내로 (작은 window 대비)
     pos = parent.find(probe) if probe else -1
     if pos < 0:
         return parent[:window_chars].rstrip()  # child 못 찾으면 앞부분
     half = max(0, (window_chars - len(probe)) // 2)
     start = max(0, pos - half)
-    end = min(len(parent), pos + len(probe) + half)
+    end = min(len(parent), start + window_chars)  # 예산 상한 고정 (len(segment) <= window_chars)
     return parent[start:end].strip()
 
 

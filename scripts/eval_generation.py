@@ -44,6 +44,14 @@ def _round(value: float, ndigits: int = 4) -> float:
     return round(value, ndigits)
 
 
+def _non_negative_int(value: str) -> int:
+    """argparse 타입 — 음수는 거부(fail-fast). 0=전체 parent, >0=window."""
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("0 이상의 정수만 허용됩니다")
+    return parsed
+
+
 def _percentile(values: list[float], pct: float) -> float:
     """정렬된 표본의 nearest-rank 백분위(p95 등). 빈 표본은 0.0."""
     if not values:
@@ -246,7 +254,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--parent-window-chars",
-        type=int,
+        type=_non_negative_int,
         default=None,
         help="parent context trimming(#212 step7). 0=전체 parent, >0=matched child 주변 N자 window",
     )
