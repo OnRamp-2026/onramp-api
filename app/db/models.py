@@ -61,13 +61,28 @@ class ReportStatus(StrEnum):
 
 class IndexRunType(StrEnum):
     full = "full"
+    full_scan = "full_scan"
     incremental = "incremental"
 
 
 class IndexRunStatus(StrEnum):
+    queued = "queued"
     running = "running"
     success = "success"
     failed = "failed"
+
+
+class IndexRunTrigger(StrEnum):
+    manual = "manual"
+    cron = "cron"
+
+
+class IndexRunStage(StrEnum):
+    queued = "queued"
+    fetching = "fetching"
+    preparing = "preparing"
+    indexing = "indexing"
+    completed = "completed"
 
 
 class TranscriptionWorkflow(Base):
@@ -290,9 +305,14 @@ class IndexRun(Base):
     run_id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(64), default="onramp")
     run_type: Mapped[str] = mapped_column(String(16), default=IndexRunType.incremental.value)
+    trigger: Mapped[str] = mapped_column(String(16), default=IndexRunTrigger.manual.value)
+    stage: Mapped[str] = mapped_column(String(16), default=IndexRunStage.indexing.value)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pages_discovered: Mapped[int] = mapped_column(Integer, default=0)
+    pages_processed: Mapped[int] = mapped_column(Integer, default=0)
     pages_indexed: Mapped[int] = mapped_column(Integer, default=0)
+    pages_skipped: Mapped[int] = mapped_column(Integer, default=0)
     pages_failed: Mapped[int] = mapped_column(Integer, default=0)
     chunks_indexed: Mapped[int] = mapped_column(Integer, default=0)
     chunks_deleted: Mapped[int] = mapped_column(Integer, default=0)
