@@ -2,7 +2,8 @@
 
 모드: dense(순수 Qdrant kNN) · sparse(BM25) · hybrid(Dense+BM25 RRF) · rerank(운영 경로 미러, 게이트 대상).
 실측은 라이브 Qdrant + OpenSearch + OpenAI 임베딩(쿼리당 1회)을 사용한다(비용 발생).
-출력: 모드별 Hit Rate@k·MRR@k·Recall@k·nDCG@k 점수표 + dense→rerank 델타 + answerability 정확도.
+출력: 모드별 Hit Rate@k·MRR@k·Recall@k·nDCG@k 점수표(chunk-level + splitter-독립 page-level, #212)
+      + dense→rerank 델타 + answerability 정확도.
 
 사용:
     python scripts/eval_retrieval.py                                  # dense,rerank 점수표
@@ -27,7 +28,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from app.config import get_settings  # noqa: E402
 from app.eval.dataset import load_golden_set  # noqa: E402
-from app.eval.metrics import MetricSummary, aggregate, answerability_accuracy  # noqa: E402
+from app.eval.metrics import MetricSummary, aggregate, answerability_accuracy, collapse_to_pages  # noqa: E402
 from app.eval.retrieval_adapter import Mode, predicted_answerable, retrieve_for_eval  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -44,8 +45,13 @@ ANSWERABILITY_FLOOR = 0.5229
 
 
 async def _eval_mode(golden, mode: Mode, *, top_k, top_n, ans_floor, ans_min_docs):
-    """한 모드로 전체 골든셋을 검색해 (검색 요약, answerability 요약)을 반환."""
+    """한 모드로 전체 골든셋을 검색해 (chunk 요약, page 요약, answerability 요약)을 반환.
+
+    page 요약(#212 §2-2)은 ranked chunk_id를 distinct page로 접고 정답 page_ids와 비교한다 —
+    splitter 간 chunk 경계가 달라도 공정한 splitter-독립 검색 지표.
+    """
     per_query: list[tuple[list[str], set[str]]] = []
+    page_per_query: list[tuple[list[str], set[str]]] = []
     preds: list[bool] = []
     labels: list[bool] = []
     for g in golden:
@@ -53,9 +59,10 @@ async def _eval_mode(golden, mode: Mode, *, top_k, top_n, ans_floor, ans_min_doc
             g.query, mode=mode, domains=[g.domain] if g.domain else None, top_k=top_k, top_n=top_n
         )
         per_query.append((result.chunk_ids, set(g.relevant_chunk_ids)))
+        page_per_query.append((collapse_to_pages(result.chunk_ids), set(g.page_ids)))
         preds.append(predicted_answerable(result, floor=ans_floor, min_docs=ans_min_docs))
         labels.append(g.is_answerable)
-    return aggregate(per_query), answerability_accuracy(preds, labels)
+    return aggregate(per_query), aggregate(page_per_query), answerability_accuracy(preds, labels)
 
 
 def _print_table(summaries: dict[str, MetricSummary]) -> None:
@@ -162,9 +169,10 @@ async def run(args) -> int:
     top_n = args.top_n if args.top_n is not None else settings.retriever_top_n
 
     summaries: dict[str, MetricSummary] = {}
+    page_summaries: dict[str, MetricSummary] = {}
     ans = None
     for mode in args.modes:
-        summary, ans_mode = await _eval_mode(
+        summary, page_summary, ans_mode = await _eval_mode(
             golden,
             mode,
             top_k=top_k,
@@ -173,13 +181,19 @@ async def run(args) -> int:
             ans_min_docs=args.ans_min_docs,
         )
         summaries[mode] = summary
+        page_summaries[mode] = page_summary
         if mode == GATED_MODE or ans is None:
             ans = ans_mode
 
+    print("\n[chunk-level] (OnRamp 내부 ablation 기준)")
     _print_table(summaries)
+    print("\n[page-level] (splitter-독립 — splitter 간 공정 비교 기준, #212 §2-2)")
+    _print_table(page_summaries)
     print(f"\nAnswerability: {ans.as_dict()}  (tp={ans.tp} fp={ans.fp} tn={ans.tn} fn={ans.fn})")
 
     report = _build_report(summaries, ans, top_k=top_k, top_n=top_n)
+    # page-level은 별도 키로 중첩 — chunk-level 회귀 게이트(report[GATED_MODE])와 키 충돌 회피.
+    report["page_level"] = {mode: s.as_dict() for mode, s in page_summaries.items()}
 
     if args.write_baseline:
         args.baseline.parent.mkdir(parents=True, exist_ok=True)

@@ -42,6 +42,36 @@ def test_load_join_ok(tmp_path: Path) -> None:
     assert golden[1].relevant_chunk_ids == ()
 
 
+def test_load_parses_page_evidence_fields(tmp_path: Path) -> None:
+    # #212 §2-2: splitter-독립 정답 단위(page_ids·source_urls·answer_span) 파싱.
+    q, r = _paths(
+        tmp_path,
+        [
+            {
+                "qid": "q1",
+                "query": "질문",
+                "domain": "api_reference",
+                "is_answerable": True,
+                "page_ids": ["107194"],
+                "source_urls": ["https://x/107194"],
+                "answer_span": "id => 66",
+            },
+            {"qid": "q2", "query": "질문2", "is_answerable": False},  # 필드 없으면 빈 기본값
+        ],
+        [
+            {"qid": "q1", "relevant_chunk_ids": ["107194_004"]},
+            {"qid": "q2", "relevant_chunk_ids": []},
+        ],
+    )
+    golden = load_golden_set(q, r)
+
+    assert golden[0].page_ids == ("107194",)
+    assert golden[0].source_urls == ("https://x/107194",)
+    assert golden[0].answer_span == "id => 66"
+    assert golden[1].page_ids == ()  # 누락 필드는 빈 튜플
+    assert golden[1].answer_span == ""
+
+
 def test_duplicate_qid_raises(tmp_path: Path) -> None:
     q, r = _paths(
         tmp_path,
