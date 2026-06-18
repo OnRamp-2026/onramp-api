@@ -13,7 +13,7 @@ import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from openai import AsyncAzureOpenAI, AsyncOpenAI
@@ -225,26 +225,8 @@ async def call_llm_with_tools(
                 }
                 if not model_name.lower().startswith(("o1", "o3")):
                     kwargs["temperature"] = temperature
-                response = await _get_openai_client(settings).chat.completions.create(**kwargs)
-                message = response.choices[0].message
-                usage = _usage_details(getattr(response, "usage", None))
-            elif provider == "azure":
-                if not settings.azure_openai_endpoint or not settings.azure_openai_api_key:
-                    raise LLMError("Azure OpenAI 설정(endpoint/key)이 없습니다")
-                stripped = model.strip()
-                model_name = (
-                    stripped[len(_AZURE_PREFIX) :]
-                    if stripped.lower().startswith(_AZURE_PREFIX)
-                    else stripped or settings.default_model or _DEFAULT_MODEL
-                )
-                response = await _get_azure_client(settings).chat.completions.create(
-                    model=model_name,
-                    messages=messages,
-                    tools=tools,
-                    tool_choice="auto",
-                    temperature=temperature,
-                    timeout=timeout,
-                )
+                create = cast(Any, _get_openai_client(settings).chat.completions.create)
+                response = await create(**kwargs)
                 message = response.choices[0].message
                 usage = _usage_details(getattr(response, "usage", None))
             elif provider == "self_hosted":
