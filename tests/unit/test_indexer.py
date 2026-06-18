@@ -90,6 +90,7 @@ async def test_index_children_upserts_with_clean_payload():
     assert payload["product_version"] == "2.2"
     assert payload["doc_key"] == "apache:content-negotiation"
     assert payload["is_eol"] is True
+    assert payload["tenant_id"] == "onramp"
     assert "content_vector" not in payload
     assert "embedding_text" not in payload
     assert len(client.upserted[0].vector) == 3
@@ -141,6 +142,7 @@ async def test_index_children_upserts_opensearch_when_enabled():
     assert n == 1
     assert client.upserted is not None
     assert len(client.upserted) == 1
+    assert client.upserted[0].payload["tenant_id"] == "tenant-a"
     assert os_client.documents[0]["tenant_id"] == "tenant-a"
     assert os_client.documents[0]["embedding_text"].startswith("emb")
 
