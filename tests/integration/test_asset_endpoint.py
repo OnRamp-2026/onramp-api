@@ -189,3 +189,14 @@ async def test_create_empty_report_502(client, monkeypatch):
     monkeypatch.setattr("app.services.asset_service.call_llm", _empty_llm)
     resp = await client.post("/v1/asset", json={"transcript": "회의 녹취 텍스트입니다"})
     assert resp.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_asset_requires_auth(client):
+    """미인증(#163) — 인증 없이 /v1/asset 호출 시 401 (client fixture의 인증 override 제거)."""
+    from app.auth.session import get_current_user
+    from app.main import app
+
+    app.dependency_overrides.pop(get_current_user, None)
+    resp = await client.post("/v1/asset", json={"transcript": "회의 녹취 텍스트입니다"})
+    assert resp.status_code == 401
