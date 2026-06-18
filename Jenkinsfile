@@ -36,7 +36,7 @@ spec:
   environment {
     IMAGE_REPOSITORY = 'amdp-registry.skala-ai.com/skala26a-cloud/onramp-api'
     GITOPS_REPOSITORY = 'https://github.com/OnRamp-2026/gitops.git'
-    GITOPS_VALUES_FILE = 'apps/onramp-api/values-dev.yaml'
+    GITOPS_VALUES_FILES = 'apps/onramp-api/values-dev.yaml,apps/onramp-api/values-tenant2.yaml'
   }
 
   stages {
@@ -180,7 +180,6 @@ EOF
 import os
 from pathlib import Path
 
-path = Path(os.environ["GITOPS_VALUES_FILE"])
 newline = chr(10)
 replacements = {
     "repository:": os.environ["IMAGE_REPOSITORY"],
@@ -188,28 +187,56 @@ replacements = {
     "digest:": os.environ["IMAGE_DIGEST"],
 }
 
-updated_lines = []
-for line in path.read_text().splitlines():
-    stripped = line.lstrip(" ")
-    indent = line[: len(line) - len(stripped)]
 
-    for key, value in replacements.items():
-        if stripped.startswith(key):
-            updated_lines.append(f"{indent}{key} {value}")
-            break
-    else:
-        updated_lines.append(line)
+def update_app_image(path: Path) -> None:
+    lines = path.read_text().splitlines()
+    updated_lines = []
+    section_stack = []
+    updated_keys = set()
 
-path.write_text(newline.join(updated_lines) + newline)
+    for line in lines:
+        stripped = line.lstrip(" ")
+        indent_width = len(line) - len(stripped)
+
+        if stripped and not stripped.startswith("#"):
+            while section_stack and indent_width <= section_stack[-1][1]:
+                section_stack.pop()
+
+            if stripped.endswith(":"):
+                section_stack.append((stripped[:-1].strip(), indent_width))
+
+        in_app_image = [key for key, _ in section_stack[-2:]] == ["app", "image"]
+
+        if in_app_image:
+            for key, value in replacements.items():
+                if stripped.startswith(key):
+                    updated_lines.append(f'{" " * indent_width}{key} {value}')
+                    updated_keys.add(key)
+                    break
+            else:
+                updated_lines.append(line)
+        else:
+            updated_lines.append(line)
+
+    if updated_keys != set(replacements):
+        missing = ", ".join(sorted(set(replacements) - updated_keys))
+        raise RuntimeError(f"{path}: app.image block update failed ({missing})")
+
+    path.write_text(newline.join(updated_lines) + newline)
+
+
+for raw_path in os.environ["GITOPS_VALUES_FILES"].split(","):
+    update_app_image(Path(raw_path))
 PY
-            git diff -- "${GITOPS_VALUES_FILE}"
+            VALUE_FILES="$(printf '%s' "${GITOPS_VALUES_FILES}" | tr ',' ' ')"
+            git diff -- ${VALUE_FILES}
 
-            if git diff --quiet -- "${GITOPS_VALUES_FILE}"; then
+            if git diff --quiet -- ${VALUE_FILES}; then
               echo "No GitOps image digest change."
               exit 0
             fi
 
-            git add "${GITOPS_VALUES_FILE}"
+            git add ${VALUE_FILES}
             git commit -m "chore: update onramp-api image ${IMAGE_TAG} [skip ci]"
             git push origin main
           '''
