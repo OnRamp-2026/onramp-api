@@ -161,3 +161,14 @@ async def test_chat_swagger(client):
     """Swagger 문서(/docs) 접근 가능."""
     resp = await client.get("/docs")
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_chat_requires_auth(client):
+    """미인증(#163) — 인증 없이 /v1/chat 호출 시 401 (client fixture의 인증 override 제거)."""
+    from app.auth.session import get_current_user
+    from app.main import app
+
+    app.dependency_overrides.pop(get_current_user, None)
+    resp = await client.post("/v1/chat", json={"query": "테스트 질문"})
+    assert resp.status_code == 401

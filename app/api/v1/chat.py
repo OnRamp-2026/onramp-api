@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter
 
-from app.api.deps import DatabaseSession, OptionalUser
+from app.api.deps import CurrentUser, DatabaseSession
 from app.models.request import ChatRequest, FeedbackRequest
 from app.models.response import ChatResponse
 from app.observability import create_trace_score
@@ -17,14 +17,14 @@ router = APIRouter()
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest, user: OptionalUser, db: DatabaseSession) -> ChatResponse:
+async def chat_endpoint(request: ChatRequest, user: CurrentUser, db: DatabaseSession) -> ChatResponse:
     """자연어 질문 → Router → Retriever → Answer → 5요소 구조화 답변.
 
-    로그인 사용자면 질문/답변을 대화 기록에 저장하고 conversation_id를 응답에 실어준다.
-    익명(미로그인)이면 저장하지 않고 그대로 답한다(데모 안전).
+    인증 필수(#163) — 미인증 요청은 401. 질문/답변을 사용자 대화 기록에 저장하고
+    conversation_id를 응답에 실어준다.
     """
     response = await chat_service(request)
-    if user is not None and user.subject:
+    if user.subject:
         try:
             response.conversation_id = await persist_turn(
                 db, tenant_id=user.tenant_id, user_id=user.subject, request=request, response=response
