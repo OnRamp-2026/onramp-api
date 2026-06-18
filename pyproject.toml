@@ -16,6 +16,7 @@ dependencies = [
     "langgraph>=0.2.0",
     "langchain>=0.3.0",
     "langchain-openai>=0.2.0",
+    "langchain-text-splitters>=0.3,<0.4",  # #212 비교군 baseline splitter(Token/Markdown/Recursive)
 
     # Vector DB / DB
     "qdrant-client>=1.12.0",
