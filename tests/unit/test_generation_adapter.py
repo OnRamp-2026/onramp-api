@@ -78,6 +78,41 @@ async def test_structured_answer_takes_precedence_over_freeform(monkeypatch) -> 
     assert "이건 안 쓰여야 함" not in result.answer_text
 
 
+async def test_retrieved_contexts_use_parent_in_parent_mode(monkeypatch) -> None:
+    # #212 faithfulness fix: parent-expanded면 retrieved_contexts가 LLM이 본 parent 본문이어야 한다
+    # (child snippet으로 채점하면 parent 모드 faithfulness가 부당히 낮아진다).
+    doc = SourceDocument(title="t", content_snippet="child snippet", parent_id="p1")
+    state = {
+        "answer": FiveElements(situation="x"),
+        "documents": [doc],
+        "answerability_status": AnswerabilityStatus.ANSWERABLE,
+    }
+    _stub_graph(monkeypatch, state)
+
+    async def _fake_fetch(_documents):
+        return {"p1": "PARENT 본문 전체"}  # parent-expanded에서 노드가 조회하는 것과 동일
+
+    monkeypatch.setattr(adapter_mod, "_fetch_parent_contexts", _fake_fetch)
+
+    result = await generate_for_eval("질문")
+    assert result.retrieved_contexts == ["PARENT 본문 전체"]  # child snippet 아님
+
+
+async def test_retrieved_contexts_child_only_uses_snippet(monkeypatch) -> None:
+    # child-only(parent_contexts 없음)면 child snippet을 쓴다(기존 동작 유지).
+    doc = SourceDocument(title="t", content_snippet="child snippet", parent_id="p1")
+    state = {"answer": FiveElements(situation="x"), "documents": [doc], "answerability_status": "answerable"}
+    _stub_graph(monkeypatch, state)
+
+    async def _fake_fetch(_documents):
+        return {}  # parent_context_enabled off
+
+    monkeypatch.setattr(adapter_mod, "_fetch_parent_contexts", _fake_fetch)
+
+    result = await generate_for_eval("질문")
+    assert result.retrieved_contexts == ["child snippet"]
+
+
 async def test_generate_carries_reference(monkeypatch) -> None:
     state = {
         "answer": FiveElements(situation="x"),

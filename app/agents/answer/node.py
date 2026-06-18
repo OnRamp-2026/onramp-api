@@ -58,29 +58,46 @@ def _result(
     return out
 
 
-def _build_context(documents: list[SourceDocument], parent_contexts: dict[str, str] | None = None) -> str:
-    """LLM 컨텍스트 구성. parent_contexts가 있으면(#212 parent-expanded) child snippet 대신
-    parent 본문을 parent_id 기준 **한 번만** 주입한다(여러 child가 같은 parent면 중복 제거).
-    parent_contexts가 비면 현행 child-only(=baseline)."""
-    if not parent_contexts:
-        return "\n\n".join(
-            f"[{i}] title: {doc.title}\ncontent: {doc.content_snippet}" for i, doc in enumerate(documents)
-        )
-    # 인덱스는 **원본 documents 인덱스**를 유지한다([i]). formatter가 LLM 인용 [i]를 documents[i]로
-    # 역매핑하므로(재번호하면 잘못된 출처로 매핑됨). dedupe된 child는 블록을 건너뛰되 인덱스는 보존.
-    blocks: list[str] = []
+def _select_contexts(
+    documents: list[SourceDocument], parent_contexts: dict[str, str] | None
+) -> list[tuple[int, str, str]]:
+    """각 문서가 LLM에 넣을 (원본 index, title, content)를 고른다 — 컨텍스트 선택의 단일 소스.
+
+    parent_contexts가 있으면(#212 parent-expanded) parent 본문을 parent_id 기준 **한 번만**
+    쓰고(여러 child가 같은 parent면 중복 제거), 비면 child snippet(=child-only baseline).
+    인덱스는 **원본 documents 인덱스**를 유지한다 — formatter가 LLM 인용 [i]를 documents[i]로
+    역매핑하므로(재번호 금지). dedupe된 child는 건너뛰되 인덱스는 보존.
+    """
+    blocks: list[tuple[int, str, str]] = []
     seen_parents: set[str] = set()
     for i, doc in enumerate(documents):
         pid = doc.parent_id
-        if pid and pid in parent_contexts:
+        if parent_contexts and pid and pid in parent_contexts:
             if pid in seen_parents:
                 continue  # 같은 parent는 한 번만 (그 parent는 먼저 나온 child 인덱스로 인용됨)
             seen_parents.add(pid)
             content = parent_contexts[pid]
         else:
             content = doc.content_snippet  # parent 없는 문서는 child snippet fallback
-        blocks.append(f"[{i}] title: {doc.title}\ncontent: {content}")
-    return "\n\n".join(blocks)
+        blocks.append((i, doc.title, content))
+    return blocks
+
+
+def _build_context(documents: list[SourceDocument], parent_contexts: dict[str, str] | None = None) -> str:
+    """LLM 컨텍스트 문자열. 선택 규칙은 _select_contexts와 공유(평가 retrieved_contexts와 일치 보장)."""
+    return "\n\n".join(
+        f"[{i}] title: {title}\ncontent: {content}"
+        for i, title, content in _select_contexts(documents, parent_contexts)
+    )
+
+
+def context_contents(documents: list[SourceDocument], parent_contexts: dict[str, str] | None = None) -> list[str]:
+    """LLM이 **실제로 본** context 본문 리스트 (평가 retrieved_contexts와 동일 소스, #212).
+
+    parent-expanded면 parent 본문, 아니면 child snippet. 빈 본문은 제외(RAGAS 채점에 무의미).
+    이걸로 RAGAS를 채점해야 parent 모드 faithfulness가 'LLM이 본 문맥' 기준으로 공정해진다.
+    """
+    return [content for _, _, content in _select_contexts(documents, parent_contexts) if content]
 
 
 async def _fetch_parent_contexts(documents: list[SourceDocument]) -> dict[str, str]:

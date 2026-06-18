@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from time import perf_counter
 
+from app.agents.answer.node import _fetch_parent_contexts, context_contents
 from app.agents.graph import compiled_graph
 from app.agents.state import FiveElements, SourceDocument
 from app.config import Settings, get_settings
@@ -99,6 +100,11 @@ async def generate_for_eval(
         )
         latency_s = perf_counter() - started
     documents = state.get("documents", []) or []
+    # RAGAS retrieved_contexts는 **LLM이 실제로 본 문맥**이어야 공정하다(#212). parent-expanded면
+    # parent 본문, child-only면 child snippet — answer 노드와 동일 함수로 재구성한다. 안 그러면
+    # parent 모드에서 답변은 parent 기반인데 채점은 child snippet으로 해 faithfulness가 부당히 낮아진다.
+    parent_contexts = await _fetch_parent_contexts(documents)
+    retrieved_contexts = context_contents(documents, parent_contexts) or _contexts(documents)
     # 포맷 분기(#191): incident는 structured(FiveElements=state["answer"]), 그 외는 freeform
     # (state["answer_text"]). 둘 다 보면 freeform 답변이 평가에서 누락되지 않는다. 보류는 둘 다 빈값.
     answer_text = flatten_answer(state.get("answer")) or (state.get("answer_text") or "")
@@ -107,7 +113,7 @@ async def generate_for_eval(
     return GenerationResult(
         query=query,
         answer_text=answer_text,
-        retrieved_contexts=_contexts(documents),
+        retrieved_contexts=retrieved_contexts,
         answerability_status=str(status) if status else "",
         n_docs=len(documents),
         reference=reference,
