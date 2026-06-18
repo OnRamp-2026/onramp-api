@@ -99,7 +99,9 @@ async def generate_for_eval(
         )
         latency_s = perf_counter() - started
     documents = state.get("documents", []) or []
-    answer_text = flatten_answer(state.get("answer"))
+    # 포맷 분기(#191): incident는 structured(FiveElements=state["answer"]), 그 외는 freeform
+    # (state["answer_text"]). 둘 다 보면 freeform 답변이 평가에서 누락되지 않는다. 보류는 둘 다 빈값.
+    answer_text = flatten_answer(state.get("answer")) or (state.get("answer_text") or "")
     # AnswerabilityStatus는 StrEnum → str()이 곧 enum value("answerable" 등). None이면 빈 문자열.
     status = state.get("answerability_status")
     return GenerationResult(

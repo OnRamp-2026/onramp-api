@@ -47,6 +47,37 @@ async def test_generate_extracts_answer_and_contexts(monkeypatch) -> None:
     assert result.has_reference is False  # GT 미전달
 
 
+async def test_generate_reads_freeform_answer_text(monkeypatch) -> None:
+    # #191 포맷 분기: incident 외 도메인은 freeform → state["answer_text"]에만 답이 있다.
+    # FiveElements(answer)가 비어도 freeform 답변을 평가 대상으로 잡아야 한다(누락 방지).
+    state = {
+        "answer": FiveElements(),  # structured 비어있음
+        "answer_text": "helm install로 배포합니다.",  # freeform 본문
+        "documents": [_doc("문맥")],
+        "answerability_status": AnswerabilityStatus.ANSWERABLE,
+    }
+    _stub_graph(monkeypatch, state)
+
+    result = await generate_for_eval("질문")
+    assert result.answer_text == "helm install로 배포합니다."
+    assert result.is_evaluable is True
+
+
+async def test_structured_answer_takes_precedence_over_freeform(monkeypatch) -> None:
+    # structured(FiveElements)가 있으면 그걸 쓴다(freeform fallback은 비었을 때만).
+    state = {
+        "answer": FiveElements(situation="구조화 상황"),
+        "answer_text": "이건 안 쓰여야 함",
+        "documents": [_doc("문맥")],
+        "answerability_status": AnswerabilityStatus.ANSWERABLE,
+    }
+    _stub_graph(monkeypatch, state)
+
+    result = await generate_for_eval("질문")
+    assert "상황: 구조화 상황" in result.answer_text
+    assert "이건 안 쓰여야 함" not in result.answer_text
+
+
 async def test_generate_carries_reference(monkeypatch) -> None:
     state = {
         "answer": FiveElements(situation="x"),
