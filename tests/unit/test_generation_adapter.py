@@ -86,3 +86,29 @@ async def test_generate_no_docs_is_not_evaluable(monkeypatch) -> None:
     result = await generate_for_eval("질문")
     assert result.retrieved_contexts == []
     assert result.is_evaluable is False
+
+
+async def test_generate_captures_rerank_fallback_and_cost(monkeypatch) -> None:
+    # #212: state의 rerank_fallback을 그대로 노출하고, 비용 필드는 안전한 기본값을 갖는다.
+    state = {
+        "answer": FiveElements(situation="x"),
+        "documents": [_doc("문맥")],
+        "answerability_status": AnswerabilityStatus.ANSWERABLE,
+        "rerank_fallback": True,
+    }
+    _stub_graph(monkeypatch, state)
+
+    result = await generate_for_eval("질문")
+    assert result.rerank_fallback is True
+    assert result.latency_s >= 0.0
+    # stub 그래프는 call_llm을 호출하지 않으므로 token/호출수는 0이어야 한다(누산기 동작 확인).
+    assert result.total_tokens == 0
+    assert result.llm_calls == 0
+
+
+async def test_generate_rerank_fallback_defaults_false(monkeypatch) -> None:
+    state = {"answer": FiveElements(situation="x"), "documents": [_doc("c")], "answerability_status": "answerable"}
+    _stub_graph(monkeypatch, state)
+
+    result = await generate_for_eval("질문")
+    assert result.rerank_fallback is False

@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from time import perf_counter
 
 from app.agents.graph import compiled_graph
 from app.agents.state import FiveElements, SourceDocument
 from app.config import Settings, get_settings
+from app.services.llm_selector import usage_accumulator
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,13 @@ class GenerationResult:
     answerability_status: str = ""
     n_docs: int = 0
     reference: str | None = None  # 골든 GT 답변(#67) — reference 기반 지표용. 없으면 reference-free만.
+    # 운영 비용 계측 (#212 — child-only↔parent-expanded ablation 비교축). 그래프 전체 1질의 기준.
+    prompt_tokens: int = 0  # 그래프 내 모든 LLM 호출의 input token 합 (router+answer+재검색 등)
+    completion_tokens: int = 0  # output token 합
+    total_tokens: int = 0  # input+output 합
+    llm_calls: int = 0  # 그래프가 발화한 LLM 호출 수
+    latency_s: float = 0.0  # 그래프 ainvoke wall-clock (초)
+    rerank_fallback: bool = False  # 리랭커 폴백 여부 — strict 모드 검증·오염 감지(#212 §2-5)
 
     @property
     def is_evaluable(self) -> bool:
@@ -77,14 +86,18 @@ async def generate_for_eval(
 ) -> GenerationResult:
     """query를 실 그래프로 실행해 생성 평가용 결과를 만든다."""
     settings = settings or get_settings()
-    state = await compiled_graph.ainvoke(
-        {
-            "query": query,
-            "model": model,
-            "retry_count": 0,
-            "max_retries": settings.trust_max_retries,
-        }
-    )
+    # token usage는 그래프 내부 call_llm들이 누산기에 합산한다(Langfuse 무관). latency는 ainvoke wall-clock.
+    with usage_accumulator() as usage:
+        started = perf_counter()
+        state = await compiled_graph.ainvoke(
+            {
+                "query": query,
+                "model": model,
+                "retry_count": 0,
+                "max_retries": settings.trust_max_retries,
+            }
+        )
+        latency_s = perf_counter() - started
     documents = state.get("documents", []) or []
     answer_text = flatten_answer(state.get("answer"))
     # AnswerabilityStatus는 StrEnum → str()이 곧 enum value("answerable" 등). None이면 빈 문자열.
@@ -96,4 +109,10 @@ async def generate_for_eval(
         answerability_status=str(status) if status else "",
         n_docs=len(documents),
         reference=reference,
+        prompt_tokens=usage["input"],
+        completion_tokens=usage["output"],
+        total_tokens=usage["total"],
+        llm_calls=usage["calls"],
+        latency_s=latency_s,
+        rerank_fallback=bool(state.get("rerank_fallback")),
     )

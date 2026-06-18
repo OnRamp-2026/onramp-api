@@ -249,3 +249,47 @@ async def test_call_llm_records_usage_to_generation(monkeypatch):
     assert captured["model"] == "gpt-4o-mini"
     assert captured["output"] == "hi"
     assert captured["usage_details"] == {"input": 11, "output": 7, "total": 18}
+
+
+# ── #212 평가 계측: usage_accumulator ──
+def _usage_client(prompt: int, completion: int, total: int):
+    """usage를 담은 openai chat.completions stub 클라이언트."""
+
+    class _Comp:
+        async def create(self, **kw):
+            msg = type("M", (), {"content": "ok"})()
+            ch = type("C", (), {"message": msg})()
+            usage = type("U", (), {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total})()
+            return type("R", (), {"choices": [ch], "usage": usage})()
+
+    return type("Cl", (), {"chat": type("Ch", (), {"completions": _Comp()})()})()
+
+
+@pytest.mark.asyncio
+async def test_usage_accumulator_sums_tokens_across_calls(monkeypatch):
+    """누산기 활성 동안 여러 call_llm의 token usage가 합산된다(#212)."""
+    monkeypatch.setattr(llm_selector, "_get_openai_client", lambda settings: _usage_client(10, 4, 14))
+    s = Settings(llm_provider="openai", openai_api_key="sk-test")
+
+    with llm_selector.usage_accumulator() as acc:
+        await call_llm("sys", "user", model="gpt-4o-mini", settings=s)
+        await call_llm("sys", "user", model="gpt-4o-mini", settings=s)
+
+    assert acc["calls"] == 2
+    assert acc["input"] == 20
+    assert acc["output"] == 8
+    assert acc["total"] == 28
+
+
+@pytest.mark.asyncio
+async def test_usage_accumulator_resets_after_block(monkeypatch):
+    """블록을 벗어나면 누산기가 복원돼 이후 호출은 집계되지 않는다(운영 경로 no-op)."""
+    monkeypatch.setattr(llm_selector, "_get_openai_client", lambda settings: _usage_client(10, 4, 14))
+    s = Settings(llm_provider="openai", openai_api_key="sk-test")
+
+    with llm_selector.usage_accumulator() as acc:
+        await call_llm("sys", "user", model="gpt-4o-mini", settings=s)
+    # 블록 밖 호출은 누산기에 잡히지 않아야 한다 (예외 없이 통과)
+    out = await call_llm("sys", "user", model="gpt-4o-mini", settings=s)
+    assert out == "ok"
+    assert acc["calls"] == 1  # 블록 안 1회만 집계

@@ -7,7 +7,10 @@ call_llm 하나로 모든 Agent와 asset_service가 LLM을 호출한다. provide
 
 from __future__ import annotations
 
+import contextvars
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import httpx
@@ -18,6 +21,40 @@ from app.middleware.error_handler import LLMError
 from app.observability import langfuse_generation
 
 logger = logging.getLogger(__name__)
+
+# 오프라인 평가용 token 계측 (#212). 활성 동안 call_llm 호출들의 usage를 합산한다.
+# Langfuse가 꺼진 로컬/CI 평가에서도 prompt/completion token을 모으기 위한 경량 훅 —
+# 운영 경로는 누산기를 설정하지 않으므로 no-op이다.
+_usage_acc: contextvars.ContextVar[dict[str, int] | None] = contextvars.ContextVar("llm_usage_acc", default=None)
+
+
+@contextmanager
+def usage_accumulator() -> Iterator[dict[str, int]]:
+    """블록 안의 모든 call_llm token usage를 합산한다(평가 계측 전용).
+
+    반환 dict 키: input·output·total·calls. 가변 dict를 공유하므로 LangGraph가 노드를
+    하위 태스크로 돌려도(컨텍스트 복사 시 같은 dict 참조 전파) 합산이 누락되지 않는다.
+    """
+    acc = {"input": 0, "output": 0, "total": 0, "calls": 0}
+    token = _usage_acc.set(acc)
+    try:
+        yield acc
+    finally:
+        _usage_acc.reset(token)
+
+
+def _accumulate_usage(usage: dict[str, int] | None) -> None:
+    """활성 누산기가 있으면 1회 호출의 usage를 더한다(없으면 no-op)."""
+    acc = _usage_acc.get()
+    if acc is None:
+        return
+    acc["calls"] += 1
+    if usage is None:
+        return
+    for key in ("input", "output", "total"):
+        val = usage.get(key)
+        if isinstance(val, int):
+            acc[key] += val
 
 
 def _usage_details(usage: Any) -> dict[str, int] | None:
@@ -103,6 +140,7 @@ async def call_llm(
             raise LLMError("LLM 응답이 비어있습니다")
         if gen is not None:
             gen.update(model=model_name, output=content, usage_details=usage)
+        _accumulate_usage(usage)  # 평가 계측(#212): 누산기 활성 시에만 집계
         return content
 
 
