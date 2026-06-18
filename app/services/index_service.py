@@ -8,12 +8,14 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from functools import partial
+from typing import NotRequired, TypedDict
 
 import anyio
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointIdsList
 
 from app.config import Settings, get_settings
+from app.db.models import IndexRun
 from app.db.postgres import session_scope as _default_session_scope
 from app.db.qdrant import get_qdrant
 from app.rag.chunker import ChildChunk
@@ -30,6 +32,20 @@ IndexChildrenFn = Callable[
 ]
 
 
+class IndexProgress(TypedDict):
+    stage: NotRequired[str]
+    pages_discovered: NotRequired[int]
+    pages_processed: NotRequired[int]
+    pages_indexed: NotRequired[int]
+    pages_skipped: NotRequired[int]
+    pages_failed: NotRequired[int]
+    chunks_indexed: NotRequired[int]
+    chunks_deleted: NotRequired[int]
+
+
+ProgressFn = Callable[[IndexProgress], Awaitable[None]]
+
+
 @dataclass(frozen=True)
 class IndexResult:
     """Summary of one Confluence indexing run."""
@@ -37,6 +53,7 @@ class IndexResult:
     pages_indexed: int
     chunks_indexed: int
     chunks_deleted: int = field(default=0)
+    pages_skipped: int = field(default=0)
 
 
 class IndexService:
@@ -58,16 +75,37 @@ class IndexService:
         self.index_children_fn = index_children_fn
         self._session_factory = session_factory or _default_session_scope
 
-    async def index_recent_pages(self, hours: int = 24, limit: int = 50, *, force: bool = False) -> IndexResult:
+    async def index_recent_pages(
+        self,
+        hours: int = 24,
+        limit: int = 50,
+        *,
+        force: bool = False,
+        run_id: uuid.UUID | None = None,
+        progress: ProgressFn | None = None,
+    ) -> IndexResult:
         pages = await self.ingest_service.prepare_recent_pages_for_embedding(hours=hours, limit=limit)
-        return await self.index_prepared(pages, force=force)
+        return await self.index_prepared(pages, force=force, run_id=run_id, progress=progress)
 
-    async def index_all_pages(self, limit: int = 50, *, force: bool = False) -> IndexResult:
+    async def index_all_pages(
+        self,
+        limit: int = 50,
+        *,
+        force: bool = False,
+        run_id: uuid.UUID | None = None,
+        progress: ProgressFn | None = None,
+    ) -> IndexResult:
         pages = await self.ingest_service.prepare_all_pages_for_embedding(limit=limit)
-        return await self.index_prepared(pages, force=force)
+        return await self.index_prepared(pages, force=force, run_id=run_id, progress=progress)
 
     async def index_prepared(
-        self, pages: list[ChunkedConfluencePage], *, source: str = "confluence", force: bool = False
+        self,
+        pages: list[ChunkedConfluencePage],
+        *,
+        source: str = "confluence",
+        force: bool = False,
+        run_id: uuid.UUID | None = None,
+        progress: ProgressFn | None = None,
     ) -> IndexResult:
         """Index already-prepared chunks. ``source`` 는 멀티소스 원장 식별키 (confluence|github).
 
@@ -78,12 +116,17 @@ class IndexService:
         tenant_id = settings.auth_default_tenant
 
         pages_indexed = 0
+        pages_skipped = 0
         pages_failed = 0
         chunks_indexed = 0
         chunks_deleted = 0
 
         async with self._session_factory() as db:
-            run = await repo.create_index_run(db, tenant_id=tenant_id)
+            run = await db.get(IndexRun, run_id) if run_id is not None else None
+            if run is None:
+                run = await repo.create_index_run(db, tenant_id=tenant_id)
+            if progress is not None:
+                await progress({"stage": "indexing", "pages_discovered": len(pages)})
             try:
                 for chunked_page in pages:
                     pg = chunked_page.page
@@ -98,6 +141,20 @@ class IndexService:
                             cleaned_markdown_hash=cleaned_markdown_hash,
                             source=source,
                         ):
+                            pages_skipped += 1
+                            if progress is not None:
+                                await progress(
+                                    {
+                                        "stage": "indexing",
+                                        "pages_discovered": len(pages),
+                                        "pages_processed": pages_indexed + pages_skipped + pages_failed,
+                                        "pages_indexed": pages_indexed,
+                                        "pages_skipped": pages_skipped,
+                                        "pages_failed": pages_failed,
+                                        "chunks_indexed": chunks_indexed,
+                                        "chunks_deleted": chunks_deleted,
+                                    }
+                                )
                             continue
 
                         # 1. Qdrant / OpenSearch upsert (search index first — idempotent)
@@ -141,11 +198,39 @@ class IndexService:
 
                         chunks_indexed += n
                         pages_indexed += 1
+                        if progress is not None:
+                            await progress(
+                                {
+                                    "stage": "indexing",
+                                    "pages_discovered": len(pages),
+                                    "pages_processed": pages_indexed + pages_skipped + pages_failed,
+                                    "pages_indexed": pages_indexed,
+                                    "pages_skipped": pages_skipped,
+                                    "pages_failed": pages_failed,
+                                    "chunks_indexed": chunks_indexed,
+                                    "chunks_deleted": chunks_deleted,
+                                }
+                            )
 
                     except Exception:
                         logger.exception("Failed to index page %s", pg.page_id)
                         pages_failed += 1
+                        if progress is not None:
+                            await progress(
+                                {
+                                    "stage": "indexing",
+                                    "pages_discovered": len(pages),
+                                    "pages_processed": pages_indexed + pages_skipped + pages_failed,
+                                    "pages_indexed": pages_indexed,
+                                    "pages_skipped": pages_skipped,
+                                    "pages_failed": pages_failed,
+                                    "chunks_indexed": chunks_indexed,
+                                    "chunks_deleted": chunks_deleted,
+                                }
+                            )
 
+                run.pages_skipped = pages_skipped
+                run.pages_discovered = len(pages)
                 await repo.finish_index_run(
                     db,
                     run,
@@ -159,7 +244,12 @@ class IndexService:
                 await repo.fail_index_run(db, run, error="Unexpected error in _index_prepared")
                 raise
 
-        return IndexResult(pages_indexed=pages_indexed, chunks_indexed=chunks_indexed, chunks_deleted=chunks_deleted)
+        return IndexResult(
+            pages_indexed=pages_indexed,
+            chunks_indexed=chunks_indexed,
+            chunks_deleted=chunks_deleted,
+            pages_skipped=pages_skipped,
+        )
 
     async def _delete_stale_from_search(
         self,

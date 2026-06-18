@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models import (
     ChunkRegistry,
     IndexRun,
+    IndexRunStage,
     IndexRunStatus,
+    IndexRunTrigger,
+    IndexRunType,
     SourceDocument,
     SourceDocumentPrevious,
 )
@@ -30,11 +34,118 @@ def _now() -> datetime:
 # ── index_run ──────────────────────────────────────────────────────────────────
 
 
-async def create_index_run(db: AsyncSession, *, tenant_id: str) -> IndexRun:
-    run = IndexRun(tenant_id=tenant_id)
+async def create_index_run(
+    db: AsyncSession,
+    *,
+    tenant_id: str,
+    run_type: str = IndexRunType.incremental.value,
+    trigger: str = IndexRunTrigger.manual.value,
+) -> IndexRun:
+    run = IndexRun(
+        tenant_id=tenant_id,
+        run_type=run_type,
+        trigger=trigger,
+        status=IndexRunStatus.running.value,
+        stage=IndexRunStage.indexing.value,
+    )
     db.add(run)
     await db.flush()
     return run
+
+
+async def enqueue_index_run(
+    db: AsyncSession,
+    *,
+    tenant_id: str,
+    run_type: str,
+    trigger: str,
+) -> IndexRun | None:
+    if await get_active_index_run(db, tenant_id=tenant_id) is not None:
+        return None
+    run = IndexRun(
+        tenant_id=tenant_id,
+        run_type=run_type,
+        trigger=trigger,
+        status=IndexRunStatus.queued.value,
+        stage=IndexRunStage.queued.value,
+    )
+    db.add(run)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        return None
+    await db.refresh(run)
+    return run
+
+
+async def claim_next_index_run(db: AsyncSession) -> IndexRun | None:
+    run = await db.scalar(
+        select(IndexRun)
+        .where(IndexRun.status == IndexRunStatus.queued.value)
+        .order_by(IndexRun.created_at)
+        .with_for_update(skip_locked=True)
+        .limit(1)
+    )
+    if run is None:
+        return None
+    run.status = IndexRunStatus.running.value
+    run.stage = IndexRunStage.fetching.value
+    run.started_at = _now()
+    await db.commit()
+    await db.refresh(run)
+    return run
+
+
+async def get_active_index_run(db: AsyncSession, *, tenant_id: str) -> IndexRun | None:
+    return cast(
+        IndexRun | None,
+        await db.scalar(
+            select(IndexRun)
+            .where(
+                IndexRun.tenant_id == tenant_id,
+                IndexRun.status.in_((IndexRunStatus.queued.value, IndexRunStatus.running.value)),
+            )
+            .order_by(IndexRun.created_at.desc())
+            .limit(1)
+        ),
+    )
+
+
+async def list_index_runs(db: AsyncSession, *, tenant_id: str, limit: int = 10) -> list[IndexRun]:
+    rows = await db.scalars(
+        select(IndexRun).where(IndexRun.tenant_id == tenant_id).order_by(IndexRun.created_at.desc()).limit(limit)
+    )
+    return list(rows)
+
+
+async def update_index_run_progress(
+    db: AsyncSession,
+    run: IndexRun,
+    *,
+    stage: str | None = None,
+    pages_discovered: int | None = None,
+    pages_processed: int | None = None,
+    pages_indexed: int | None = None,
+    pages_skipped: int | None = None,
+    pages_failed: int | None = None,
+    chunks_indexed: int | None = None,
+    chunks_deleted: int | None = None,
+) -> None:
+    values = {
+        "stage": stage,
+        "pages_discovered": pages_discovered,
+        "pages_processed": pages_processed,
+        "pages_indexed": pages_indexed,
+        "pages_skipped": pages_skipped,
+        "pages_failed": pages_failed,
+        "chunks_indexed": chunks_indexed,
+        "chunks_deleted": chunks_deleted,
+    }
+    for name, value in values.items():
+        if value is not None:
+            setattr(run, name, value)
+    await db.commit()
 
 
 async def finish_index_run(
@@ -47,8 +158,10 @@ async def finish_index_run(
     chunks_deleted: int,
 ) -> None:
     run.status = IndexRunStatus.success.value
+    run.stage = IndexRunStage.completed.value
     run.finished_at = _now()
     run.pages_indexed = pages_indexed
+    run.pages_processed = run.pages_skipped + pages_indexed + pages_failed
     run.pages_failed = pages_failed
     run.chunks_indexed = chunks_indexed
     run.chunks_deleted = chunks_deleted
@@ -57,6 +170,7 @@ async def finish_index_run(
 
 async def fail_index_run(db: AsyncSession, run: IndexRun, *, error: str) -> None:
     run.status = IndexRunStatus.failed.value
+    run.stage = IndexRunStage.completed.value
     run.finished_at = _now()
     run.error_message = error[:1000]
     await db.commit()

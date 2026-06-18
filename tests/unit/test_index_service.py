@@ -180,6 +180,7 @@ async def test_force_reindexes_unchanged_pages(
     # 내용 동일 재실행 → content-hash dedup으로 스킵
     again = await service.index_all_pages(limit=1)
     assert again.pages_indexed == 0
+    assert again.pages_skipped == 1
 
     # force=True → dedup 무시하고 재색인 (도메인 분류만 바꿔 재적재하는 경로)
     forced = await service.index_all_pages(limit=1, force=True)

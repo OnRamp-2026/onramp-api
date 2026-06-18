@@ -89,6 +89,38 @@ async def test_fail_index_run(db: AsyncSession) -> None:
     assert run.error_message == "boom"
 
 
+async def test_enqueue_rejects_second_active_run(db: AsyncSession) -> None:
+    first = await repo.enqueue_index_run(db, tenant_id="tenant-a", run_type="incremental", trigger="manual")
+    second = await repo.enqueue_index_run(db, tenant_id="tenant-a", run_type="full_scan", trigger="manual")
+
+    assert first is not None
+    assert first.status == IndexRunStatus.queued.value
+    assert second is None
+
+
+async def test_claim_and_progress_index_run(db: AsyncSession) -> None:
+    queued = await repo.enqueue_index_run(db, tenant_id="tenant-a", run_type="incremental", trigger="cron")
+    assert queued is not None
+
+    claimed = await repo.claim_next_index_run(db)
+    assert claimed is not None
+    assert claimed.run_id == queued.run_id
+    assert claimed.status == IndexRunStatus.running.value
+
+    await repo.update_index_run_progress(
+        db,
+        claimed,
+        stage="indexing",
+        pages_discovered=5,
+        pages_processed=2,
+        pages_indexed=1,
+        pages_skipped=1,
+    )
+    assert claimed.pages_discovered == 5
+    assert claimed.pages_processed == 2
+    assert claimed.pages_skipped == 1
+
+
 # ── should_index_page ──────────────────────────────────────────────────────────
 
 

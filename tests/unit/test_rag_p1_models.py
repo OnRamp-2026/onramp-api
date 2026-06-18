@@ -38,6 +38,11 @@ def test_index_run_has_failure_and_stale_cleanup_counters() -> None:
     indexes = {str(index.name): tuple(column.name for column in index.columns) for index in table.indexes}
 
     assert "pages_failed" in table.c
+    assert "pages_discovered" in table.c
+    assert "pages_processed" in table.c
+    assert "pages_skipped" in table.c
+    assert "trigger" in table.c
+    assert "stage" in table.c
     assert "chunks_deleted" in table.c
     assert indexes["ix_index_run_tenant_status"] == ("tenant_id", "status", "created_at")
 

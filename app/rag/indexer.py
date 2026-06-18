@@ -27,10 +27,11 @@ def _point_id(chunk_id: str) -> str:
     return str(uuid5(NAMESPACE_URL, chunk_id))
 
 
-def _payload(child: ChildChunk) -> dict:
+def _payload(child: ChildChunk, settings: Settings) -> dict:
     data = asdict(child)
     data.pop("content_vector", None)  # 벡터는 payload 아님
     data.pop("embedding_text", None)  # 임베딩 입력 — 검색/표시엔 불필요
+    data["tenant_id"] = settings.auth_default_tenant
     return data
 
 
@@ -63,7 +64,7 @@ async def index_children(
     await anyio.to_thread.run_sync(lambda: ensure_collection(client, settings))
     vectors = await embedder.embed_documents([c.embedding_text for c in children])
     points = [
-        PointStruct(id=_point_id(c.chunk_id), vector=vec, payload=_payload(c))
+        PointStruct(id=_point_id(c.chunk_id), vector=vec, payload=_payload(c, settings))
         for c, vec in zip(children, vectors, strict=True)
     ]
     # Qdrant JSON payload 한도(32MB) 초과 방지 — 전체 적재(수천 청크)는 단일 upsert가 불가
