@@ -5,7 +5,7 @@ import pytest
 from app.config import Settings
 from app.middleware.error_handler import LLMError
 from app.services import llm_selector
-from app.services.llm_selector import call_llm, resolve_provider
+from app.services.llm_selector import call_llm, call_llm_with_tools, resolve_provider
 
 
 class _FakeCompletions:
@@ -113,6 +113,38 @@ async def test_call_llm_openai_success_and_json_mode(monkeypatch):
     call = fake.chat.completions.calls[0]
     assert call["model"] == "gpt-4o-mini"
     assert call["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_tools_parses_openai_tool_call(monkeypatch):
+    class _ToolCompletions:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        async def create(self, **kwargs):
+            self.calls.append(kwargs)
+            function = type("F", (), {"name": "search_bm25", "arguments": '{"query":"v1.33"}'})()
+            tool_call = type("T", (), {"id": "call-1", "function": function})()
+            message = type("M", (), {"content": None, "tool_calls": [tool_call]})()
+            choice = type("C", (), {"message": message})()
+            return type("R", (), {"choices": [choice], "usage": None})()
+
+    completions = _ToolCompletions()
+    client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
+    monkeypatch.setattr(llm_selector, "_get_openai_client", lambda settings: client)
+    settings = Settings(openai_api_key="sk-test")
+
+    result = await call_llm_with_tools(
+        [{"role": "user", "content": "query"}],
+        [{"type": "function", "function": {"name": "search_bm25", "parameters": {"type": "object"}}}],
+        model="gpt-4o-mini",
+        settings=settings,
+    )
+
+    assert result.content == ""
+    assert result.tool_calls[0].name == "search_bm25"
+    assert result.tool_calls[0].arguments == {"query": "v1.33"}
+    assert completions.calls[0]["tool_choice"] == "auto"
 
 
 @pytest.mark.asyncio

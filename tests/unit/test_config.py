@@ -6,6 +6,14 @@ from pydantic import SecretStr, ValidationError
 from app.config import Settings
 
 
+def test_retriever_strategy_defaults_to_deterministic() -> None:
+    settings = Settings()
+
+    assert settings.retriever_strategy == "deterministic"
+    assert settings.retriever_agentic_max_iterations == 2
+    assert settings.retriever_agentic_max_tool_calls == 4
+
+
 def test_storage_and_auth_secrets_are_masked() -> None:
     settings = Settings(
         auth_jwt_secret=SecretStr("auth-secret-with-at-least-32-bytes"),

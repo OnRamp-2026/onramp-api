@@ -94,7 +94,7 @@ class SourceDocument:
     url: str = ""
     space_key: str = ""
     content_snippet: str = ""
-    score: float = 0.0  # 벡터 검색 유사도
+    score: float = 0.0  # 검색 점수(dense/BM25/RRF). provider 간 절대값 비교에는 사용하지 않는다.
     # 점수 분리 (#103, 설계 7.3): 정렬은 블렌드(rerank_score), 진단은 원점수(raw_rerank_score)
     rerank_score: float = 0.0  # ranking 점수 — 부스트(최신성·도메인·버전·권위) 합산, 정렬 전용
     raw_rerank_score: float = 0.0  # Cross-Encoder 원점수 [0,1] — τ 진단 전용 (리랭커 비활성 시 0.0)
@@ -182,6 +182,7 @@ class AgentState(TypedDict, total=False):
     # ── 사용자 입력 ──
     query: str
     model: str  # LLM 모델명 (빈값이면 config 기본값)
+    tenant_id: str  # 인증 계층이 확정한 tenant. Retriever tool argument로 노출하지 않는다.
 
     # ── Router Agent 출력 ──
     use_case: UseCase

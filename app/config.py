@@ -251,6 +251,11 @@ class Settings(BaseSettings):
     retriever_top_k: int = Field(default=20, ge=1)  # Qdrant 후보 풀
     retriever_top_n: int = Field(default=8, ge=1)  # 리랭킹 후 최종 (#227 5→8: 여러 문서 종합 답변용 컨텍스트 확대)
     snippet_max_chars: int = 500  # SourceDocument content_snippet 길이
+    # Agentic Retriever 1차 실험(#237): 기본 deterministic 유지. 로컬 A/B에서만 agentic opt-in.
+    retriever_strategy: Literal["deterministic", "agentic"] = "deterministic"
+    retriever_agentic_max_iterations: int = Field(default=2, ge=1, le=5)
+    retriever_agentic_max_tool_calls: int = Field(default=4, ge=1, le=10)
+    retriever_agentic_tool_snippet_chars: int = Field(default=200, ge=50, le=1000)
 
     @model_validator(mode="after")
     def _check_retriever_window(self) -> "Settings":

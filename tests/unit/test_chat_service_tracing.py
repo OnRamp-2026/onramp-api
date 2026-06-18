@@ -54,6 +54,24 @@ async def test_chat_passes_no_config_when_disabled(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_chat_injects_authenticated_tenant_into_state(monkeypatch):
+    import app.services.chat_service as cs
+
+    captured: dict = {}
+
+    async def fake_ainvoke(state, config=None):
+        captured.update(state)
+        return {}
+
+    monkeypatch.setattr(cs.compiled_graph, "ainvoke", fake_ainvoke)
+    monkeypatch.setattr("app.observability.langfuse.get_callback_handler", lambda: None)
+
+    await cs.chat(ChatRequest(query="안녕"), tenant_id="tenant1-onramp")
+
+    assert captured["tenant_id"] == "tenant1-onramp"
+
+
+@pytest.mark.asyncio
 async def test_chat_wraps_invoke_in_root_span_when_enabled(monkeypatch):
     """langfuse 활성 시 chat()이 그래프 invoke를 루트 span으로 감싸고 output을 기록한다."""
     import app.observability.langfuse as lf

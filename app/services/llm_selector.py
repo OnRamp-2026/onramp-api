@@ -8,9 +8,11 @@ call_llm 하나로 모든 Agent와 asset_service가 LLM을 호출한다. provide
 from __future__ import annotations
 
 import contextvars
+import json
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -80,6 +82,19 @@ _azure_client: AsyncAzureOpenAI | None = None
 _azure_client_cfg: tuple[str, ...] | None = None
 
 
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolLLMResponse:
+    content: str
+    tool_calls: list[ToolCall]
+
+
 def resolve_provider(model: str, settings: Settings) -> str:
     """provider 결정 — **명시된 model 이름 우선**, 비면 config.llm_provider fallback.
 
@@ -142,6 +157,137 @@ async def call_llm(
             gen.update(model=model_name, output=content, usage_details=usage)
         _accumulate_usage(usage)  # 평가 계측(#212): 누산기 활성 시에만 집계
         return content
+
+
+def _parse_tool_arguments(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _tool_response_from_message(message: Any) -> ToolLLMResponse:
+    content = (message.get("content") if isinstance(message, dict) else getattr(message, "content", "")) or ""
+    raw_calls = (
+        message.get("tool_calls", []) if isinstance(message, dict) else getattr(message, "tool_calls", None) or []
+    )
+    calls: list[ToolCall] = []
+    for raw_call in raw_calls:
+        call_id = raw_call.get("id", "") if isinstance(raw_call, dict) else getattr(raw_call, "id", "")
+        function = raw_call.get("function", {}) if isinstance(raw_call, dict) else getattr(raw_call, "function", None)
+        if isinstance(function, dict):
+            name = function.get("name", "")
+            arguments = function.get("arguments", "")
+        else:
+            name = getattr(function, "name", "")
+            arguments = getattr(function, "arguments", "")
+        calls.append(
+            ToolCall(
+                id=str(call_id),
+                name=str(name),
+                arguments=_parse_tool_arguments(arguments),
+            )
+        )
+    return ToolLLMResponse(content=str(content), tool_calls=calls)
+
+
+async def call_llm_with_tools(
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    *,
+    model: str = "",
+    temperature: float = 0.0,
+    timeout: float = 30.0,
+    settings: Settings | None = None,
+) -> ToolLLMResponse:
+    """OpenAI-compatible tool calling. 미지원 provider/서버 오류는 LLMError로 정규화한다."""
+    settings = settings or get_settings()
+    provider = resolve_provider(model, settings)
+    model_name = model or settings.default_model or _DEFAULT_MODEL
+    gen_input = messages
+
+    with langfuse_generation(name=f"llm.{provider}.tools", model=model_name, input=gen_input) as gen:
+        try:
+            if provider == "openai":
+                if not settings.openai_api_key:
+                    raise LLMError("OpenAI API 키가 설정되지 않았습니다")
+                kwargs: dict[str, Any] = {
+                    "model": model_name,
+                    "messages": messages,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "timeout": timeout,
+                }
+                if not model_name.lower().startswith(("o1", "o3")):
+                    kwargs["temperature"] = temperature
+                response = await _get_openai_client(settings).chat.completions.create(**kwargs)
+                message = response.choices[0].message
+                usage = _usage_details(getattr(response, "usage", None))
+            elif provider == "azure":
+                if not settings.azure_openai_endpoint or not settings.azure_openai_api_key:
+                    raise LLMError("Azure OpenAI 설정(endpoint/key)이 없습니다")
+                stripped = model.strip()
+                model_name = (
+                    stripped[len(_AZURE_PREFIX) :]
+                    if stripped.lower().startswith(_AZURE_PREFIX)
+                    else stripped or settings.default_model or _DEFAULT_MODEL
+                )
+                response = await _get_azure_client(settings).chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    temperature=temperature,
+                    timeout=timeout,
+                )
+                message = response.choices[0].message
+                usage = _usage_details(getattr(response, "usage", None))
+            elif provider == "self_hosted":
+                if not settings.self_hosted_llm_url:
+                    raise LLMError("Self-hosted LLM URL이 설정되지 않았습니다")
+                model_name = model or settings.self_hosted_model_name or _DEFAULT_MODEL
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(
+                        f"{settings.self_hosted_llm_url.rstrip('/')}/chat/completions",
+                        json={
+                            "model": model_name,
+                            "messages": messages,
+                            "tools": tools,
+                            "tool_choice": "auto",
+                            "temperature": temperature,
+                        },
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                choices = payload.get("choices") or []
+                if not choices:
+                    raise LLMError("Self-hosted LLM 응답에 choices가 없습니다")
+                message = choices[0].get("message", {})
+                usage = _usage_details(payload.get("usage"))
+            else:
+                raise LLMError(f"지원하지 않는 llm_provider: {provider!r}")
+        except LLMError:
+            raise
+        except Exception as exc:
+            logger.warning("LLM tool calling 실패 (provider=%s)", provider, exc_info=True)
+            raise LLMError("LLM 도구 호출에 실패했습니다") from exc
+
+        result = _tool_response_from_message(message)
+        if not result.content and not result.tool_calls:
+            raise LLMError("LLM 도구 호출 응답이 비어있습니다")
+        if gen is not None:
+            gen.update(
+                model=model_name,
+                output={"content": result.content, "tool_calls": [call.name for call in result.tool_calls]},
+                usage_details=usage,
+            )
+        _accumulate_usage(usage)
+        return result
 
 
 def _extra_kwargs(max_tokens: int | None, json_mode: bool) -> dict[str, Any]:

@@ -15,8 +15,10 @@ from functools import partial
 
 import anyio
 
+from app.agents.retriever.agentic import AgenticRetrievalFallbackError, run_agentic_search
 from app.agents.retriever.rerank import apply_ranking_boosts, get_reranker
 from app.agents.retriever.search import SearchFilters, search_with_mode
+from app.agents.retriever.tools import SearchToolContext
 from app.agents.state import AgentState, Domain, RetryAction, SourceDocument
 from app.config import Settings, get_settings
 from app.observability import langfuse_span
@@ -54,17 +56,50 @@ async def retrieve_node(state: AgentState) -> dict:
     if retry_action == RetryAction.EXPAND_TOPICS:
         top_k *= 2  # 주제 확장: 후보 풀 확대 (설계 6장)
 
-    qvec = await get_embedder().embed_query(refined)
-    # 필터용 domain은 대표(domains[0])만 — soft에선 무시되고 hard/hybrid에서만 쓰인다.
-    hits = await search_with_mode(
-        qvec,
-        top_k,
-        domain=(domains[0] if domains else None),
-        mode=settings.retriever_domain_filter_mode,
-        query_text=refined,
-        filters=None if filters.is_empty() else filters,
-        settings=settings,
-    )
+    effective_filters = None if filters.is_empty() else filters
+    domain = domains[0] if domains else None
+    hits = None
+    if settings.retriever_strategy == "agentic":
+        with langfuse_span(
+            name="agentic_retriever",
+            input={"query": refined, "domain": domain, "tenant_id": state.get("tenant_id", "")},
+        ) as span:
+            try:
+                agentic_result = await run_agentic_search(
+                    refined,
+                    model=state.get("model", ""),
+                    context=SearchToolContext(
+                        tenant_id=state.get("tenant_id") or settings.auth_default_tenant,
+                        domain=None if settings.retriever_domain_filter_mode == "soft" else domain,
+                        filters=effective_filters,
+                        top_k=top_k,
+                        settings=settings,
+                    ),
+                )
+                hits = agentic_result.hits
+                if span is not None:
+                    span.update(metadata={**agentic_result.metadata, "fallback": None})
+            except AgenticRetrievalFallbackError as exc:
+                logger.warning("Agentic Retriever 결과 없음 — deterministic 검색 폴백 (%s)", exc.reason)
+                if span is not None:
+                    span.update(metadata={"fallback": exc.reason})
+            except Exception as exc:
+                logger.warning("Agentic Retriever 실패 — deterministic 검색 폴백", exc_info=True)
+                if span is not None:
+                    span.update(metadata={"fallback": type(exc).__name__})
+
+    if hits is None:
+        qvec = await get_embedder().embed_query(refined)
+        # 필터용 domain은 대표(domains[0])만 — soft에선 무시되고 hard/hybrid에서만 쓰인다.
+        hits = await search_with_mode(
+            qvec,
+            top_k,
+            domain=domain,
+            mode=settings.retriever_domain_filter_mode,
+            query_text=refined,
+            filters=effective_filters,
+            settings=settings,
+        )
 
     results = [(point.score, point.payload or {}) for point in hits]
     vec_score = {payload.get("chunk_id"): score for score, payload in results}

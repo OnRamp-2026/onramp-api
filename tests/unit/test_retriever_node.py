@@ -2,6 +2,7 @@ import pytest
 
 from app.agents.retriever import node as node_mod
 from app.agents.retriever import search as search_mod
+from app.agents.retriever.agentic import AgenticRetrievalFallbackError, AgenticSearchResult
 from app.agents.retriever.node import retrieve_node
 from app.agents.state import SourceDocument
 from app.config import Settings
@@ -58,6 +59,59 @@ async def test_node_maps_to_source_document(monkeypatch):
     assert docs[0].title == "제목"
     assert docs[0].content_snippet == "alpha"
     assert docs[0].score == 0.9
+
+
+@pytest.mark.asyncio
+async def test_node_agentic_strategy_uses_agentic_hits(monkeypatch):
+    hits = [_hit("c-agent", "agentic", 0.77)]
+
+    async def fake_agentic(*args, **kwargs):
+        return AgenticSearchResult(hits=hits, metadata={"rrf_applied": False})
+
+    async def deterministic_must_not_run(*args, **kwargs):
+        raise AssertionError("deterministic search should not run")
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.8, p) for _, p in cands]
+
+    monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(retriever_strategy="agentic"))
+    monkeypatch.setattr(node_mod, "run_agentic_search", fake_agentic)
+    monkeypatch.setattr(node_mod, "search_with_mode", deterministic_must_not_run)
+    monkeypatch.setattr(node_mod, "get_reranker", lambda: _R())
+    monkeypatch.setattr(node_mod, "get_lineages", lambda keys, **kw: {k: frozenset() for k in keys})
+
+    out = await retrieve_node(
+        {"refined_query": "q", "domains": [], "tenant_id": "tenant1-onramp", "model": "gpt-4o-mini"}
+    )
+
+    assert out["documents"][0].content_snippet == "agentic"
+    assert out["documents"][0].score == 0.77
+
+
+@pytest.mark.asyncio
+async def test_node_agentic_failure_falls_back_to_deterministic(monkeypatch):
+    calls: list[str] = []
+
+    async def fake_agentic(*args, **kwargs):
+        raise AgenticRetrievalFallbackError("no_search_results")
+
+    async def fake_search(qv, top_k, *, domain=None, **kwargs):
+        calls.append("deterministic")
+        return [_hit("c-fallback", "fallback", 0.66)]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.8, p) for _, p in cands]
+
+    _patch(monkeypatch, fake_search, _R())
+    monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(retriever_strategy="agentic"))
+    monkeypatch.setattr(node_mod, "run_agentic_search", fake_agentic)
+
+    out = await retrieve_node({"refined_query": "q", "domains": [], "tenant_id": "tenant1-onramp"})
+
+    assert calls == ["deterministic"]
+    assert out["documents"][0].content_snippet == "fallback"
 
 
 @pytest.mark.asyncio
