@@ -258,6 +258,7 @@ class Settings(BaseSettings):
         if self.retriever_top_n > self.retriever_top_k:
             raise ValueError("retriever_top_n은 retriever_top_k보다 클 수 없습니다.")
         return self
+
     # parent expansion(#212 Phase 0-A): child 검색 → parent 문맥 복원해 Answer context에 주입.
     # 기본 off = 현행 child-only(=baseline). on = parent-expanded. ablation으로 둘을 분리 측정.
     parent_context_enabled: bool = False
