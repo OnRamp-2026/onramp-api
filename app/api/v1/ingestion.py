@@ -47,7 +47,10 @@ async def create_run(
         active = await repo.get_active_index_run(db, tenant_id=tenant_id)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"message": "이미 실행 중인 수집 작업이 있습니다.", "run_id": str(active.run_id) if active else None},
+            detail={
+                "message": "이미 실행 중인 수집 작업이 있습니다.",
+                "run_id": str(active.run_id) if active else None,
+            },
         )
     return _response(run)
 

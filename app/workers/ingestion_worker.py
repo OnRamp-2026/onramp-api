@@ -41,6 +41,7 @@ async def process_next() -> bool:
 
     async def progress(values: dict[str, int | str]) -> None:
         await _save_progress(run.run_id, values)
+
     try:
         if run.run_type == IndexRunType.full_scan.value:
             await service.index_all_pages(limit=1000, run_id=run.run_id, progress=progress)
