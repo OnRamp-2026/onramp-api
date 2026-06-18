@@ -248,9 +248,17 @@ class Settings(BaseSettings):
             )
         return self
 
-    retriever_top_k: int = 20  # Qdrant 후보 풀
-    retriever_top_n: int = 5  # 리랭킹 후 최종
+    retriever_top_k: int = Field(default=20, ge=1)  # Qdrant 후보 풀
+    retriever_top_n: int = Field(default=8, ge=1)  # 리랭킹 후 최종 (#227 5→8: 여러 문서 종합 답변용 컨텍스트 확대)
     snippet_max_chars: int = 500  # SourceDocument content_snippet 길이
+
+    @model_validator(mode="after")
+    def _check_retriever_window(self) -> "Settings":
+        # retrieval 창 계약 1 <= top_n <= top_k 를 기동 단계에서 강제 (#227 리뷰)
+        if self.retriever_top_n > self.retriever_top_k:
+            raise ValueError("retriever_top_n은 retriever_top_k보다 클 수 없습니다.")
+        return self
+
     # parent expansion(#212 Phase 0-A): child 검색 → parent 문맥 복원해 Answer context에 주입.
     # 기본 off = 현행 child-only(=baseline). on = parent-expanded. ablation으로 둘을 분리 측정.
     parent_context_enabled: bool = False
