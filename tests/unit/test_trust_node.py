@@ -253,7 +253,7 @@ async def test_ladder_priority_version_before_topics(monkeypatch) -> None:
 async def test_ladder_expand_topics_excludes_known_keys(monkeypatch) -> None:
     docs = [_doc(raw=0.95, page_id="only", doc_key="apache:only", site="apache", version="2.4")]
     # waiver 미발동을 위해 τ_strong 위지만 격차... 생존 1건이면 top2 부재 → waiver 자동 충족이라
-    # raw를 τ_strong(0.90) 아래·τ(0.8681) 위로 둔다 → waiver 미발동 + 주제 1개 < 2
+    # raw를 τ_strong(0.90) 아래·τ(0.5229) 위로 둔다 → waiver 미발동 + 주제 1개 < 2
     docs = [_doc(raw=0.88, page_id="only", doc_key="apache:only", site="apache", version="2.4")]
     out = await _run(monkeypatch, docs, lineages={"apache:only": frozenset({"2.4"})})
 

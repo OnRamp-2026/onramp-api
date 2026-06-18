@@ -36,10 +36,11 @@ DEFAULT_BASELINE = ROOT_DIR / "data" / "eval" / "baseline.json"
 GATED_MODE = "rerank"  # 회귀 게이트 기준 모드 (운영 경로)
 # answerable 예측 임계값 τ — scripts/calibrate_answerability.py 로 보정한 운영값.
 # #103 점수 분리: 비교 대상이 부스트 합산 점수 → **raw 점수 [0,1]** (tau_score)로 바뀌어 재보정.
-# 114문항(answerable 81)·재색인 코퍼스(908p/6232청크)·ONNX 리랭커 기준:
-#   Youden's J 최대, precision 1.000 / recall 0.704 (unanswerable raw top1 최대 0.8639 바로 위).
+# 103문항(answerable 73)·신 코퍼스(7,799청크)·GPU(remote) 리랭커 기준 재보정:
+#   Youden's J 최대 +0.789, precision 0.984 / recall 0.822 (unanswerable raw top1 최대 0.650).
+#   구 0.8681(114문항·ONNX)은 신 코퍼스/GPU에 과도하게 높아 recall 0.62로 보류 오판 다수 → 0.5229로 갱신.
 # 골든셋·코퍼스·리랭커 갱신 시 재보정. config.trust_rerank_floor 와 동일 값 유지.
-ANSWERABILITY_FLOOR = 0.8681
+ANSWERABILITY_FLOOR = 0.5229
 
 
 async def _eval_mode(golden, mode: Mode, *, top_k, top_n, ans_floor, ans_min_docs):

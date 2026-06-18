@@ -282,9 +282,10 @@ class Settings(BaseSettings):
     # 재검색 트리거 τ (calibrate_answerability 보정값; top raw rerank<floor → 재검색)
     # #103 점수 분리: τ 비교가 부스트 합산 점수 → **raw 점수 [0,1]** 기준으로 바뀌면서 재보정.
     # (구 1.0018은 부스트가 섞인 스케일 — sigmoid [0,1]에서 1 초과는 부스트 합산으로만 가능했다.)
-    # 114문항·재색인 코퍼스 보정: Youden 최대, precision 1.000 / recall 0.704.
+    # 103문항·신 코퍼스(7,799청크)·GPU(remote) 리랭커 보정: Youden +0.789, precision 0.984 / recall 0.822.
+    # 구 0.8681(114·ONNX)은 신 코퍼스/GPU에 과도하게 높아 recall 0.62 → 0.5229로 갱신.
     # eval_retrieval.ANSWERABILITY_FLOOR 와 동일 유지. 골든셋·코퍼스·리랭커 갱신 시 재보정.
-    trust_rerank_floor: float = Field(default=0.8681, ge=0.0)
+    trust_rerank_floor: float = Field(default=0.5229, ge=0.0)
     # 리랭커 폴백 시 coverage용 good 판정 — top 검색점수 대비 비율(모드-독립; #202).
     # 0.0=생존 전부 신뢰(가장 관대, 답변 보장). 좋은 골든셋 확보 후 상향 튜닝.
     trust_fallback_score_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
