@@ -9,6 +9,7 @@ async 노드이므로 그래프는 ainvoke로 실행해야 한다 (chat_service�
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Sequence
 from functools import partial
 
@@ -144,12 +145,20 @@ def _vector_fallback(
     return [(0.0, 0.0, payload) for _, payload in ordered]
 
 
+def _clean_url(url: str) -> str:
+    """scheme(://) 뒤 중복 슬래시를 단일화 — #210 이전 적재분의 stale source_url('//wiki' 등) 교정(#225)."""
+    if "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    return f"{scheme}://{re.sub(r'/{2,}', '/', rest)}"
+
+
 def _to_source_doc(
     payload: dict, ranking_score: float, raw_score: float, score: float, settings: Settings
 ) -> SourceDocument:
     return SourceDocument(
         title=payload.get("page_title", ""),
-        url=payload.get("source_url", ""),
+        url=_clean_url(payload.get("source_url", "")),
         space_key=payload.get("space_key", ""),
         content_snippet=payload.get("content", "")[: settings.snippet_max_chars],
         score=score,

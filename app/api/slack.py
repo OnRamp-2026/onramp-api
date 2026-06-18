@@ -110,17 +110,20 @@ async def _handle_message(event: dict[str, Any], settings: Settings) -> None:
 
 
 def _format_answer(r: ChatResponse) -> str:
-    """5요소 답변 + 출처를 Slack mrkdwn으로."""
-    a = r.answer
-    sections = [
-        ("현재 상황", a.situation),
-        ("원인", a.cause),
-        ("근거", a.evidence),
-        ("해결", a.solution),
-        ("인프라 맥락", a.infra_context),
-    ]
-    parts = [f"*{label}*\n{value}" for label, value in sections if value]
-    body = "\n\n".join(parts) or "관련 근거를 충분히 찾지 못했습니다."
+    """답변 + 출처를 Slack mrkdwn으로. 라우터 포맷(#191)에 따라 분기 — freeform 산문 / 5요소 구조화."""
+    if r.answer_format == "freeform":
+        body = r.answer_text.strip() or "관련 근거를 충분히 찾지 못했습니다."
+    else:
+        a = r.answer
+        sections = [
+            ("현재 상황", a.situation),
+            ("원인", a.cause),
+            ("근거", a.evidence),
+            ("해결", a.solution),
+            ("인프라 맥락", a.infra_context),
+        ]
+        parts = [f"*{label}*\n{value}" for label, value in sections if value]
+        body = "\n\n".join(parts) or "관련 근거를 충분히 찾지 못했습니다."
     links = [f"• <{s.url}|{s.title or s.url}>" for s in r.sources[:3] if s.url]
     if links:
         body += "\n\n*출처*\n" + "\n".join(links)
