@@ -13,7 +13,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-CONFLUENCE_LIMIT="${CONFLUENCE_LIMIT:-500}"
+CONFLUENCE_LIMIT="${CONFLUENCE_LIMIT:-5000}"
 GITHUB_REPOS="${GITHUB_REPOS:-onramp-api docs onramp-web onramp-reranker onramp-stt-api gitops infra monitoring stt_correction confluence-data-crawler}"
 SKIP_MIGRATE="${SKIP_MIGRATE:-0}"
 SKIP_CONFLUENCE="${SKIP_CONFLUENCE:-0}"
