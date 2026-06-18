@@ -1,0 +1,67 @@
+# 일회성 멀티소스 재적재 Job — Confluence + GitHub → 청킹 → 문서 단위 LLM 도메인 분류 → 임베딩 → 색인.
+# 전제: wipe-stores-job으로 스토어를 비운 직후(--reindex 불필요). LLM_CLASSIFY_ENABLED 기본 true.
+# 실행: kubectl apply -f scripts/k8s/ingest-job.yaml
+#       kubectl logs -n onramp job/onramp-ingest -f
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: onramp-ingest
+  namespace: onramp
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: ingest-job
+    spec:
+      restartPolicy: Never
+      serviceAccountName: onramp-api
+      imagePullSecrets:
+        - name: harbor-image-pull-secret
+      containers:
+        - name: ingest
+          image: amdp-registry.skala-ai.com/skala26a-cloud/onramp-api@sha256:aed330d61134681d11bf43dfb0ceed1b979e84c0c1655dfc07a7983418e610f4
+          envFrom:
+            - configMapRef:
+                name: onramp-api-config
+          env:
+            # 적재 Job은 langfuse 불필요 — configmap의 LANGFUSE_ENABLED=true를 끄지 않으면 config 검증 fail-fast.
+            - name: LANGFUSE_ENABLED
+              value: "false"
+            # LLM 도메인 분류 명시 활성(코드 기본 true지만 의도 고정).
+            - name: LLM_CLASSIFY_ENABLED
+              value: "true"
+            - name: CONFLUENCE_LIMIT
+              value: "2000"
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: onramp-api-secret, key: DATABASE_URL } }
+            - name: OPENAI_API_KEY
+              valueFrom: { secretKeyRef: { name: onramp-api-secret, key: OPENAI_API_KEY } }
+            - name: CONFLUENCE_BASE_URL
+              valueFrom: { secretKeyRef: { name: onramp-api-secret, key: CONFLUENCE_BASE_URL } }
+            - name: CONFLUENCE_API_TOKEN
+              valueFrom: { secretKeyRef: { name: onramp-api-secret, key: CONFLUENCE_API_TOKEN } }
+            - name: CONFLUENCE_USER_EMAIL
+              valueFrom: { secretKeyRef: { name: onramp-api-secret, key: CONFLUENCE_USER_EMAIL } }
+            - name: GITHUB_TOKEN
+              valueFrom: { secretKeyRef: { name: onramp-api-secret, key: GITHUB_TOKEN, optional: true } }
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -x
+              echo "== Confluence 적재 (limit=$CONFLUENCE_LIMIT, LLM 분류 ON) =="
+              python scripts/index_recent_confluence_pages.py --all --limit "$CONFLUENCE_LIMIT"
+              echo "== GitHub 적재 =="
+              python scripts/index_github.py --repos onramp-api docs onramp-web onramp-reranker onramp-stt-api gitops infra monitoring stt_correction confluence-data-crawler
+              echo "== 문서 인덱스 투영 =="
+              python scripts/index_documents_to_opensearch.py
+              echo "== 적재 완료 =="
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi

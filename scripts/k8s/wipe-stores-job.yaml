@@ -1,0 +1,63 @@
+# 일회성 데이터 초기화 Job — 재적재("처음부터") 전 OpenSearch/Qdrant/Postgres를 비운다.
+# ArgoCD 비관리(수동 kubectl apply). 완료 10분 뒤 자동 삭제(ttlSecondsAfterFinished).
+# 실행: kubectl apply -f scripts/k8s/wipe-stores-job.yaml
+#       kubectl logs -n onramp job/onramp-wipe-stores -f
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: onramp-wipe-stores
+  namespace: onramp
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: wipe-job
+    spec:
+      restartPolicy: Never
+      serviceAccountName: onramp-api
+      imagePullSecrets:
+        - name: harbor-image-pull-secret
+      containers:
+        - name: wipe
+          image: amdp-registry.skala-ai.com/skala26a-cloud/onramp-api@sha256:aed330d61134681d11bf43dfb0ceed1b979e84c0c1655dfc07a7983418e610f4
+          envFrom:
+            - configMapRef:
+                name: onramp-api-config
+          env:
+            # 와이프 Job은 langfuse가 불필요 — configmap의 LANGFUSE_ENABLED=true를 끄지 않으면
+            # config 검증(_check_langfuse)이 키 부재로 fail-fast 한다. env가 envFrom보다 우선.
+            - name: LANGFUSE_ENABLED
+              value: "false"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: onramp-api-secret
+                  key: DATABASE_URL
+          command: ["python", "-c"]
+          args:
+            - |
+              import asyncio, httpx
+              from sqlalchemy import text
+              from app.config import get_settings
+              from app.db.postgres import session_scope
+
+              async def main():
+                  s = get_settings()
+                  os_base = f"{s.opensearch_scheme}://{s.opensearch_host}:{s.opensearch_port}"
+                  qd_base = f"http://{s.qdrant_host}:{s.qdrant_port}"
+                  async with httpx.AsyncClient(timeout=60) as c:
+                      for idx in (s.opensearch_index_v1, s.opensearch_documents_index_v1):
+                          r = await c.delete(f"{os_base}/{idx}")
+                          print(f"OpenSearch DELETE {idx} -> {r.status_code}")
+                      r = await c.delete(f"{qd_base}/collections/{s.qdrant_collection}")
+                      print(f"Qdrant DELETE {s.qdrant_collection} -> {r.status_code}")
+                  async with session_scope() as db:
+                      await db.execute(
+                          text("TRUNCATE chunk_registry, source_document, source_document_previous CASCADE")
+                      )
+                      await db.commit()
+                  print("Postgres TRUNCATE (chunk_registry, source_document, source_document_previous) done")
+
+              asyncio.run(main())

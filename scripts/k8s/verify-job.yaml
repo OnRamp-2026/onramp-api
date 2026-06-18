@@ -1,0 +1,49 @@
+# 일회성 적재 검증 Job — 3중 저장소 카운트 + domain_source/domain 분포 확인(읽기 전용).
+# 실행: kubectl apply -f scripts/k8s/verify-job.yaml && kubectl logs -n onramp job/onramp-verify -f
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: onramp-verify
+  namespace: onramp
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: verify-job
+    spec:
+      restartPolicy: Never
+      serviceAccountName: onramp-api
+      imagePullSecrets:
+        - name: harbor-image-pull-secret
+      containers:
+        - name: verify
+          image: amdp-registry.skala-ai.com/skala26a-cloud/onramp-api@sha256:aed330d61134681d11bf43dfb0ceed1b979e84c0c1655dfc07a7983418e610f4
+          envFrom:
+            - configMapRef:
+                name: onramp-api-config
+          env:
+            - name: LANGFUSE_ENABLED
+              value: "false"
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: onramp-api-secret, key: DATABASE_URL } }
+          command: ["sh", "-c"]
+          args:
+            - |
+              python scripts/ingest_status.py 2>/dev/null | grep -E "PostgreSQL|Qdrant|OpenSearch|docs|rows|points"
+              python -c "
+              import asyncio, httpx
+              from app.config import get_settings
+              async def main():
+                  s = get_settings()
+                  base = f'{s.opensearch_scheme}://{s.opensearch_host}:{s.opensearch_port}'
+                  body = {'size':0,'aggs':{'src':{'terms':{'field':'domain_source','size':5}},'dom':{'terms':{'field':'domain','size':10}},'conf':{'stats':{'field':'domain_confidence'}}}}
+                  async with httpx.AsyncClient(timeout=30) as c:
+                      r = await c.post(f'{base}/{s.opensearch_index}/_search', json=body)
+                      a = r.json()['aggregations']
+                  print('[domain_source]', {b['key']: b['doc_count'] for b in a['src']['buckets']})
+                  print('[domain]', {b['key']: b['doc_count'] for b in a['dom']['buckets']})
+                  print('[domain_confidence] avg=%.2f' % a['conf']['avg'])
+              asyncio.run(main())
+              "
