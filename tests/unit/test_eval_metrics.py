@@ -7,6 +7,9 @@ import pytest
 from app.eval.metrics import (
     aggregate,
     answerability_accuracy,
+    chunk_to_page,
+    collapse_to_pages,
+    evidence_span_hit,
     hit_rate_at_k,
     ndcg_at_k,
     recall_at_k,
@@ -110,3 +113,34 @@ def test_non_positive_k_raises(fn, bad_k) -> None:
 def test_aggregate_non_positive_k_raises() -> None:
     with pytest.raises(ValueError, match="k_hit"):
         aggregate([(RANKED, REL)], k_hit=0)
+
+
+# ── #212 page-level (splitter-독립) ──
+def test_chunk_to_page_strips_index_suffix() -> None:
+    assert chunk_to_page("107194_004") == "107194"  # 표준 포맷
+    assert chunk_to_page("gh_repo_42_003") == "gh_repo_42"  # page_id에 _ 있어도 숫자 suffix만 제거
+    assert chunk_to_page("noindex") == "noindex"  # suffix 없으면 원본
+    assert chunk_to_page("name_abc") == "name_abc"  # 숫자 아닌 suffix는 page_id의 일부
+
+
+def test_collapse_to_pages_dedupes_preserving_order() -> None:
+    # 같은 page의 여러 chunk → 첫 등장 순위 하나로. 순서 보존.
+    ranked = ["107194_004", "107194_001", "200_000", "107194_009", "300_002"]
+    assert collapse_to_pages(ranked) == ["107194", "200", "300"]
+
+
+def test_collapse_to_pages_reused_by_rank_metrics() -> None:
+    # collapse 결과를 기존 chunk 지표 함수에 그대로 넣어 page-level 점수를 낸다(공정 비교 핵심).
+    pages = collapse_to_pages(["107194_004", "107194_001", "200_000"])  # → ["107194","200"]
+    assert hit_rate_at_k(pages, {"200"}, 2) == 1.0
+    assert recall_at_k(pages, {"107194", "200"}, 5) == 1.0
+    assert reciprocal_rank(pages, {"200"}, 5) == 0.5  # 200이 2위
+
+
+def test_evidence_span_hit_normalizes_whitespace_and_case() -> None:
+    contexts = ["...설정값 ID => 66 입니다...", "다른 문맥"]
+    assert evidence_span_hit(contexts, "id => 66") == 1.0  # 대소문자·공백 무관
+    assert evidence_span_hit(contexts, "id=>66") == 1.0
+    assert evidence_span_hit(contexts, "id => 99") == 0.0  # 미포함
+    assert evidence_span_hit(contexts, "") == 0.0  # span 없으면 대상 아님
+    assert evidence_span_hit(["맞는 답 id => 66"], "id => 66", k=0) == 0.0  # top-0이면 빈 풀

@@ -43,6 +43,11 @@ class GoldenQuery:
     domain: str | None
     is_answerable: bool
     relevant_chunk_ids: tuple[str, ...]
+    # splitter-독립 정답 단위 (#212 §2-2). 청킹 방식이 다르면 chunk_id가 안 맞으므로
+    # splitter 간 공정 비교는 page/doc/evidence 기준을 쓴다.
+    page_ids: tuple[str, ...] = ()  # 정답 근거 페이지
+    source_urls: tuple[str, ...] = ()  # 정답 근거 문서 URL
+    answer_span: str = ""  # 정답 근거 문장/스팬(evidence span)
     gold_domains: tuple[str, ...] = ()  # 정답이 걸친 도메인 집합 (멀티도메인이면 len>=2)
     router_domains: tuple[str, ...] = ()  # 질의를 라우터가 분류해야 하는 순서 있는 도메인 정답
     # router_domains 출처: "explicit"(사람 검수 정답) | "fallback"(domain 단일 하위호환) | "none"(unanswerable).
@@ -225,6 +230,9 @@ def load_golden_set(
                 domain=domain,
                 is_answerable=is_answerable,
                 relevant_chunk_ids=qrels[qid],
+                page_ids=tuple(str(p) for p in (row.get("page_ids") or [])),
+                source_urls=tuple(str(u) for u in (row.get("source_urls") or [])),
+                answer_span=str(row.get("answer_span") or ""),
                 gold_domains=gold_domains,
                 router_domains=router_domains,
                 router_domains_source=router_domains_source,
