@@ -34,7 +34,7 @@ from sqlalchemy import select  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.db.models import SourceDocument  # noqa: E402
 from app.db.postgres import session_scope  # noqa: E402
-from app.eval.chunking_experiment import ChunkingConfig, chunk_page, page_from_row  # noqa: E402
+from app.eval.chunking_experiment import ONRAMP, ChunkingConfig, chunk_page, page_from_row  # noqa: E402
 from app.eval.dataset import load_golden_set  # noqa: E402
 from app.eval.metrics import aggregate, collapse_to_pages  # noqa: E402
 from app.eval.retrieval_adapter import retrieve_for_eval  # noqa: E402
@@ -87,7 +87,13 @@ async def _eval_page_level(golden, *, top_k: int, top_n: int):
 
 
 async def run(args) -> int:
-    config = ChunkingConfig(strategy=args.strategy, chunk_tokens=args.chunk_tokens, chunk_overlap=args.chunk_overlap)
+    config = ChunkingConfig(
+        strategy=args.strategy,
+        chunk_tokens=args.chunk_tokens,
+        chunk_overlap=args.chunk_overlap,
+        child_target=args.child_target,
+        parent_target=args.parent_target,
+    )
     settings = get_settings()
     collection = config.collection_name(args.collection_prefix)
     top_k = args.top_k if args.top_k is not None else settings.retriever_top_k
@@ -103,8 +109,16 @@ async def run(args) -> int:
     golden = load_golden_set(args.queries, args.qrels)
     summary = await _eval_page_level(golden, top_k=top_k, top_n=top_n)
 
+    if args.strategy != ONRAMP and (args.child_target is not None or args.parent_target is not None):
+        logger.warning("--child-target/--parent-target 은 onramp 전략에만 적용됩니다 (현재 %s — 무시)", args.strategy)
+
     print(f"\n=== 청킹 A/B (page-level, dense, domain 미적용) — {args.strategy} ===")
-    print(f"config_hash={config.hash}  collection={collection}  chunks={n_chunks}")
+    size = (
+        f"  child_target={args.child_target or 400}  parent_target={args.parent_target or 1200}"
+        if args.strategy == ONRAMP
+        else ""
+    )
+    print(f"config_hash={config.hash}  collection={collection}  chunks={n_chunks}{size}")
     for key, val in summary.as_dict().items():
         print(f"  {key:<14}: {val}")
     print(f"  n(page_ids 보유 평가질문) = {summary.n}")
@@ -124,6 +138,12 @@ def main() -> None:
     parser.add_argument("--strategy", required=True, choices=["onramp", "token", "markdown", "recursive"])
     parser.add_argument("--chunk-tokens", type=int, default=400, help="비교군 splitter 청크 토큰 크기(onramp 무관)")
     parser.add_argument("--chunk-overlap", type=int, default=50, help="비교군 splitter 오버랩(onramp 무관)")
+    parser.add_argument(
+        "--child-target", type=int, default=None, help="onramp child target 토큰(사이즈 sweep). 미지정=기본 400"
+    )
+    parser.add_argument(
+        "--parent-target", type=int, default=None, help="onramp parent target 토큰(사이즈 sweep). 미지정=기본 1200"
+    )
     parser.add_argument("--doc-limit", type=int, default=None, help="재색인 문서 수 제한(소규모 먼저)")
     parser.add_argument("--top-k", type=int, default=None)
     parser.add_argument("--top-n", type=int, default=None)

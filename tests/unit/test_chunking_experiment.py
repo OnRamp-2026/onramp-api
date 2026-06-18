@@ -2,7 +2,14 @@
 
 import pytest
 
-from app.eval.chunking_experiment import ChunkingConfig, chunk_page, page_from_row
+from app.eval.chunking_experiment import (
+    DEFAULT_CHILD_TARGET,
+    DEFAULT_PARENT_TARGET,
+    ChunkingConfig,
+    chunk_page,
+    onramp_chunker,
+    page_from_row,
+)
 
 _MD = """# 가이드
 
@@ -40,6 +47,32 @@ def test_page_from_row_maps_fields_and_handles_none() -> None:
     assert page.page_title == ""  # None → 빈 문자열
     assert page.markdown == ""
     assert page.space_key == "OnRamp"  # 기본값
+
+
+def test_onramp_default_chunker_unchanged() -> None:
+    """size 미지정 onramp는 기존 동작 그대로 — 팀원 splitter 비교 경로 보존."""
+    c = onramp_chunker(ChunkingConfig("onramp"))
+    assert c.child_target_tokens == DEFAULT_CHILD_TARGET
+    assert c.parent_target_tokens == DEFAULT_PARENT_TARGET
+    assert c.overlap_tokens == 120  # SemanticChunker 기본 (파생 안 함)
+
+
+def test_onramp_size_params_derive_chunker() -> None:
+    """child/parent target 지정 시 target 반영 + overlap 15% 파생(토큰 수만 sweep)."""
+    c = onramp_chunker(ChunkingConfig("onramp", child_target=256, parent_target=2048))
+    assert c.child_target_tokens == 256
+    assert c.parent_target_tokens == 2048
+    assert c.overlap_tokens == round(256 * 0.15)  # 38 — 10~20% 고정
+    assert c.child_max_tokens > c.child_target_tokens  # overlap 헤드룸 확보
+
+
+def test_size_params_change_hash_and_collection() -> None:
+    """사이즈 변형은 distinct 컬렉션명 — 같은 onramp라도 충돌 안 함(#212)."""
+    base = ChunkingConfig("onramp")
+    c256 = ChunkingConfig("onramp", child_target=256, parent_target=1200)
+    c512 = ChunkingConfig("onramp", child_target=512, parent_target=1200)
+    assert len({base.hash, c256.hash, c512.hash}) == 3
+    assert c256.collection_name() != c512.collection_name()
 
 
 @pytest.mark.parametrize("strategy", ["onramp", "token", "markdown", "recursive"])
