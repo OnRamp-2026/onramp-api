@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -111,14 +112,38 @@ class OpenSearchClient:
         if resp.status_code not in (200, 404):
             resp.raise_for_status()
 
+    _BULK_MAX_DOCS = 500  # _bulk 한 요청당 문서 수 — 요청 크기 한도 안에서 라운드트립을 최소화
+
     async def upsert_chunks(self, documents: Sequence[Mapping[str, Any]]) -> None:
+        """문서를 `_bulk` API로 색인한다 — per-doc PUT 대비 라운드트립을 수백 배 줄인다(#212).
+
+        재색인은 청크 수만큼(수천~만 단위) upsert가 일어나는데, 건당 PUT은 순차 HTTP 왕복이라
+        병목이었다. _bulk로 배치당 1요청으로 묶는다. 부분 실패(`errors:true`)는 즉시 드러낸다.
+        """
         if not documents:
             return
         await self.ensure_index()
-        for document in documents:
-            chunk_id = str(document["chunk_id"])
-            resp = await self._http.put(_doc_url(self.settings.opensearch_index, chunk_id), json=dict(document))
+        index = self.settings.opensearch_index
+        for start in range(0, len(documents), self._BULK_MAX_DOCS):
+            batch = documents[start : start + self._BULK_MAX_DOCS]
+            lines: list[str] = []
+            for document in batch:
+                chunk_id = str(document["chunk_id"])
+                lines.append(json.dumps({"index": {"_index": index, "_id": chunk_id}}))
+                lines.append(json.dumps(dict(document), ensure_ascii=False))
+            body = "\n".join(lines) + "\n"  # NDJSON: 마지막 줄도 개행으로 끝나야 한다
+            resp = await self._http.post(
+                "/_bulk", content=body.encode("utf-8"), headers={"Content-Type": "application/x-ndjson"}
+            )
             resp.raise_for_status()
+            result = resp.json()
+            if result.get("errors"):
+                failed = [
+                    item.get("index", {})
+                    for item in result.get("items", [])
+                    if item.get("index", {}).get("status", 200) >= 400
+                ]
+                raise RuntimeError(f"OpenSearch bulk 색인 실패 {len(failed)}건 (예: {failed[:1]})")
 
     async def delete_chunks(self, chunk_ids: Sequence[str]) -> None:
         if not chunk_ids:
