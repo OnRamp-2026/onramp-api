@@ -17,14 +17,14 @@ from __future__ import annotations
 import hashlib
 import re
 from enum import StrEnum
-
-from langchain_text_splitters import (
-    MarkdownHeaderTextSplitter,
-    RecursiveCharacterTextSplitter,
-    TokenTextSplitter,
-)
+from typing import TYPE_CHECKING
 
 from app.rag.chunker import ChildChunk, MarkdownPage
+
+# NOTE: langchain_text_splitters(→ transformers → torch)는 무거워서 **메서드 내부에서 지연 import**한다.
+# 이 모듈을 import만 하는 경로(예: onramp 전략의 ChunkingConfig 검증)가 torch 로드 비용을 물지 않게 하기 위함.
+if TYPE_CHECKING:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # 분할 크기 기준 토크나이저(tiktoken) — OpenAI 임베딩과 동일 계열.
 _ENCODING = "cl100k_base"
@@ -77,6 +77,8 @@ class ComparisonSplitter:
 
     def _split(self, markdown: str) -> list[tuple[str, list[str]]]:
         """분할 → (content, heading_path) 쌍 리스트. Token/Recursive는 heading_path 빈 리스트."""
+        from langchain_text_splitters import MarkdownHeaderTextSplitter, TokenTextSplitter
+
         if self.strategy is ComparisonStrategy.TOKEN:
             splitter = TokenTextSplitter(
                 encoding_name=_ENCODING, chunk_size=self.chunk_tokens, chunk_overlap=self.chunk_overlap
@@ -99,6 +101,8 @@ class ComparisonSplitter:
 
     def _recursive(self) -> RecursiveCharacterTextSplitter:
         """token 길이 기준 recursive splitter (chunk_size = tiktoken 토큰)."""
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+
         return RecursiveCharacterTextSplitter.from_tiktoken_encoder(
             encoding_name=_ENCODING, chunk_size=self.chunk_tokens, chunk_overlap=self.chunk_overlap
         )
