@@ -14,6 +14,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import PointIdsList
 
 from app.config import Settings, get_settings
+from app.db.models import IndexRun
 from app.db.postgres import session_scope as _default_session_scope
 from app.db.qdrant import get_qdrant
 from app.rag.chunker import ChildChunk
@@ -38,6 +39,7 @@ class IndexResult:
     pages_indexed: int
     chunks_indexed: int
     chunks_deleted: int = field(default=0)
+    pages_skipped: int = field(default=0)
 
 
 class IndexService:
@@ -106,7 +108,7 @@ class IndexService:
         chunks_deleted = 0
 
         async with self._session_factory() as db:
-            run = await db.get(repo.IndexRun, run_id) if run_id is not None else None
+            run = await db.get(IndexRun, run_id) if run_id is not None else None
             if run is None:
                 run = await repo.create_index_run(db, tenant_id=tenant_id)
             if progress is not None:
@@ -228,7 +230,12 @@ class IndexService:
                 await repo.fail_index_run(db, run, error="Unexpected error in _index_prepared")
                 raise
 
-        return IndexResult(pages_indexed=pages_indexed, chunks_indexed=chunks_indexed, chunks_deleted=chunks_deleted)
+        return IndexResult(
+            pages_indexed=pages_indexed,
+            chunks_indexed=chunks_indexed,
+            chunks_deleted=chunks_deleted,
+            pages_skipped=pages_skipped,
+        )
 
     async def _delete_stale_from_search(
         self,

@@ -27,6 +27,16 @@ async def process_next() -> bool:
         return False
 
     settings = get_settings()
+    if run.tenant_id != settings.auth_default_tenant:
+        async with session_scope() as db:
+            current = await db.get(IndexRun, run.run_id)
+            if current is not None:
+                await repo.fail_index_run(
+                    db,
+                    current,
+                    error=f"run tenant {run.tenant_id} does not match deployment tenant {settings.auth_default_tenant}",
+                )
+        return True
     service = IndexService(settings=settings)
 
     async def progress(values: dict[str, int | str]) -> None:
