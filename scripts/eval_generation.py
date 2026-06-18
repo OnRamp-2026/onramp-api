@@ -38,7 +38,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_REPORT = ROOT_DIR / "data" / "eval" / "gen_report.json"
 RETRY_DELAY_SECONDS = 5  # 일시 오류(네트워크 등) 재시도 전 대기
-MAX_CONSECUTIVE_FAILURES = 5  # 연속 실패 한도 — 일시 오류가 아닌 구조적 결함이면 조기 중단해 드러낸다
 
 
 def _round(value: float, ndigits: int = 4) -> float:
@@ -125,36 +124,34 @@ async def run(args) -> int:
     if args.with_reference and n_with_gt == 0:
         logger.warning("--with-reference 지정됐으나 GT 답변(ground_truth_answer)이 0건 — reference 지표는 건너뜀")
 
-    results = []
-    n_generation_failed = 0
-    consecutive_failed = 0
-    for i, g in enumerate(answerable, start=1):
-        logger.info("[%d/%d] 생성: %.50s", i, len(answerable), g.query)
+    # bounded 병렬(#212): 문항 생성은 I/O(LLM·검색) 대기라 동시성으로 wall-clock을 크게 줄인다.
+    # 문항당 1회 재시도(일시 오류 흡수), 재시도도 실패하면 None → 분모에서 제외. gather는 입력 순서 보존.
+    sem = asyncio.Semaphore(args.concurrency)
+
+    async def _generate_one(g):
         reference = _gt(g) if args.with_reference else None
-        # 장시간 실행(~1.5h) 중 일시 네트워크 오류 1건이 전체를 전멸시키지 않도록 문항 단위 방어 (#84).
-        # 예외 타입 열거(재시도 가능만 선별) 대신 광역 catch + 연속 실패 서킷브레이커:
-        # 생성 경로의 일시 오류는 LLMError 외에 임베더의 openai.APIConnectionError 등 다양해
-        # 열거 누락 시 전손 모드가 재발하고, 구조적 결함은 연속 실패 한도가 조기에 드러낸다.
-        for attempt in (1, 2):
-            try:
-                results.append(await generate_for_eval(g.query, domain=g.domain, model=args.model, reference=reference))
-                consecutive_failed = 0
-                break
-            except Exception:
-                if attempt == 1:
-                    logger.warning("생성 실패 (qid=%s) — %ds 후 1회 재시도", g.qid, RETRY_DELAY_SECONDS, exc_info=True)
-                    await asyncio.sleep(RETRY_DELAY_SECONDS)
-                else:
-                    n_generation_failed += 1
-                    consecutive_failed += 1
-                    logger.warning("생성 재시도 실패 (qid=%s) — 건너뜀", g.qid)
-                    if consecutive_failed >= MAX_CONSECUTIVE_FAILURES:
-                        raise RuntimeError(
-                            f"연속 {MAX_CONSECUTIVE_FAILURES}개 문항 생성 실패 — 일시 오류가 아닌 "
-                            "구조적 결함 가능성이 높아 중단합니다 (로그 traceback 확인)"
-                        ) from None
+        async with sem:
+            for attempt in (1, 2):
+                try:
+                    return await generate_for_eval(g.query, domain=g.domain, model=args.model, reference=reference)
+                except Exception:
+                    if attempt == 1:
+                        logger.warning("생성 실패 (qid=%s) — %ds 후 1회 재시도", g.qid, RETRY_DELAY_SECONDS, exc_info=True)
+                        await asyncio.sleep(RETRY_DELAY_SECONDS)
+                    else:
+                        logger.warning("생성 재시도 실패 (qid=%s) — 건너뜀", g.qid, exc_info=True)
+                        return None
+        return None
+
+    logger.info("생성 시작 (동시 %d)", args.concurrency)
+    gathered = await asyncio.gather(*(_generate_one(g) for g in answerable))
+    results = [r for r in gathered if r is not None]
+    n_generation_failed = sum(1 for r in gathered if r is None)
     if n_generation_failed:
         logger.warning("생성 실패로 제외된 문항: %d건 (평가 분모에서 빠짐)", n_generation_failed)
+    # 구조적 결함 가드(병렬판 — '연속' 카운트가 무의미하므로 전량 실패로 판정): 전부 실패면 일시 오류가 아니다.
+    if answerable and n_generation_failed == len(answerable):
+        raise RuntimeError("모든 문항 생성 실패 — 일시 오류가 아닌 구조적 결함 가능성 (로그 traceback 확인)")
 
     rerank = _rerank_summary(results)
     # 리랭커 strict 게이트(#212 §2-5): GPU 리랭커가 조용히 vector로 폴백하면 A/B가 오염된다.
@@ -172,7 +169,7 @@ async def run(args) -> int:
     cost = _cost_summary(results)
     answerability = _answerability_dist(results)
 
-    scores = await score_generation(results, with_reference=args.with_reference)
+    scores = await score_generation(results, with_reference=args.with_reference, concurrency=args.concurrency)
     summary = scores.as_dict()
 
     print(f"\n=== 생성 평가 ({mode}) ===")
@@ -229,6 +226,7 @@ def main() -> None:
     parser.add_argument("--queries", type=Path, default=ROOT_DIR / "data" / "eval" / "queries.jsonl")
     parser.add_argument("--qrels", type=Path, default=ROOT_DIR / "data" / "eval" / "qrels.jsonl")
     parser.add_argument("--limit", type=int, default=None, help="평가 문항 수 제한(비용 절감)")
+    parser.add_argument("--concurrency", type=int, default=8, help="생성·RAGAS 채점 동시 실행 수(#212 병렬화)")
     parser.add_argument("--model", default="", help="답변 생성 모델(빈값=config 기본)")
     parser.add_argument(
         "--with-reference",
