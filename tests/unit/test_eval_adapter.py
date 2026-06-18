@@ -60,6 +60,51 @@ async def test_dense_mode_applies_domain_bonus(monkeypatch, patch_embedder):
     assert ids_no_domain == ["c1", "c2"]
 
 
+async def test_sparse_mode_orders_by_bm25(monkeypatch, patch_embedder):
+    """sparse 모드 — OpenSearch BM25 단독, score 내림차순."""
+    import app.db.opensearch as os_mod
+
+    def _hit(chunk_id, score):
+        return SimpleNamespace(id=chunk_id, score=score, payload={"chunk_id": chunk_id, "content": "c"})
+
+    class _OS:
+        async def search(self, query, *, top_k, tenant_id, domain=None, **kw):
+            return [_hit("c2", 5.0), _hit("c1", 9.0), _hit("c3", 3.0)]
+
+    monkeypatch.setattr(os_mod, "get_opensearch", lambda *a, **k: _OS())
+    ids = await adapter.ranked_chunk_ids("q", mode="sparse", top_n=2, settings=Settings())
+    assert ids == ["c1", "c2"]  # BM25 score 내림차순
+
+
+async def test_hybrid_mode_returns_rrf_order(monkeypatch, patch_embedder):
+    """hybrid 모드 — hybrid_search(RRF) 결과를 그대로 1차 검색으로 사용 (플래그 무관)."""
+    import app.rag.hybrid_search as hs_mod
+
+    async def _hybrid(query, qvec, *, top_k, domain, filters, settings, dense_search_fn, **kw):
+        return [_point("c1", 0.6), _point("c2", 0.5)]
+
+    monkeypatch.setattr(hs_mod, "hybrid_search", _hybrid)
+    ids = await adapter.ranked_chunk_ids("q", mode="hybrid", top_n=2, settings=Settings())
+    assert ids == ["c1", "c2"]
+
+
+async def test_dense_mode_is_flag_independent(monkeypatch, patch_embedder):
+    """dense 모드는 query_text='' 로 hybrid 게이트를 우회 — hybrid_search가 호출되면 안 된다."""
+    import app.rag.hybrid_search as hs_mod
+
+    async def _search(qvec, top_k, *, domain=None, **kw):
+        return [_point("c1", 0.9), _point("c2", 0.8)]
+
+    def _boom_hybrid(*a, **k):  # 호출되면 실패 — dense가 hybrid를 타면 안 됨
+        raise AssertionError("dense 모드가 hybrid_search를 호출함")
+
+    monkeypatch.setattr(search_mod, "dense_search", _search)
+    monkeypatch.setattr(hs_mod, "hybrid_search", _boom_hybrid)
+    s = Settings(hybrid_search_enabled=True)  # 플래그 ON이어도 dense는 순수해야 함
+    ids = await adapter.ranked_chunk_ids("q", mode="dense", top_n=2, settings=s)
+    assert ids == ["c1", "c2"]
+
+
 async def test_rerank_mode_reorders(monkeypatch, patch_embedder):
     async def _search(qvec, top_k, *, domain=None, **kw):
         return [_point("c1", 0.9), _point("c2", 0.8), _point("c3", 0.7)]

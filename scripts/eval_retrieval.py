@@ -1,12 +1,14 @@
-"""검색 평가 하니스 CLI — 골든셋으로 dense/rerank 검색 품질을 결정론적으로 측정.
+"""검색 평가 하니스 CLI — 골든셋으로 검색 방식별 품질을 결정론적으로 측정.
 
-실측은 라이브 Qdrant + OpenAI 임베딩(쿼리당 1회)을 사용한다(비용 발생).
+모드: dense(순수 Qdrant kNN) · sparse(BM25) · hybrid(Dense+BM25 RRF) · rerank(운영 경로 미러, 게이트 대상).
+실측은 라이브 Qdrant + OpenSearch + OpenAI 임베딩(쿼리당 1회)을 사용한다(비용 발생).
 출력: 모드별 Hit Rate@k·MRR@k·Recall@k·nDCG@k 점수표 + dense→rerank 델타 + answerability 정확도.
 
 사용:
-    python scripts/eval_retrieval.py                       # dense,rerank 점수표
-    python scripts/eval_retrieval.py --write-baseline      # data/eval/baseline.json 고정
-    python scripts/eval_retrieval.py --gate                # baseline 대비 회귀 시 exit 1
+    python scripts/eval_retrieval.py                                  # dense,rerank 점수표
+    python scripts/eval_retrieval.py --modes dense,sparse,hybrid,rerank  # 검색 방식 비교
+    python scripts/eval_retrieval.py --write-baseline                 # data/eval/baseline.json 고정
+    python scripts/eval_retrieval.py --gate                           # baseline 대비 회귀 시 exit 1
 """
 
 from __future__ import annotations
@@ -191,8 +193,8 @@ async def run(args) -> int:
 def _parse_modes(value: str) -> list[Mode]:
     modes = [m.strip() for m in value.split(",") if m.strip()]
     if not modes:
-        raise argparse.ArgumentTypeError("최소 1개의 mode가 필요합니다 (dense, rerank)")
-    valid = {"dense", "rerank"}
+        raise argparse.ArgumentTypeError("최소 1개의 mode가 필요합니다 (dense, sparse, hybrid, rerank)")
+    valid = {"dense", "sparse", "hybrid", "rerank"}
     bad = [m for m in modes if m not in valid]
     if bad:
         raise argparse.ArgumentTypeError(f"지원하지 않는 mode: {bad} (가능: {sorted(valid)})")
@@ -203,7 +205,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="검색 평가 하니스 (결정론 지표).")
     parser.add_argument("--queries", type=Path, default=ROOT_DIR / "data" / "eval" / "queries.jsonl")
     parser.add_argument("--qrels", type=Path, default=ROOT_DIR / "data" / "eval" / "qrels.jsonl")
-    parser.add_argument("--modes", type=_parse_modes, default="dense,rerank", help="쉼표 구분 (dense,rerank)")
+    parser.add_argument(
+        "--modes", type=_parse_modes, default="dense,rerank", help="쉼표 구분 (dense,sparse,hybrid,rerank)"
+    )
     parser.add_argument("--top-k", type=int, default=None, help="Qdrant 후보 풀 (기본: config)")
     parser.add_argument("--top-n", type=int, default=None, help="최종 top-N (기본: config)")
     parser.add_argument(

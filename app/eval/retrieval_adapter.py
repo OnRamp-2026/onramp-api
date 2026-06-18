@@ -4,9 +4,12 @@
 SourceDocument 대신 평가용 chunk_id 리스트/점수를 돌려준다.
 LLM-free(임베딩 검색만) → Router를 거치지 않고 raw query를 그대로 검색에 투입한다.
 
-mode (랭킹 방식):
-    "dense"  — vector score + 도메인 가산 순으로 top_n (운영 _vector_fallback과 동일한 soft 정책)
-    "rerank" — Cross-Encoder 재정렬 + 최신성 가중 + 도메인 일치 가산 (운영 경로와 동일)
+mode (검색 방식):
+    "dense"  — 순수 Qdrant kNN (vector + 도메인 가산). **HYBRID_SEARCH_ENABLED 무관**(플래그 독립 진단).
+    "sparse" — OpenSearch BM25 단독 (lexical). 임베딩 불필요.
+    "hybrid" — Dense+BM25 RRF 융합 (플래그 무관·명시적). 리랭커 없음(1차 검색).
+    "rerank" — 운영 경로 미러: 1차 검색(HYBRID_SEARCH_ENABLED면 hybrid) + Cross-Encoder 재정렬 +
+               최신성·도메인·버전·권위 부스트 체인. **게이트 대상 지표**.
 filter_mode (도메인 필터 전략, None이면 config 기본=운영과 동일):
     "hard" / "hybrid" / "soft" — search_with_mode 참고
 """
@@ -26,14 +29,14 @@ from app.agents.retriever.rerank import (
     apply_ranking_boosts,
     get_reranker,
 )
-from app.agents.retriever.search import FilterMode, search_with_mode
+from app.agents.retriever.search import FilterMode, dense_search, search_with_mode
 from app.config import Settings, get_settings
 from app.rag.embedder import get_embedder
 from app.rag.lineage import get_lineages
 
 logger = logging.getLogger(__name__)
 
-Mode = Literal["dense", "rerank"]
+Mode = Literal["dense", "sparse", "hybrid", "rerank"]
 
 
 def _soft_ranked(
@@ -47,6 +50,19 @@ def _soft_ranked(
     scored = [(apply_domain_weight(score, payload, query_domains, settings), payload) for score, payload in results]
     scored.sort(key=lambda item: item[0], reverse=True)
     return scored
+
+
+def _first_stage_result(
+    results: list[tuple[float, dict]], domains: list[str] | None, settings: Settings, top_n: int
+) -> RetrievalResult:
+    """1차 검색(dense/sparse/hybrid) 공통 — 도메인 soft 가산 정렬 후 top_n RetrievalResult.
+
+    리랭커가 없으므로 raw 점수 분리가 없다 → tau_score=top_score(1차 정렬 점수).
+    """
+    ranked = _soft_ranked(results, domains, settings)[:top_n]
+    chunk_ids = [payload.get("chunk_id", "") for _, payload in ranked if payload.get("chunk_id")]
+    top_score = ranked[0][0] if ranked else 0.0
+    return RetrievalResult(chunk_ids=chunk_ids, top_score=top_score, n=len(chunk_ids), tau_score=top_score)
 
 
 async def _rerank_base(query: str, results: list[tuple[float, dict]], settings: Settings) -> list[tuple[float, dict]]:
@@ -122,25 +138,52 @@ async def retrieve_for_eval(
     if top_k <= 0 or top_n <= 0:
         raise ValueError(f"top_k/top_n 은 1 이상이어야 합니다: top_k={top_k}, top_n={top_n}")
     effective_filter = filter_mode if filter_mode is not None else settings.retriever_domain_filter_mode
-
-    qvec = await get_embedder().embed_query(query)
     # 필터용 domain은 대표(domains[0])만 — soft에선 무시되고 hard/hybrid에서만 쓰인다.
     filter_domain = domains[0] if domains else None
-    # query_text 전달 — hybrid_search_enabled일 때 운영(retrieve_node)과 동일하게 Dense+BM25 RRF가 작동.
-    # (안 넘기면 평가가 hybrid를 못 타고 dense로만 측정됨, #169 대응)
+    # 명시적 단일 방식(sparse/hybrid) 진단 — soft면 하드필터 없음(운영 soft와 동일), hard/hybrid면 도메인 필터.
+    method_domain = None if effective_filter == "soft" else filter_domain
+
+    # --- sparse: BM25 단독 (임베딩 불필요) ---
+    if mode == "sparse":
+        from app.db.opensearch import get_opensearch
+
+        bm25 = await get_opensearch().search(
+            query, top_k=top_k, tenant_id=settings.auth_default_tenant, domain=method_domain
+        )
+        results = [(hit.score, hit.payload or {}) for hit in bm25]
+        return _first_stage_result(results, domains, settings, top_n)
+
+    qvec = await get_embedder().embed_query(query)
+
+    # --- hybrid: Dense+BM25 RRF (플래그 무관·명시적 융합, 리랭커 없음) ---
+    if mode == "hybrid":
+        from app.rag.hybrid_search import hybrid_search
+
+        hits = await hybrid_search(
+            query,
+            qvec,
+            top_k=top_k,
+            domain=method_domain,
+            filters=None,
+            settings=settings,
+            dense_search_fn=dense_search,
+        )
+        results = [(point.score, point.payload or {}) for point in hits]
+        return _first_stage_result(results, domains, settings, top_n)
+
+    # --- dense: 순수 Qdrant kNN (query_text="" → hybrid 게이트 우회, HYBRID_SEARCH_ENABLED 무관) ---
+    if mode == "dense":
+        hits = await search_with_mode(
+            qvec, top_k, domain=filter_domain, mode=effective_filter, query_text="", settings=settings
+        )
+        results = [(point.score, point.payload or {}) for point in hits]
+        return _first_stage_result(results, domains, settings, top_n)
+
+    # --- rerank: 운영 경로 미러 — 1차 검색(플래그면 hybrid) → raw 리랭킹 → 계보 조회 → 부스트 체인 정렬 ---
     hits = await search_with_mode(
         qvec, top_k, domain=filter_domain, mode=effective_filter, query_text=query, settings=settings
     )
-
     results = [(point.score, point.payload or {}) for point in hits]
-
-    if mode == "dense":
-        ranked = _soft_ranked(results, domains, settings)[:top_n]
-        chunk_ids = [payload.get("chunk_id", "") for _, payload in ranked if payload.get("chunk_id")]
-        top_score = ranked[0][0] if ranked else 0.0
-        return RetrievalResult(chunk_ids=chunk_ids, top_score=top_score, n=len(chunk_ids), tau_score=top_score)
-
-    # rerank 모드 — 운영(retrieve_node)과 동일: raw 리랭킹 → 계보 조회 → 부스트 체인 정렬
     doc_keys = [payload.get("doc_key", "") or "" for _, payload in results]
     lineages = await anyio.to_thread.run_sync(partial(get_lineages, doc_keys, settings=settings))
     candidates = [(payload.get("content", ""), payload) for _, payload in results]
