@@ -376,3 +376,44 @@ def test_build_context_falls_back_to_snippet_when_parent_missing() -> None:
     d1 = SourceDocument(title="A", content_snippet="child1", parent_id="p9")
     ctx = node_mod._build_context([d1], {"p1": "PARENT-ONE"})
     assert "child1" in ctx
+
+
+# ── #212 step7 — parent context trimming (window) ──
+
+
+def test_window_parent_full_when_within_budget_or_off() -> None:
+    assert node_mod._window_parent("short parent", "child", 100) == "short parent"  # 예산 내
+    assert node_mod._window_parent("anything long " * 10, "child", 0) == "anything long " * 10  # off
+
+
+def test_window_parent_windows_around_matched_child() -> None:
+    parent = "PRE " * 50 + "MATCH_HERE" + " POST" * 50
+    out = node_mod._window_parent(parent, "MATCH_HERE", 50)
+    assert "MATCH_HERE" in out  # matched child 주변이 남음
+    assert len(out) < len(parent)  # 좁혀짐
+
+
+def test_window_parent_head_when_child_not_found() -> None:
+    parent = "X" * 500
+    out = node_mod._window_parent(parent, "NOTHERE", 100)
+    assert len(out) <= 100  # 못 찾으면 앞부분
+
+
+def test_window_parent_never_exceeds_budget_when_child_long() -> None:
+    # child(80자 이상) > window_chars여도 결과는 예산을 넘지 않아야 한다(경계 회귀, CodeRabbit #251).
+    child = "C" * 120
+    parent = "PRE " * 40 + child + " POST" * 40
+    out = node_mod._window_parent(parent, child, 50)
+    assert len(out) <= 50
+    assert "C" in out  # matched 영역 일부는 남음
+
+
+def test_select_contexts_applies_window_setting(monkeypatch) -> None:
+    from app.config import Settings
+
+    monkeypatch.setattr(node_mod, "get_settings", lambda: Settings(parent_context_window_chars=50))
+    long_parent = "PRE " * 50 + "MATCH_HERE" + " POST" * 50
+    d = SourceDocument(title="A", content_snippet="MATCH_HERE", parent_id="p1")
+    ctx = node_mod._build_context([d], {"p1": long_parent})
+    assert "MATCH_HERE" in ctx
+    assert len(ctx) < len(long_parent)  # window 적용돼 좁혀짐

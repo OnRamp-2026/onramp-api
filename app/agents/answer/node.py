@@ -58,6 +58,24 @@ def _result(
     return out
 
 
+def _window_parent(parent: str, child: str, window_chars: int) -> str:
+    """parent 본문을 matched child 주변 ~window_chars 범위로 좁힌다 (#212 step7 — parent 비용 절감).
+
+    parent가 이미 예산 내면 그대로 반환. child 위치는 snippet 앞부분(probe)으로 찾고, 못 찾으면
+    앞에서 자른다. **문자 단위로 슬라이스**해 서식(코드/표)을 최대한 보존한다.
+    """
+    if window_chars <= 0 or len(parent) <= window_chars:
+        return parent
+    probe = child.strip()[: min(80, window_chars)]  # probe도 예산 내로 (작은 window 대비)
+    pos = parent.find(probe) if probe else -1
+    if pos < 0:
+        return parent[:window_chars].rstrip()  # child 못 찾으면 앞부분
+    half = max(0, (window_chars - len(probe)) // 2)
+    start = max(0, pos - half)
+    end = min(len(parent), start + window_chars)  # 예산 상한 고정 (len(segment) <= window_chars)
+    return parent[start:end].strip()
+
+
 def _select_contexts(
     documents: list[SourceDocument], parent_contexts: dict[str, str] | None
 ) -> list[tuple[int, str, str]]:
@@ -65,9 +83,11 @@ def _select_contexts(
 
     parent_contexts가 있으면(#212 parent-expanded) parent 본문을 parent_id 기준 **한 번만**
     쓰고(여러 child가 같은 parent면 중복 제거), 비면 child snippet(=child-only baseline).
+    `parent_context_window_chars>0`면 parent를 matched child 주변 window로 좁힌다(step7 비용 절감).
     인덱스는 **원본 documents 인덱스**를 유지한다 — formatter가 LLM 인용 [i]를 documents[i]로
     역매핑하므로(재번호 금지). dedupe된 child는 건너뛰되 인덱스는 보존.
     """
+    window = get_settings().parent_context_window_chars
     blocks: list[tuple[int, str, str]] = []
     seen_parents: set[str] = set()
     for i, doc in enumerate(documents):
@@ -77,6 +97,8 @@ def _select_contexts(
                 continue  # 같은 parent는 한 번만 (그 parent는 먼저 나온 child 인덱스로 인용됨)
             seen_parents.add(pid)
             content = parent_contexts[pid]
+            if window > 0:  # matched child(=이 doc) 주변으로 trimming
+                content = _window_parent(content, doc.content_snippet, window)
         else:
             content = doc.content_snippet  # parent 없는 문서는 child snippet fallback
         blocks.append((i, doc.title, content))

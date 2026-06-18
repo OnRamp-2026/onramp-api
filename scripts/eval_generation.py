@@ -44,6 +44,14 @@ def _round(value: float, ndigits: int = 4) -> float:
     return round(value, ndigits)
 
 
+def _non_negative_int(value: str) -> int:
+    """argparse 타입 — 음수는 거부(fail-fast). 0=전체 parent, >0=window."""
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("0 이상의 정수만 허용됩니다")
+    return parsed
+
+
 def _percentile(values: list[float], pct: float) -> float:
     """정렬된 표본의 nearest-rank 백분위(p95 등). 빈 표본은 0.0."""
     if not values:
@@ -106,7 +114,11 @@ async def run(args) -> int:
     # parent-expanded ablation(#212): 모드를 캐시된 settings 싱글톤에 박아 answer 노드까지 일관 적용.
     if args.parent_context is not None:
         settings.parent_context_enabled = args.parent_context == "on"
+    if args.parent_window_chars is not None:  # step7 trimming A/B(0=전체 parent, >0=window)
+        settings.parent_context_window_chars = args.parent_window_chars
     mode = "parent-expanded" if settings.parent_context_enabled else "child-only"
+    if settings.parent_context_enabled and settings.parent_context_window_chars > 0:
+        mode += f"(window {settings.parent_context_window_chars}자)"
     logger.info("컨텍스트 모드: %s (parent_context_enabled=%s)", mode, settings.parent_context_enabled)
     logger.info("리랭커 backend: %s (strict=%s)", settings.reranker_backend, args.require_reranker)
 
@@ -201,6 +213,7 @@ async def run(args) -> int:
             "config": {
                 "context_mode": mode,  # child-only | parent-expanded (#212 ablation arm)
                 "parent_context_enabled": settings.parent_context_enabled,
+                "parent_context_window_chars": settings.parent_context_window_chars,
                 "reranker_backend": settings.reranker_backend,
                 "require_reranker": args.require_reranker,
                 "judge_model": resolve_judge_model(settings),  # 실제 채점에 쓰인 모델과 일치
@@ -238,6 +251,12 @@ def main() -> None:
         choices=["on", "off"],
         default=None,
         help="컨텍스트 모드 강제(#212 ablation). on=parent-expanded, off=child-only. 미지정=config 기본값",
+    )
+    parser.add_argument(
+        "--parent-window-chars",
+        type=_non_negative_int,
+        default=None,
+        help="parent context trimming(#212 step7). 0=전체 parent, >0=matched child 주변 N자 window",
     )
     parser.add_argument(
         "--require-reranker",

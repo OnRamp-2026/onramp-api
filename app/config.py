@@ -262,6 +262,9 @@ class Settings(BaseSettings):
     # parent expansion(#212 Phase 0-A): child 검색 → parent 문맥 복원해 Answer context에 주입.
     # 기본 off = 현행 child-only(=baseline). on = parent-expanded. ablation으로 둘을 분리 측정.
     parent_context_enabled: bool = False
+    # parent context trimming(#212 step7 비용 최적화): parent 전체 대신 matched child 주변
+    # ~N자 window만 주입해 토큰을 줄인다. 0 = off(전체 parent). >0 = window 문자 예산.
+    parent_context_window_chars: int = 0
     rerank_recency_weight: float = 0.1  # 최신성 가산값 (additive, rerank 순서 우선)
     rerank_recency_half_life_days: int = 180
     # 도메인 필터 모드 — soft 확정(#49 router-in-the-loop: 라우터 33%라 hard/hybrid 붕괴, soft 0.711)
