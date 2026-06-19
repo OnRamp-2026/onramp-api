@@ -75,11 +75,12 @@ def _score_trust_breakdown(state: dict) -> None:
     getattr 방어 — 부분 생성 TrustScore(overall=...)에도 안전(없는 축은 건너뜀).
     """
     trust = state.get("trust_score")
-    if trust is not None:
-        for score_name, attr in _EVIDENCE_AXES:
-            value = getattr(trust, attr, None)
-            if isinstance(value, int | float) and not isinstance(value, bool):
-                score_current_trace(name=score_name, value=float(value))
+    if trust is None:  # router 차단(UNANSWERABLE) 등 trust 미실행 경로 → 게이트 포함 전부 skip
+        return
+    for score_name, attr in _EVIDENCE_AXES:
+        value = getattr(trust, attr, None)
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            score_current_trace(name=score_name, value=float(value))
     gate = state.get("gate_flags")
     if gate is not None:
         for score_name, attr in _GATE_FLAGS:

@@ -189,8 +189,9 @@ async def test_chat_records_trust_breakdown_scores(monkeypatch):
     monkeypatch.setattr(lf, "get_langfuse_client", lambda: FakeClient())
     monkeypatch.setattr(lf, "get_callback_handler", lambda: None)
 
-    await cs.chat(ChatRequest(query="안녕"))
+    resp = await cs.chat(ChatRequest(query="안녕"))
 
+    assert resp.trace_id == "tid-2"  # trace_id 배선 검증 (#256)
     by_name = dict(scores)
     assert by_name["trust_score"] == 0.55  # overall 기존 계약 보존
     assert by_name["ev_version_fit"] == 0.7
@@ -200,3 +201,46 @@ async def test_chat_records_trust_breakdown_scores(monkeypatch):
     assert by_name["gate_conflicting"] == 1.0  # bool True → 1.0
     assert by_name["gate_deprecated"] == 0.0
     assert by_name["gate_sensitive"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_chat_skips_all_scores_when_trust_absent(monkeypatch):
+    """router 차단(UNANSWERABLE) 등 trust 미실행 경로 — gate_flags가 있어도 score 0건 (#256 계약)."""
+    import app.observability.langfuse as lf
+    import app.services.chat_service as cs
+    from app.agents.state import GateFlags
+
+    async def fake_ainvoke(state, config=None):
+        return {"gate_flags": GateFlags(conflicting=True)}  # trust_score 없음 (trust 미실행)
+
+    monkeypatch.setattr(cs.compiled_graph, "ainvoke", fake_ainvoke)
+
+    scores: list[str] = []
+
+    class FakeRoot:
+        def update(self, **kw):
+            pass
+
+    class FakeCM:
+        def __enter__(self):
+            return FakeRoot()
+
+        def __exit__(self, *a):
+            return False
+
+    class FakeClient:
+        def start_as_current_observation(self, **kw):
+            return FakeCM()
+
+        def score_current_trace(self, **kw):
+            scores.append(kw["name"])
+
+        def get_current_trace_id(self):
+            return "tid-3"
+
+    monkeypatch.setattr(lf, "get_langfuse_client", lambda: FakeClient())
+    monkeypatch.setattr(lf, "get_callback_handler", lambda: None)
+
+    await cs.chat(ChatRequest(query="안녕"))
+
+    assert scores == []  # trust 미실행 → 게이트 포함 전부 skip
