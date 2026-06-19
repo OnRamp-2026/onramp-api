@@ -268,6 +268,8 @@ async def run(args: argparse.Namespace) -> int:
                 )
 
     report = _build_report(rows, repeats=args.repeats, model=args.model, tenant_id=tenant_id)
+    report["config"]["queries"] = str(args.queries)
+    report["config"]["qrels"] = str(args.qrels)
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_markdown.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -280,8 +282,8 @@ async def run(args: argparse.Namespace) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="deterministic/agentic Retriever A/B 평가")
-    parser.add_argument("--queries", type=Path, default=ROOT_DIR / "data/eval/queries.jsonl")
-    parser.add_argument("--qrels", type=Path, default=ROOT_DIR / "data/eval/qrels.jsonl")
+    parser.add_argument("--queries", type=Path, default=ROOT_DIR / "data/eval/agentic_queries.jsonl")
+    parser.add_argument("--qrels", type=Path, default=ROOT_DIR / "data/eval/agentic_qrels.jsonl")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--limit", type=int, default=None, help="앞에서 N개 질문만 빠르게 실행")
     parser.add_argument("--model", default="", help="tool calling 모델. 비우면 config 기본 모델")
