@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.base import Base
 from app.db.models import EventOutbox, ReportJob, ReportJobStatus
@@ -83,7 +83,7 @@ async def test_collect_worker_metric_snapshot() -> None:
 
     rendered = render_worker_metrics(snapshot)
     assert 'onramp_report_jobs{status="queued"} 1' in rendered
-    assert 'onramp_event_outbox_pending 1' in rendered
+    assert "onramp_event_outbox_pending 1" in rendered
     assert 'onramp_redis_stream_group_lag{stream="onramp:stt:completed:v1",group="report-workers"} 6' in rendered
 
     await engine.dispose()
