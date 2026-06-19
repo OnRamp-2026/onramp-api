@@ -27,18 +27,24 @@ def _point_id(chunk_id: str) -> str:
     return str(uuid5(NAMESPACE_URL, chunk_id))
 
 
-def _payload(child: ChildChunk, settings: Settings) -> dict:
+def _payload(
+    child: ChildChunk, settings: Settings, *, tenant_id: str | None = None, source: str = "confluence"
+) -> dict:
     data = asdict(child)
     data.pop("content_vector", None)  # 벡터는 payload 아님
     data.pop("embedding_text", None)  # 임베딩 입력 — 검색/표시엔 불필요
-    data["tenant_id"] = settings.auth_default_tenant
+    data["tenant_id"] = tenant_id or settings.auth_default_tenant
+    data["source"] = source
     return data
 
 
-def _opensearch_document(child: ChildChunk, settings: Settings) -> dict:
+def _opensearch_document(
+    child: ChildChunk, settings: Settings, *, tenant_id: str | None = None, source: str = "confluence"
+) -> dict:
     data = asdict(child)
     data.pop("content_vector", None)
-    data["tenant_id"] = settings.auth_default_tenant
+    data["tenant_id"] = tenant_id or settings.auth_default_tenant
+    data["source"] = source
     data["block_types"] = child.block_types or []
     data["keywords"] = child.keywords or []
     data["tags"] = child.tags or []
@@ -53,6 +59,8 @@ async def index_children(
     client: QdrantClient | None = None,
     opensearch_client: OpenSearchClient | None = None,
     settings: Settings | None = None,
+    tenant_id: str | None = None,
+    source: str = "confluence",
 ) -> int:
     """ChildChunk를 embedding_text로 임베딩해 Qdrant/OpenSearch upsert. 반환: upsert 수."""
     if not children:
@@ -64,7 +72,11 @@ async def index_children(
     await anyio.to_thread.run_sync(lambda: ensure_collection(client, settings))
     vectors = await embedder.embed_documents([c.embedding_text for c in children])
     points = [
-        PointStruct(id=_point_id(c.chunk_id), vector=vec, payload=_payload(c, settings))
+        PointStruct(
+            id=_point_id(c.chunk_id),
+            vector=vec,
+            payload=_payload(c, settings, tenant_id=tenant_id, source=source),
+        )
         for c, vec in zip(children, vectors, strict=True)
     ]
     # Qdrant JSON payload 한도(32MB) 초과 방지 — 전체 적재(수천 청크)는 단일 upsert가 불가
@@ -73,7 +85,7 @@ async def index_children(
         await anyio.to_thread.run_sync(partial(client.upsert, collection_name=settings.qdrant_collection, points=batch))
     if settings.bm25_search_enabled:
         os_client = opensearch_client or get_opensearch()
-        documents = [_opensearch_document(child, settings) for child in children]
+        documents = [_opensearch_document(child, settings, tenant_id=tenant_id, source=source) for child in children]
         try:
             await os_client.upsert_chunks(documents)
         except Exception:

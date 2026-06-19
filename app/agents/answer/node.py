@@ -122,7 +122,7 @@ def context_contents(documents: list[SourceDocument], parent_contexts: dict[str,
     return [content for _, _, content in _select_contexts(documents, parent_contexts) if content]
 
 
-async def _fetch_parent_contexts(documents: list[SourceDocument]) -> dict[str, str]:
+async def _fetch_parent_contexts(documents: list[SourceDocument], tenant_id: str | None = None) -> dict[str, str]:
     """parent_context_enabled일 때 검색 문서의 parent 본문을 Postgres에서 조회(parent_id dedupe)."""
     settings = get_settings()
     if not settings.parent_context_enabled:
@@ -135,7 +135,11 @@ async def _fetch_parent_contexts(documents: list[SourceDocument]) -> dict[str, s
 
     try:
         async with session_scope() as db:
-            return await repo.get_parent_contexts(db, tenant_id=settings.auth_default_tenant, parent_ids=parent_ids)
+            return await repo.get_parent_contexts(
+                db,
+                tenant_id=tenant_id or settings.auth_default_tenant,
+                parent_ids=parent_ids,
+            )
     except Exception:  # 조회 실패 → child-only로 graceful degrade (답변은 계속 나옴)
         logger.warning("parent context 조회 실패 — child-only로 진행", exc_info=True)
         return {}
@@ -144,7 +148,7 @@ async def _fetch_parent_contexts(documents: list[SourceDocument]) -> dict[str, s
 async def answer_node(state: AgentState) -> dict:
     """문서 근거로 답변을 생성하고 Answerability Status를 판정한다 (포맷은 라우터 domains 기준)."""
     documents = state.get("documents", [])
-    query = state.get("refined_query") or state.get("query", "")
+    query = state.get("query") or state.get("refined_query", "")
     # 포맷은 라우터가 의도-time에 박은 값을 우선 사용한다 (Trust가 domains를 변형해도 불변, #191).
     # 라우터 미경유 경로(직접 호출 등)를 위해 domains 기반 계산을 fallback으로 둔다.
     answer_format = state.get("answer_format") or decide_answer_format(
@@ -164,7 +168,10 @@ async def answer_node(state: AgentState) -> dict:
             reason=reason_for(status),
         )
 
-    parent_contexts = await _fetch_parent_contexts(documents)  # #212: parent-expanded면 채워짐, 아니면 {}
+    parent_contexts = await _fetch_parent_contexts(
+        documents,
+        state.get("tenant_id"),
+    )  # #212: parent-expanded면 채워짐, 아니면 {}
     system_prompt = ANSWER_SYSTEM_PROMPT if is_structured else FREEFORM_SYSTEM_PROMPT
     user_prompt = f"문서 컨텍스트:\n{_build_context(documents, parent_contexts)}\n\n질문: {query}"
     try:

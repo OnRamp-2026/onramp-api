@@ -408,6 +408,31 @@ def _conflicting(survivors: list[SourceDocument], settings: Settings) -> bool:
 
 
 async def trust_node(state: AgentState) -> dict:
+    """Strategy별 Trust 계약을 dispatch한다."""
+    if state.get("retriever_strategy") == "single_agentic":
+        return await evaluate_trust_node(state)
+    return await deterministic_trust_node(state)
+
+
+async def evaluate_trust_node(state: AgentState) -> dict:
+    """Single Agentic 경로용 rules-only evaluator. 재작성·routing 신호를 만들지 않는다."""
+    retry = state.get("retry_count", 0)
+    evaluated = await deterministic_trust_node(
+        {
+            **state,
+            "first_pass_documents": [],
+            "retry_count": retry,
+            "max_retries": retry,
+        }
+    )
+    return {
+        key: evaluated[key]
+        for key in ("documents", "trust_score", "gate_flags", "missing_versions", "agent_trace")
+        if key in evaluated
+    }
+
+
+async def deterministic_trust_node(state: AgentState) -> dict:
     """문서를 채점하고 재검색 사다리를 결정한다."""
     settings = get_settings()
     documents = state.get("documents", [])

@@ -28,7 +28,7 @@ async def check_qdrant() -> bool:
 
 
 # 필터/facet 검색용 keyword payload index 대상 (#94: 버전 계보 메타 추가)
-_KEYWORD_INDEX_FIELDS = ("domain", "doc_key", "product_version", "site")
+_KEYWORD_INDEX_FIELDS = ("tenant_id", "source", "domain", "doc_key", "product_version", "site")
 
 
 def _ensure_payload_indexes(client: QdrantClient, name: str) -> None:

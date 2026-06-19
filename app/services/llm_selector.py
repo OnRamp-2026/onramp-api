@@ -8,10 +8,12 @@ call_llm 하나로 모든 Agent와 asset_service가 LLM을 호출한다. provide
 from __future__ import annotations
 
 import contextvars
+import json
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, cast
 
 import httpx
 from openai import AsyncAzureOpenAI, AsyncOpenAI
@@ -80,6 +82,19 @@ _azure_client: AsyncAzureOpenAI | None = None
 _azure_client_cfg: tuple[str, ...] | None = None
 
 
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolResponse:
+    content: str
+    tool_calls: list[ToolCall]
+
+
 def resolve_provider(model: str, settings: Settings) -> str:
     """provider 결정 — **명시된 model 이름 우선**, 비면 config.llm_provider fallback.
 
@@ -142,6 +157,48 @@ async def call_llm(
             gen.update(model=model_name, output=content, usage_details=usage)
         _accumulate_usage(usage)  # 평가 계측(#212): 누산기 활성 시에만 집계
         return content
+
+
+async def call_llm_with_tools(
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    *,
+    model: str = "",
+    timeout: float = 30.0,
+    settings: Settings | None = None,
+) -> ToolResponse:
+    """OpenAI tool-calling 응답을 provider-neutral 내부 타입으로 변환한다."""
+    settings = settings or get_settings()
+    if resolve_provider(model, settings) != "openai":
+        raise LLMError("tool calling은 현재 OpenAI provider만 지원합니다")
+    if not settings.openai_api_key:
+        raise LLMError("OpenAI API 키가 설정되지 않았습니다")
+    model_name = model or settings.default_model or _DEFAULT_MODEL
+    try:
+        create = cast(Any, _get_openai_client(settings).chat.completions.create)
+        resp = await create(
+            model=model_name,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            temperature=0.0,
+            timeout=timeout,
+        )
+    except Exception as exc:
+        raise LLMError("LLM tool 호출에 실패했습니다") from exc
+    if not resp.choices:
+        raise LLMError("LLM 응답에 choices가 없습니다")
+    message = resp.choices[0].message
+    calls: list[ToolCall] = []
+    for call in getattr(message, "tool_calls", None) or []:
+        try:
+            arguments = json.loads(call.function.arguments or "{}")
+        except json.JSONDecodeError:
+            arguments = {}
+        calls.append(ToolCall(id=call.id, name=call.function.name, arguments=arguments))
+    usage = _usage_details(getattr(resp, "usage", None))
+    _accumulate_usage(usage)
+    return ToolResponse(content=message.content or "", tool_calls=calls)
 
 
 def _extra_kwargs(max_tokens: int | None, json_mode: bool) -> dict[str, Any]:

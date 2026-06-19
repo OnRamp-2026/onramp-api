@@ -23,7 +23,7 @@ async def chat_endpoint(request: ChatRequest, user: CurrentUser, db: DatabaseSes
     인증 필수(#163) — 미인증 요청은 401. 질문/답변을 사용자 대화 기록에 저장하고
     conversation_id를 응답에 실어준다.
     """
-    response = await chat_service(request)
+    response = await chat_service(request, tenant_id=user.tenant_id)
     if user.subject:
         try:
             response.conversation_id = await persist_turn(

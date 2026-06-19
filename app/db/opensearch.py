@@ -68,6 +68,7 @@ class OpenSearchClient:
     _ADDED_CHUNK_FIELDS = {
         "domain_source": {"type": "keyword"},
         "domain_confidence": {"type": "float"},
+        "source": {"type": "keyword"},
     }
 
     async def _ensure_chunk_fields(self, alias: str) -> None:
@@ -160,6 +161,7 @@ class OpenSearchClient:
         top_k: int,
         tenant_id: str,
         domain: str | None = None,
+        source: str | None = None,
         version: str | None = None,
         pinned_doc_keys: tuple[str, ...] = (),
         excluded_doc_keys: tuple[str, ...] = (),
@@ -169,6 +171,7 @@ class OpenSearchClient:
             top_k=top_k,
             tenant_id=tenant_id,
             domain=domain,
+            source=source,
             version=version,
             pinned_doc_keys=pinned_doc_keys,
             excluded_doc_keys=excluded_doc_keys,
@@ -262,6 +265,7 @@ def _index_body(alias: str) -> dict[str, Any]:
             "dynamic": "false",
             "properties": {
                 "tenant_id": {"type": "keyword"},
+                "source": {"type": "keyword"},
                 "chunk_id": {"type": "keyword"},
                 "parent_id": {"type": "keyword"},
                 "page_id": {"type": "keyword"},
@@ -298,11 +302,14 @@ def _search_body(
     top_k: int,
     tenant_id: str,
     domain: str | None,
+    source: str | None,
     version: str | None,
     pinned_doc_keys: tuple[str, ...],
     excluded_doc_keys: tuple[str, ...],
 ) -> dict[str, Any]:
     filters: list[dict[str, Any]] = [{"term": {"tenant_id": tenant_id}}]
+    if source:
+        filters.append({"term": {"source": source}})
     if domain:
         filters.append({"term": {"domain": domain}})
     if version:
