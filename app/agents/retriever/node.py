@@ -42,6 +42,7 @@ class RetrievalDiagnostics:
     calls: list[dict[str, Any]] = field(default_factory=list)
     tool_call_count: int = 0
     duplicate_calls: int = 0
+    policy_skipped_calls: int = 0
     ranking_list_count: int = 0
     rrf_applied: bool = False
     rerank_fallback: bool = False
@@ -53,6 +54,7 @@ class RetrievalDiagnostics:
             "calls": self.calls,
             "tool_call_count": self.tool_call_count,
             "duplicate_calls": self.duplicate_calls,
+            "policy_skipped_calls": self.policy_skipped_calls,
             "ranking_list_count": self.ranking_list_count,
             "rrf_applied": self.rrf_applied,
             "rerank_fallback": self.rerank_fallback,
@@ -113,6 +115,7 @@ async def retrieve_with_diagnostics(
                 diagnostics.calls = list(agentic_result.metadata.get("calls", []))
                 diagnostics.tool_call_count = int(agentic_result.metadata.get("tool_call_count", 0))
                 diagnostics.duplicate_calls = int(agentic_result.metadata.get("duplicate_calls", 0))
+                diagnostics.policy_skipped_calls = int(agentic_result.metadata.get("policy_skipped_calls", 0))
                 diagnostics.ranking_list_count = int(agentic_result.metadata.get("ranking_list_count", 0))
                 diagnostics.rrf_applied = bool(agentic_result.metadata.get("rrf_applied", False))
                 if span is not None:

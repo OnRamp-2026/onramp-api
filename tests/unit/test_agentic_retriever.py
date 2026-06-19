@@ -45,18 +45,23 @@ async def test_agentic_search_fuses_rankings_from_different_iterations(monkeypat
     assert [call["tool"] for call in result.metadata["calls"]] == ["search_dense", "search_bm25"]
 
 
-async def test_agentic_search_dedupes_same_tool_query_and_filters(monkeypatch) -> None:
-    response = ToolLLMResponse(
-        content="",
-        tool_calls=[
-            ToolCall(id="1", name="search_dense", arguments={"query": "same query"}),
-            ToolCall(id="2", name="search_dense", arguments={"query": " same   query "}),
-        ],
+async def test_agentic_search_executes_only_one_tool_per_iteration(monkeypatch) -> None:
+    responses = iter(
+        [
+            ToolLLMResponse(
+                content="",
+                tool_calls=[
+                    ToolCall(id="1", name="search_dense", arguments={"query": "first query"}),
+                    ToolCall(id="2", name="search_bm25", arguments={"query": "second query"}),
+                ],
+            ),
+            ToolLLMResponse(content="근거가 충분합니다.", tool_calls=[]),
+        ]
     )
     executed: list[tuple[str, str]] = []
 
     async def fake_llm(*args, **kwargs):
-        return response
+        return next(responses)
 
     async def fake_execute(tool_name: str, query: str, *, context: SearchToolContext):
         executed.append((tool_name, query))
@@ -64,7 +69,80 @@ async def test_agentic_search_dedupes_same_tool_query_and_filters(monkeypatch) -
 
     monkeypatch.setattr(agentic_mod, "call_llm_with_tools", fake_llm)
     monkeypatch.setattr(agentic_mod, "execute_search_tool", fake_execute)
-    settings = Settings(retriever_agentic_max_iterations=1)
+    settings = Settings(retriever_agentic_max_iterations=2, retriever_agentic_max_tool_calls=4)
+    context = SearchToolContext("tenant", None, None, 20, settings)
+
+    result = await run_agentic_search("original", model="", context=context)
+
+    assert executed == [("search_dense", "first query")]
+    assert result.metadata["policy_skipped_calls"] == 1
+    assert result.metadata["tool_call_count"] == 1
+    assert result.metadata["rrf_applied"] is False
+
+
+async def test_agentic_search_caps_total_tool_calls_at_two(monkeypatch) -> None:
+    responses = iter(
+        [
+            ToolLLMResponse(
+                content="",
+                tool_calls=[ToolCall(id="1", name="search_dense", arguments={"query": "q1"})],
+            ),
+            ToolLLMResponse(
+                content="",
+                tool_calls=[ToolCall(id="2", name="search_bm25", arguments={"query": "q2"})],
+            ),
+            ToolLLMResponse(
+                content="",
+                tool_calls=[ToolCall(id="3", name="search_dense", arguments={"query": "q3"})],
+            ),
+        ]
+    )
+    executed: list[tuple[str, str]] = []
+
+    async def fake_llm(*args, **kwargs):
+        return next(responses)
+
+    async def fake_execute(tool_name: str, query: str, *, context: SearchToolContext):
+        executed.append((tool_name, query))
+        return [_hit(query, 0.8)]
+
+    monkeypatch.setattr(agentic_mod, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic_mod, "execute_search_tool", fake_execute)
+    settings = Settings(retriever_agentic_max_iterations=3, retriever_agentic_max_tool_calls=4)
+    context = SearchToolContext("tenant", None, None, 20, settings)
+
+    result = await run_agentic_search("original", model="", context=context)
+
+    assert executed == [("search_dense", "q1"), ("search_bm25", "q2")]
+    assert result.metadata["tool_call_count"] == 2
+    assert result.metadata["ranking_list_count"] == 2
+
+
+async def test_agentic_search_dedupes_same_tool_query_across_iterations(monkeypatch) -> None:
+    responses = iter(
+        [
+            ToolLLMResponse(
+                content="",
+                tool_calls=[ToolCall(id="1", name="search_dense", arguments={"query": "same query"})],
+            ),
+            ToolLLMResponse(
+                content="",
+                tool_calls=[ToolCall(id="2", name="search_dense", arguments={"query": " same   query "})],
+            ),
+        ]
+    )
+    executed: list[tuple[str, str]] = []
+
+    async def fake_llm(*args, **kwargs):
+        return next(responses)
+
+    async def fake_execute(tool_name: str, query: str, *, context: SearchToolContext):
+        executed.append((tool_name, query))
+        return [_hit("c1", 0.8)]
+
+    monkeypatch.setattr(agentic_mod, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic_mod, "execute_search_tool", fake_execute)
+    settings = Settings(retriever_agentic_max_iterations=2)
     context = SearchToolContext("tenant", None, None, 20, settings)
 
     result = await run_agentic_search("original", model="", context=context)

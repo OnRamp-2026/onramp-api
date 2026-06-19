@@ -44,6 +44,13 @@ def _round(value: float, digits: int = 4) -> float:
     return round(value, digits)
 
 
+def _report_path(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(ROOT_DIR))
+    except ValueError:
+        return str(path)
+
+
 def _percentile(values: list[float], quantile: float) -> float:
     """선형 보간 percentile. 표본 1개도 안전하게 처리한다."""
     if not values:
@@ -268,8 +275,8 @@ async def run(args: argparse.Namespace) -> int:
                 )
 
     report = _build_report(rows, repeats=args.repeats, model=args.model, tenant_id=tenant_id)
-    report["config"]["queries"] = str(args.queries)
-    report["config"]["qrels"] = str(args.qrels)
+    report["config"]["queries"] = _report_path(args.queries)
+    report["config"]["qrels"] = _report_path(args.qrels)
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_markdown.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

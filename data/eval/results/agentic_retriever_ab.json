@@ -1,0 +1,2596 @@
+{
+  "generated_at": "2026-06-19T01:02:32.798631+00:00",
+  "config": {
+    "repeats": 3,
+    "model": "gpt-4o-mini",
+    "tenant_id": "onramp",
+    "query_count": 12,
+    "queries": "data/eval/agentic_queries.jsonl",
+    "qrels": "data/eval/agentic_qrels.jsonl"
+  },
+  "deterministic": {
+    "runs": 36,
+    "quality": {
+      "hit_rate@5": 0.75,
+      "mrr@10": 0.6223,
+      "recall@5": 0.7083,
+      "ndcg@10": 0.6388
+    },
+    "latency_ms": {
+      "avg": 381.73,
+      "p50": 325.98,
+      "p95": 483.19
+    },
+    "agentic": {
+      "avg_tool_calls": 0.0,
+      "dense_selection_ratio": 0.0,
+      "bm25_selection_ratio": 0.0,
+      "multi_tool_ratio": 0.0,
+      "rrf_ratio": 0.0,
+      "fallback_ratio": 0.0,
+      "fallback_reasons": {},
+      "duplicate_call_count": 0,
+      "rerank_fallback_ratio": 1.0
+    }
+  },
+  "agentic": {
+    "runs": 36,
+    "quality": {
+      "hit_rate@5": 0.75,
+      "mrr@10": 0.4792,
+      "recall@5": 0.625,
+      "ndcg@10": 0.481
+    },
+    "latency_ms": {
+      "avg": 4739.15,
+      "p50": 4969.35,
+      "p95": 6682.8
+    },
+    "agentic": {
+      "avg_tool_calls": 1.0833,
+      "dense_selection_ratio": 0.75,
+      "bm25_selection_ratio": 0.3333,
+      "multi_tool_ratio": 0.0833,
+      "rrf_ratio": 0.0833,
+      "fallback_ratio": 0.0,
+      "fallback_reasons": {},
+      "duplicate_call_count": 0,
+      "rerank_fallback_ratio": 1.0
+    }
+  },
+  "delta": {
+    "hit_rate@5": 0.0,
+    "mrr@10": -0.1431,
+    "recall@5": -0.0833,
+    "ndcg@10": -0.1578,
+    "avg_latency_ms": 4357.42
+  },
+  "runs": [
+    {
+      "strategy": "deterministic",
+      "qid": "a001",
+      "query": "Datadog 모니터에서 데이터 보고가 끊겼을 때 알림을 켜는 옵션과 기본값은 무엇인가요?",
+      "repeat": 1,
+      "latency_ms": 1617.21,
+      "ranked_chunk_ids": [
+        "75235_003",
+        "107054_000",
+        "172772_001",
+        "338042_000",
+        "107054_001",
+        "338744_000",
+        "107024_011",
+        "172772_004"
+      ],
+      "relevant_chunk_ids": [
+        "75235_003"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a002",
+      "query": "로그 API에서 첫 응답보다 결과가 더 남았는지 어떤 필드로 확인하고, 다음 요청에는 그 값을 어디에 넣나요?",
+      "repeat": 1,
+      "latency_ms": 468.89,
+      "ranked_chunk_ids": [
+        "339162_011",
+        "339162_010",
+        "339162_008",
+        "339162_006",
+        "339162_005",
+        "339162_004",
+        "339034_012",
+        "339192_000"
+      ],
+      "relevant_chunk_ids": [
+        "339192_000",
+        "339192_001"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a003",
+      "query": "Apache를 재시작하면서 Listen 127.0.0.1:80을 Listen 80으로 바꾸면 왜 실패할 수 있고 어떻게 적용해야 하나요?",
+      "repeat": 1,
+      "latency_ms": 319.81,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "73808_001",
+        "72361_012",
+        "335596_011",
+        "337641_020",
+        "72430_005",
+        "72430_003",
+        "107677_003"
+      ],
+      "relevant_chunk_ids": [
+        "104336_001",
+        "104336_002"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a004",
+      "query": "Apache에서 8443 포트를 HTTPS로 서비스하려면 Listen 지시어를 어떻게 작성하나요?",
+      "repeat": 1,
+      "latency_ms": 328.04,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "337641_020",
+        "337641_019",
+        "73808_001",
+        "72430_003",
+        "337641_021",
+        "104336_003",
+        "104336_000"
+      ],
+      "relevant_chunk_ids": [
+        "104336_003"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a005",
+      "query": "Prometheus remote write에서 한 shard의 큐가 꽉 차면 전체 전송 흐름과 2시간 뒤 데이터에 어떤 영향이 있나요?",
+      "repeat": 1,
+      "latency_ms": 330.12,
+      "ranked_chunk_ids": [
+        "77974_000",
+        "77974_001",
+        "77974_002",
+        "341357_001",
+        "77667_002",
+        "77667_001",
+        "110406_000",
+        "110406_006"
+      ],
+      "relevant_chunk_ids": [
+        "77974_000"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a006",
+      "query": "Remote write의 shard 메모리는 어떤 값들에 비례하며 capacity와 max_samples_per_send를 늘릴 때 함께 낮춰야 할 설정은 무엇인가요?",
+      "repeat": 1,
+      "latency_ms": 319.33,
+      "ranked_chunk_ids": [
+        "77974_001",
+        "77974_000",
+        "77974_002",
+        "174224_012",
+        "106880_002",
+        "110477_009",
+        "110406_006",
+        "110477_008"
+      ],
+      "relevant_chunk_ids": [
+        "77974_001"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a007",
+      "query": "STT Redis consumer가 XREADGROUP 대기 중 CrashLoopBackOff에 빠진 원인과 socket_timeout 계산식은 무엇이었나요?",
+      "repeat": 1,
+      "latency_ms": 298.29,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#118_001",
+        "gh:onramp-api#119_000",
+        "gh:onramp-stt-api#12_000",
+        "gh:onramp-stt-api#11_001",
+        "gh:onramp-api#118_000",
+        "gh:onramp-api#119_001",
+        "gh:onramp-stt-api#11_000",
+        "gh:onramp-api#119_002"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#119_000"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a008",
+      "query": "리랭커가 꺼졌을 때 관련 문서가 있어도 답변이 보류되던 이유와 coverage 계산을 어떻게 바꿨나요?",
+      "repeat": 1,
+      "latency_ms": 323.92,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#202_000",
+        "gh:onramp-api#203_000",
+        "gh:onramp-api#201_008",
+        "gh:onramp-api#202_001",
+        "gh:onramp-api#203_005",
+        "gh:onramp-api#244_001",
+        "gh:onramp-api#203_001",
+        "gh:onramp-api#201_000"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#203_000"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a009",
+      "query": "RAG 검색에서 도메인 하드필터를 폐기하고 소프트필터로 바꾼 이유와 새 검색 방식은 무엇인가요?",
+      "repeat": 1,
+      "latency_ms": 425.22,
+      "ranked_chunk_ids": [
+        "5537921_001",
+        "5537921_000",
+        "5537860_006",
+        "5537968_004",
+        "5537901_005",
+        "gh:onramp-api#48_001",
+        "gh:onramp-api#48_000",
+        "gh:onramp-api#58_000"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_001",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a010",
+      "query": "6월 9일 회의에서 리랭커 경량화 방식으로 무엇을 채택했고 로컬 측정 결과는 어땠나요?",
+      "repeat": 1,
+      "latency_ms": 272.32,
+      "ranked_chunk_ids": [
+        "5537921_003",
+        "5537906_000",
+        "5537921_000",
+        "5537921_009",
+        "5537906_001",
+        "5537921_008",
+        "5537906_002",
+        "5537921_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_003",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a011",
+      "query": "신입이 모호하게 질문해도 문서 맥락을 찾기 쉽게 하려면 P0 임베딩 입력에 어떤 메타정보를 포함하는 것이 권장되나요?",
+      "repeat": 1,
+      "latency_ms": 290.55,
+      "ranked_chunk_ids": [
+        "5537932_001",
+        "5537926_002",
+        "5537926_000",
+        "5537926_007",
+        "5537926_003",
+        "5537932_004",
+        "5537926_005",
+        "5537932_000"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_003"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a012",
+      "query": "API 기술 문서는 임베딩 검색만으로 부족할 수 있다고 본 이유와 함께 써야 할 검색 방식은 무엇인가요?",
+      "repeat": 1,
+      "latency_ms": 285.79,
+      "ranked_chunk_ids": [
+        "5537926_002",
+        "5537926_003",
+        "5537932_003",
+        "5537932_001",
+        "5537926_005",
+        "5537932_000",
+        "5537932_004",
+        "gh:onramp-api#227_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_002"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a001",
+      "query": "Datadog 모니터에서 데이터 보고가 끊겼을 때 알림을 켜는 옵션과 기본값은 무엇인가요?",
+      "repeat": 2,
+      "latency_ms": 386.8,
+      "ranked_chunk_ids": [
+        "75235_003",
+        "107054_000",
+        "172772_001",
+        "338042_000",
+        "107054_001",
+        "338744_000",
+        "107024_011",
+        "172772_004"
+      ],
+      "relevant_chunk_ids": [
+        "75235_003"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a002",
+      "query": "로그 API에서 첫 응답보다 결과가 더 남았는지 어떤 필드로 확인하고, 다음 요청에는 그 값을 어디에 넣나요?",
+      "repeat": 2,
+      "latency_ms": 320.02,
+      "ranked_chunk_ids": [
+        "339162_011",
+        "339162_010",
+        "339162_008",
+        "339162_006",
+        "339162_005",
+        "339162_004",
+        "339034_012",
+        "339192_000"
+      ],
+      "relevant_chunk_ids": [
+        "339192_000",
+        "339192_001"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a003",
+      "query": "Apache를 재시작하면서 Listen 127.0.0.1:80을 Listen 80으로 바꾸면 왜 실패할 수 있고 어떻게 적용해야 하나요?",
+      "repeat": 2,
+      "latency_ms": 493.83,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "73808_001",
+        "72361_012",
+        "335596_011",
+        "337641_020",
+        "72430_005",
+        "72430_003",
+        "107677_003"
+      ],
+      "relevant_chunk_ids": [
+        "104336_001",
+        "104336_002"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a004",
+      "query": "Apache에서 8443 포트를 HTTPS로 서비스하려면 Listen 지시어를 어떻게 작성하나요?",
+      "repeat": 2,
+      "latency_ms": 401.53,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "337641_020",
+        "337641_019",
+        "73808_001",
+        "72430_003",
+        "337641_021",
+        "104336_003",
+        "104336_000"
+      ],
+      "relevant_chunk_ids": [
+        "104336_003"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a005",
+      "query": "Prometheus remote write에서 한 shard의 큐가 꽉 차면 전체 전송 흐름과 2시간 뒤 데이터에 어떤 영향이 있나요?",
+      "repeat": 2,
+      "latency_ms": 320.45,
+      "ranked_chunk_ids": [
+        "77974_000",
+        "77974_001",
+        "77974_002",
+        "341357_001",
+        "77667_002",
+        "77667_001",
+        "110406_000",
+        "110406_006"
+      ],
+      "relevant_chunk_ids": [
+        "77974_000"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a006",
+      "query": "Remote write의 shard 메모리는 어떤 값들에 비례하며 capacity와 max_samples_per_send를 늘릴 때 함께 낮춰야 할 설정은 무엇인가요?",
+      "repeat": 2,
+      "latency_ms": 279.48,
+      "ranked_chunk_ids": [
+        "77974_001",
+        "77974_000",
+        "77974_002",
+        "174224_012",
+        "106880_002",
+        "110477_009",
+        "110406_006",
+        "110477_008"
+      ],
+      "relevant_chunk_ids": [
+        "77974_001"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a007",
+      "query": "STT Redis consumer가 XREADGROUP 대기 중 CrashLoopBackOff에 빠진 원인과 socket_timeout 계산식은 무엇이었나요?",
+      "repeat": 2,
+      "latency_ms": 278.93,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#118_001",
+        "gh:onramp-api#119_000",
+        "gh:onramp-stt-api#12_000",
+        "gh:onramp-stt-api#11_001",
+        "gh:onramp-api#118_000",
+        "gh:onramp-api#119_001",
+        "gh:onramp-stt-api#11_000",
+        "gh:onramp-api#119_002"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#119_000"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a008",
+      "query": "리랭커가 꺼졌을 때 관련 문서가 있어도 답변이 보류되던 이유와 coverage 계산을 어떻게 바꿨나요?",
+      "repeat": 2,
+      "latency_ms": 352.53,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#202_000",
+        "gh:onramp-api#203_000",
+        "gh:onramp-api#201_008",
+        "gh:onramp-api#202_001",
+        "gh:onramp-api#203_005",
+        "gh:onramp-api#244_001",
+        "gh:onramp-api#203_001",
+        "gh:onramp-api#201_000"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#203_000"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a009",
+      "query": "RAG 검색에서 도메인 하드필터를 폐기하고 소프트필터로 바꾼 이유와 새 검색 방식은 무엇인가요?",
+      "repeat": 2,
+      "latency_ms": 430.5,
+      "ranked_chunk_ids": [
+        "5537921_001",
+        "5537921_000",
+        "5537860_006",
+        "5537968_004",
+        "5537901_005",
+        "gh:onramp-api#48_001",
+        "gh:onramp-api#48_000",
+        "gh:onramp-api#58_000"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_001",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a010",
+      "query": "6월 9일 회의에서 리랭커 경량화 방식으로 무엇을 채택했고 로컬 측정 결과는 어땠나요?",
+      "repeat": 2,
+      "latency_ms": 429.23,
+      "ranked_chunk_ids": [
+        "5537921_003",
+        "5537906_000",
+        "5537921_000",
+        "5537921_009",
+        "5537906_001",
+        "5537921_008",
+        "5537906_002",
+        "5537921_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_003",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a011",
+      "query": "신입이 모호하게 질문해도 문서 맥락을 찾기 쉽게 하려면 P0 임베딩 입력에 어떤 메타정보를 포함하는 것이 권장되나요?",
+      "repeat": 2,
+      "latency_ms": 479.65,
+      "ranked_chunk_ids": [
+        "5537932_001",
+        "5537926_002",
+        "5537926_000",
+        "5537926_007",
+        "5537926_003",
+        "5537932_004",
+        "5537926_005",
+        "5537932_000"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_003"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a012",
+      "query": "API 기술 문서는 임베딩 검색만으로 부족할 수 있다고 본 이유와 함께 써야 할 검색 방식은 무엇인가요?",
+      "repeat": 2,
+      "latency_ms": 402.79,
+      "ranked_chunk_ids": [
+        "5537926_002",
+        "5537926_003",
+        "5537932_003",
+        "5537932_001",
+        "5537926_005",
+        "5537932_000",
+        "5537932_004",
+        "gh:onramp-api#227_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_002"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a001",
+      "query": "Datadog 모니터에서 데이터 보고가 끊겼을 때 알림을 켜는 옵션과 기본값은 무엇인가요?",
+      "repeat": 3,
+      "latency_ms": 313.32,
+      "ranked_chunk_ids": [
+        "75235_003",
+        "107054_000",
+        "172772_001",
+        "338042_000",
+        "107054_001",
+        "338744_000",
+        "107024_011",
+        "172772_004"
+      ],
+      "relevant_chunk_ids": [
+        "75235_003"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a002",
+      "query": "로그 API에서 첫 응답보다 결과가 더 남았는지 어떤 필드로 확인하고, 다음 요청에는 그 값을 어디에 넣나요?",
+      "repeat": 3,
+      "latency_ms": 377.87,
+      "ranked_chunk_ids": [
+        "339162_011",
+        "339162_010",
+        "339162_008",
+        "339162_006",
+        "339162_005",
+        "339162_004",
+        "339034_012",
+        "339192_000"
+      ],
+      "relevant_chunk_ids": [
+        "339192_000",
+        "339192_001"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a003",
+      "query": "Apache를 재시작하면서 Listen 127.0.0.1:80을 Listen 80으로 바꾸면 왜 실패할 수 있고 어떻게 적용해야 하나요?",
+      "repeat": 3,
+      "latency_ms": 260.59,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "73808_001",
+        "72361_012",
+        "335596_011",
+        "337641_020",
+        "72430_005",
+        "72430_003",
+        "107677_003"
+      ],
+      "relevant_chunk_ids": [
+        "104336_001",
+        "104336_002"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a004",
+      "query": "Apache에서 8443 포트를 HTTPS로 서비스하려면 Listen 지시어를 어떻게 작성하나요?",
+      "repeat": 3,
+      "latency_ms": 368.85,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "337641_020",
+        "337641_019",
+        "73808_001",
+        "72430_003",
+        "337641_021",
+        "104336_003",
+        "104336_000"
+      ],
+      "relevant_chunk_ids": [
+        "104336_003"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a005",
+      "query": "Prometheus remote write에서 한 shard의 큐가 꽉 차면 전체 전송 흐름과 2시간 뒤 데이터에 어떤 영향이 있나요?",
+      "repeat": 3,
+      "latency_ms": 321.83,
+      "ranked_chunk_ids": [
+        "77974_000",
+        "77974_001",
+        "77974_002",
+        "341357_001",
+        "77667_002",
+        "77667_001",
+        "110406_000",
+        "110406_006"
+      ],
+      "relevant_chunk_ids": [
+        "77974_000"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a006",
+      "query": "Remote write의 shard 메모리는 어떤 값들에 비례하며 capacity와 max_samples_per_send를 늘릴 때 함께 낮춰야 할 설정은 무엇인가요?",
+      "repeat": 3,
+      "latency_ms": 296.85,
+      "ranked_chunk_ids": [
+        "77974_001",
+        "77974_000",
+        "77974_002",
+        "174224_012",
+        "106880_002",
+        "110477_009",
+        "110406_006",
+        "110477_008"
+      ],
+      "relevant_chunk_ids": [
+        "77974_001"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a007",
+      "query": "STT Redis consumer가 XREADGROUP 대기 중 CrashLoopBackOff에 빠진 원인과 socket_timeout 계산식은 무엇이었나요?",
+      "repeat": 3,
+      "latency_ms": 365.25,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#118_001",
+        "gh:onramp-api#119_000",
+        "gh:onramp-stt-api#12_000",
+        "gh:onramp-stt-api#11_001",
+        "gh:onramp-api#118_000",
+        "gh:onramp-api#119_001",
+        "gh:onramp-stt-api#11_000",
+        "gh:onramp-api#119_002"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#119_000"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a008",
+      "query": "리랭커가 꺼졌을 때 관련 문서가 있어도 답변이 보류되던 이유와 coverage 계산을 어떻게 바꿨나요?",
+      "repeat": 3,
+      "latency_ms": 328.87,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#202_000",
+        "gh:onramp-api#203_000",
+        "gh:onramp-api#201_008",
+        "gh:onramp-api#202_001",
+        "gh:onramp-api#203_005",
+        "gh:onramp-api#244_001",
+        "gh:onramp-api#203_001",
+        "gh:onramp-api#201_000"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#203_000"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a009",
+      "query": "RAG 검색에서 도메인 하드필터를 폐기하고 소프트필터로 바꾼 이유와 새 검색 방식은 무엇인가요?",
+      "repeat": 3,
+      "latency_ms": 310.07,
+      "ranked_chunk_ids": [
+        "5537921_001",
+        "5537921_000",
+        "5537860_006",
+        "5537968_004",
+        "5537901_005",
+        "gh:onramp-api#48_001",
+        "gh:onramp-api#48_000",
+        "gh:onramp-api#58_000"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_001",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a010",
+      "query": "6월 9일 회의에서 리랭커 경량화 방식으로 무엇을 채택했고 로컬 측정 결과는 어땠나요?",
+      "repeat": 3,
+      "latency_ms": 274.95,
+      "ranked_chunk_ids": [
+        "5537921_003",
+        "5537906_000",
+        "5537921_000",
+        "5537921_009",
+        "5537906_001",
+        "5537921_008",
+        "5537906_002",
+        "5537921_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_003",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a011",
+      "query": "신입이 모호하게 질문해도 문서 맥락을 찾기 쉽게 하려면 P0 임베딩 입력에 어떤 메타정보를 포함하는 것이 권장되나요?",
+      "repeat": 3,
+      "latency_ms": 320.46,
+      "ranked_chunk_ids": [
+        "5537932_001",
+        "5537926_002",
+        "5537926_000",
+        "5537926_007",
+        "5537926_003",
+        "5537932_004",
+        "5537926_005",
+        "5537932_000"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_003"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "deterministic",
+      "qid": "a012",
+      "query": "API 기술 문서는 임베딩 검색만으로 부족할 수 있다고 본 이유와 함께 써야 할 검색 방식은 무엇인가요?",
+      "repeat": 3,
+      "latency_ms": 348.1,
+      "ranked_chunk_ids": [
+        "5537926_002",
+        "5537926_003",
+        "5537932_003",
+        "5537932_001",
+        "5537926_005",
+        "5537932_000",
+        "5537932_004",
+        "gh:onramp-api#227_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_002"
+      ],
+      "diagnostics": {
+        "strategy": "deterministic",
+        "fallback": null,
+        "calls": [],
+        "tool_call_count": 0,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 0,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a001",
+      "query": "Datadog 모니터에서 데이터 보고가 끊겼을 때 알림을 켜는 옵션과 기본값은 무엇인가요?",
+      "repeat": 1,
+      "latency_ms": 4569.14,
+      "ranked_chunk_ids": [
+        "338211_002",
+        "172836_002",
+        "338239_000",
+        "110639_000",
+        "75037_009",
+        "75037_008",
+        "172564_003",
+        "107054_003"
+      ],
+      "relevant_chunk_ids": [
+        "75235_003"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_bm25",
+            "query": "Datadog monitor alert options default settings data reporting stopped",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a002",
+      "query": "로그 API에서 첫 응답보다 결과가 더 남았는지 어떤 필드로 확인하고, 다음 요청에는 그 값을 어디에 넣나요?",
+      "repeat": 1,
+      "latency_ms": 2899.66,
+      "ranked_chunk_ids": [
+        "339162_018",
+        "339162_019",
+        "339034_013",
+        "339162_006",
+        "339162_017",
+        "339034_006",
+        "339034_012",
+        "339034_005"
+      ],
+      "relevant_chunk_ids": [
+        "339192_000",
+        "339192_001"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "로그 API 첫 응답 결과 확인 필드, 다음 요청에 넣는 값",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a003",
+      "query": "Apache를 재시작하면서 Listen 127.0.0.1:80을 Listen 80으로 바꾸면 왜 실패할 수 있고 어떻게 적용해야 하나요?",
+      "repeat": 1,
+      "latency_ms": 5411.73,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "337641_013",
+        "337641_014",
+        "104336_001",
+        "337641_009",
+        "72430_005",
+        "337641_008",
+        "72430_007"
+      ],
+      "relevant_chunk_ids": [
+        "104336_001",
+        "104336_002"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "Apache 재시작 Listen 127.0.0.1:80 Listen 80 변경 실패 이유 및 적용 방법",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a004",
+      "query": "Apache에서 8443 포트를 HTTPS로 서비스하려면 Listen 지시어를 어떻게 작성하나요?",
+      "repeat": 1,
+      "latency_ms": 5108.35,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "168548_006",
+        "104336_003",
+        "72430_003",
+        "335884_087",
+        "168398_001",
+        "104336_000",
+        "168398_000"
+      ],
+      "relevant_chunk_ids": [
+        "104336_003"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_bm25",
+            "query": "Apache Listen directive for HTTPS on port 8443",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a005",
+      "query": "Prometheus remote write에서 한 shard의 큐가 꽉 차면 전체 전송 흐름과 2시간 뒤 데이터에 어떤 영향이 있나요?",
+      "repeat": 1,
+      "latency_ms": 4802.14,
+      "ranked_chunk_ids": [
+        "77974_001",
+        "77974_000",
+        "77667_002",
+        "110406_006",
+        "110477_019",
+        "110406_004",
+        "110406_005",
+        "110406_007"
+      ],
+      "relevant_chunk_ids": [
+        "77974_000"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "Prometheus remote write shard queue full impact on data transmission flow",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a006",
+      "query": "Remote write의 shard 메모리는 어떤 값들에 비례하며 capacity와 max_samples_per_send를 늘릴 때 함께 낮춰야 할 설정은 무엇인가요?",
+      "repeat": 1,
+      "latency_ms": 3385.99,
+      "ranked_chunk_ids": [
+        "77974_001",
+        "77974_000",
+        "77974_002",
+        "72430_014",
+        "110406_006",
+        "110477_009",
+        "110477_008",
+        "110406_004"
+      ],
+      "relevant_chunk_ids": [
+        "77974_001"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "Remote write shard memory capacity max_samples_per_send",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a007",
+      "query": "STT Redis consumer가 XREADGROUP 대기 중 CrashLoopBackOff에 빠진 원인과 socket_timeout 계산식은 무엇이었나요?",
+      "repeat": 1,
+      "latency_ms": 3997.37,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#118_000",
+        "gh:onramp-stt-api#11_000",
+        "gh:onramp-api#119_000",
+        "gh:onramp-stt-api#12_000",
+        "gh:onramp-api#152_000",
+        "gh:onramp-api#155_000",
+        "gh:onramp-api#155_008",
+        "gh:onramp-api#118_001"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#119_000"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_bm25",
+            "query": "STT Redis consumer XREADGROUP CrashLoopBackOff 원인",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a008",
+      "query": "리랭커가 꺼졌을 때 관련 문서가 있어도 답변이 보류되던 이유와 coverage 계산을 어떻게 바꿨나요?",
+      "repeat": 1,
+      "latency_ms": 7229.02,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#203_000",
+        "gh:onramp-api#202_001",
+        "gh:onramp-api#202_000",
+        "gh:onramp-api#203_001",
+        "gh:onramp-api#203_005",
+        "gh:onramp-api#201_008",
+        "gh:onramp-api#203_004",
+        "gh:onramp-api#201_000"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#203_000"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "리랭커 꺼졌을 때 답변 보류 이유 coverage 계산 변경",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a009",
+      "query": "RAG 검색에서 도메인 하드필터를 폐기하고 소프트필터로 바꾼 이유와 새 검색 방식은 무엇인가요?",
+      "repeat": 1,
+      "latency_ms": 5104.48,
+      "ranked_chunk_ids": [
+        "5537921_001",
+        "gh:onramp-api#58_000",
+        "gh:onramp-api#58_005",
+        "gh:onramp-api#65_010",
+        "gh:onramp-api#48_000",
+        "gh:onramp-api#65_006",
+        "gh:onramp-api#50_000",
+        "gh:onramp-api#48_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_001",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "RAG 검색 도메인 하드필터 소프트필터 변경 이유 및 새 검색 방식",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a010",
+      "query": "6월 9일 회의에서 리랭커 경량화 방식으로 무엇을 채택했고 로컬 측정 결과는 어땠나요?",
+      "repeat": 1,
+      "latency_ms": 4327.21,
+      "ranked_chunk_ids": [
+        "5537906_000",
+        "5537921_003",
+        "5537943_003",
+        "5537906_001",
+        "5537921_000",
+        "5537943_000",
+        "5537906_006",
+        "5537895_000"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_003",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "6월 9일 회의 리랭커 경량화 방식 로컬 측정 결과",
+            "hit_count": 20
+          },
+          {
+            "iteration": 2,
+            "tool": "search_bm25",
+            "query": "6월 9일 회의 리랭커 경량화 방식 로컬 측정 결과",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 2,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 2,
+        "rrf_applied": true,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a011",
+      "query": "신입이 모호하게 질문해도 문서 맥락을 찾기 쉽게 하려면 P0 임베딩 입력에 어떤 메타정보를 포함하는 것이 권장되나요?",
+      "repeat": 1,
+      "latency_ms": 5230.75,
+      "ranked_chunk_ids": [
+        "5537926_007",
+        "5537932_004",
+        "5537926_000",
+        "5537926_002",
+        "5537932_006",
+        "5537932_000",
+        "5537932_001",
+        "5537926_005"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_003"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "P0 임베딩 입력 메타정보 권장 사항",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a012",
+      "query": "API 기술 문서는 임베딩 검색만으로 부족할 수 있다고 본 이유와 함께 써야 할 검색 방식은 무엇인가요?",
+      "repeat": 1,
+      "latency_ms": 5445.29,
+      "ranked_chunk_ids": [
+        "5537926_002",
+        "5537926_005",
+        "5537844_004",
+        "5537844_024",
+        "gh:onramp-api#169_000",
+        "gh:onramp-api#169_004",
+        "5537926_004",
+        "108117_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_002"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "API 기술 문서 임베딩 검색 부족 이유 및 검색 방식",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a001",
+      "query": "Datadog 모니터에서 데이터 보고가 끊겼을 때 알림을 켜는 옵션과 기본값은 무엇인가요?",
+      "repeat": 2,
+      "latency_ms": 5623.44,
+      "ranked_chunk_ids": [
+        "338211_002",
+        "172836_002",
+        "338239_000",
+        "110639_000",
+        "75037_009",
+        "75037_008",
+        "172564_003",
+        "107054_003"
+      ],
+      "relevant_chunk_ids": [
+        "75235_003"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_bm25",
+            "query": "Datadog monitor alert options default settings data reporting stopped",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a002",
+      "query": "로그 API에서 첫 응답보다 결과가 더 남았는지 어떤 필드로 확인하고, 다음 요청에는 그 값을 어디에 넣나요?",
+      "repeat": 2,
+      "latency_ms": 3512.1,
+      "ranked_chunk_ids": [
+        "339162_018",
+        "339162_019",
+        "339034_013",
+        "339162_017",
+        "339162_006",
+        "339034_005",
+        "339162_015",
+        "339034_006"
+      ],
+      "relevant_chunk_ids": [
+        "339192_000",
+        "339192_001"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "로그 API 첫 응답 결과 확인 필드, 다음 요청 값",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a003",
+      "query": "Apache를 재시작하면서 Listen 127.0.0.1:80을 Listen 80으로 바꾸면 왜 실패할 수 있고 어떻게 적용해야 하나요?",
+      "repeat": 2,
+      "latency_ms": 6867.79,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "337641_013",
+        "337641_014",
+        "104336_001",
+        "337641_009",
+        "72430_005",
+        "337641_008",
+        "72430_007"
+      ],
+      "relevant_chunk_ids": [
+        "104336_001",
+        "104336_002"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "Apache 재시작 Listen 127.0.0.1:80 Listen 80 변경 실패 이유 및 적용 방법",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a004",
+      "query": "Apache에서 8443 포트를 HTTPS로 서비스하려면 Listen 지시어를 어떻게 작성하나요?",
+      "repeat": 2,
+      "latency_ms": 3304.85,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "168548_006",
+        "104336_003",
+        "72430_003",
+        "335884_087",
+        "168398_001",
+        "104336_000",
+        "168398_000"
+      ],
+      "relevant_chunk_ids": [
+        "104336_003"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_bm25",
+            "query": "Apache Listen directive for HTTPS on port 8443",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a005",
+      "query": "Prometheus remote write에서 한 shard의 큐가 꽉 차면 전체 전송 흐름과 2시간 뒤 데이터에 어떤 영향이 있나요?",
+      "repeat": 2,
+      "latency_ms": 5062.29,
+      "ranked_chunk_ids": [
+        "77974_001",
+        "77974_000",
+        "77667_002",
+        "110406_006",
+        "110477_019",
+        "110406_004",
+        "110406_005",
+        "110406_007"
+      ],
+      "relevant_chunk_ids": [
+        "77974_000"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "Prometheus remote write shard queue full impact on data transmission flow",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a006",
+      "query": "Remote write의 shard 메모리는 어떤 값들에 비례하며 capacity와 max_samples_per_send를 늘릴 때 함께 낮춰야 할 설정은 무엇인가요?",
+      "repeat": 2,
+      "latency_ms": 3690.08,
+      "ranked_chunk_ids": [
+        "77974_001",
+        "77974_000",
+        "77974_002",
+        "72430_014",
+        "110406_006",
+        "110477_009",
+        "110477_008",
+        "110406_004"
+      ],
+      "relevant_chunk_ids": [
+        "77974_001"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "Remote write shard memory capacity max_samples_per_send",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a007",
+      "query": "STT Redis consumer가 XREADGROUP 대기 중 CrashLoopBackOff에 빠진 원인과 socket_timeout 계산식은 무엇이었나요?",
+      "repeat": 2,
+      "latency_ms": 4866.85,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#118_000",
+        "gh:onramp-stt-api#11_000",
+        "gh:onramp-api#119_000",
+        "gh:onramp-stt-api#12_000",
+        "gh:onramp-api#152_000",
+        "gh:onramp-api#155_000",
+        "gh:onramp-api#155_008",
+        "gh:onramp-api#118_001"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#119_000"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_bm25",
+            "query": "STT Redis consumer XREADGROUP CrashLoopBackOff 원인",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a008",
+      "query": "리랭커가 꺼졌을 때 관련 문서가 있어도 답변이 보류되던 이유와 coverage 계산을 어떻게 바꿨나요?",
+      "repeat": 2,
+      "latency_ms": 5480.87,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#203_000",
+        "gh:onramp-api#202_001",
+        "gh:onramp-api#202_000",
+        "gh:onramp-api#203_001",
+        "gh:onramp-api#203_005",
+        "gh:onramp-api#201_008",
+        "gh:onramp-api#203_004",
+        "gh:onramp-api#201_000"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#203_000"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "리랭커 꺼졌을 때 답변 보류 이유 coverage 계산 변경",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a009",
+      "query": "RAG 검색에서 도메인 하드필터를 폐기하고 소프트필터로 바꾼 이유와 새 검색 방식은 무엇인가요?",
+      "repeat": 2,
+      "latency_ms": 6085.09,
+      "ranked_chunk_ids": [
+        "5537921_001",
+        "gh:onramp-api#58_000",
+        "gh:onramp-api#58_005",
+        "gh:onramp-api#65_010",
+        "gh:onramp-api#48_000",
+        "gh:onramp-api#65_006",
+        "gh:onramp-api#50_000",
+        "gh:onramp-api#48_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_001",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "RAG 검색 도메인 하드필터 소프트필터 변경 이유 및 새 검색 방식",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a010",
+      "query": "6월 9일 회의에서 리랭커 경량화 방식으로 무엇을 채택했고 로컬 측정 결과는 어땠나요?",
+      "repeat": 2,
+      "latency_ms": 4556.83,
+      "ranked_chunk_ids": [
+        "5537906_000",
+        "5537921_003",
+        "5537943_003",
+        "5537906_001",
+        "5537921_000",
+        "5537943_000",
+        "5537906_006",
+        "5537895_000"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_003",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "6월 9일 회의 리랭커 경량화 방식 로컬 측정 결과",
+            "hit_count": 20
+          },
+          {
+            "iteration": 2,
+            "tool": "search_bm25",
+            "query": "6월 9일 회의 리랭커 경량화 방식 로컬 측정 결과",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 2,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 2,
+        "rrf_applied": true,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a011",
+      "query": "신입이 모호하게 질문해도 문서 맥락을 찾기 쉽게 하려면 P0 임베딩 입력에 어떤 메타정보를 포함하는 것이 권장되나요?",
+      "repeat": 2,
+      "latency_ms": 3896.82,
+      "ranked_chunk_ids": [
+        "5537926_007",
+        "5537932_004",
+        "5537926_000",
+        "5537926_002",
+        "5537932_006",
+        "5537932_000",
+        "5537932_001",
+        "5537926_005"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_003"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "P0 임베딩 입력 메타정보 권장 사항",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a012",
+      "query": "API 기술 문서는 임베딩 검색만으로 부족할 수 있다고 본 이유와 함께 써야 할 검색 방식은 무엇인가요?",
+      "repeat": 2,
+      "latency_ms": 5014.3,
+      "ranked_chunk_ids": [
+        "5537926_005",
+        "5537926_002",
+        "5537844_004",
+        "gh:onramp-api#169_000",
+        "5537844_024",
+        "gh:onramp-api#169_004",
+        "5537932_004",
+        "108117_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_002"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "API 기술 문서 임베딩 검색 부족 이유 검색 방식",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a001",
+      "query": "Datadog 모니터에서 데이터 보고가 끊겼을 때 알림을 켜는 옵션과 기본값은 무엇인가요?",
+      "repeat": 3,
+      "latency_ms": 2853.11,
+      "ranked_chunk_ids": [
+        "338211_002",
+        "172836_002",
+        "338239_000",
+        "75037_009",
+        "75037_008",
+        "172564_003",
+        "72899_002",
+        "107054_003"
+      ],
+      "relevant_chunk_ids": [
+        "75235_003"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_bm25",
+            "query": "Datadog monitor alert options default when data reporting stops",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a002",
+      "query": "로그 API에서 첫 응답보다 결과가 더 남았는지 어떤 필드로 확인하고, 다음 요청에는 그 값을 어디에 넣나요?",
+      "repeat": 3,
+      "latency_ms": 3322.02,
+      "ranked_chunk_ids": [
+        "339162_018",
+        "339162_019",
+        "339034_013",
+        "339162_017",
+        "339162_006",
+        "339034_005",
+        "339162_015",
+        "339034_006"
+      ],
+      "relevant_chunk_ids": [
+        "339192_000",
+        "339192_001"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "로그 API 첫 응답 결과 확인 필드, 다음 요청 값",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a003",
+      "query": "Apache를 재시작하면서 Listen 127.0.0.1:80을 Listen 80으로 바꾸면 왜 실패할 수 있고 어떻게 적용해야 하나요?",
+      "repeat": 3,
+      "latency_ms": 6621.13,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "337641_013",
+        "337641_014",
+        "104336_001",
+        "337641_009",
+        "72430_005",
+        "337641_008",
+        "72430_007"
+      ],
+      "relevant_chunk_ids": [
+        "104336_001",
+        "104336_002"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "Apache 재시작 Listen 127.0.0.1:80 Listen 80 변경 실패 이유 및 적용 방법",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a004",
+      "query": "Apache에서 8443 포트를 HTTPS로 서비스하려면 Listen 지시어를 어떻게 작성하나요?",
+      "repeat": 3,
+      "latency_ms": 3276.8,
+      "ranked_chunk_ids": [
+        "72430_004",
+        "168548_006",
+        "104336_003",
+        "72430_003",
+        "335884_087",
+        "168398_001",
+        "104336_000",
+        "168398_000"
+      ],
+      "relevant_chunk_ids": [
+        "104336_003"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_bm25",
+            "query": "Apache Listen directive for HTTPS on port 8443",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a005",
+      "query": "Prometheus remote write에서 한 shard의 큐가 꽉 차면 전체 전송 흐름과 2시간 뒤 데이터에 어떤 영향이 있나요?",
+      "repeat": 3,
+      "latency_ms": 4363.18,
+      "ranked_chunk_ids": [
+        "77974_001",
+        "77974_000",
+        "77667_002",
+        "110406_006",
+        "110477_019",
+        "110406_004",
+        "110406_005",
+        "110406_007"
+      ],
+      "relevant_chunk_ids": [
+        "77974_000"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "Prometheus remote write shard queue full impact on data transmission flow",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a006",
+      "query": "Remote write의 shard 메모리는 어떤 값들에 비례하며 capacity와 max_samples_per_send를 늘릴 때 함께 낮춰야 할 설정은 무엇인가요?",
+      "repeat": 3,
+      "latency_ms": 3836.56,
+      "ranked_chunk_ids": [
+        "77974_001",
+        "77974_000",
+        "77974_002",
+        "72430_014",
+        "110406_006",
+        "110477_009",
+        "110477_008",
+        "110406_004"
+      ],
+      "relevant_chunk_ids": [
+        "77974_001"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "Remote write shard memory capacity max_samples_per_send",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a007",
+      "query": "STT Redis consumer가 XREADGROUP 대기 중 CrashLoopBackOff에 빠진 원인과 socket_timeout 계산식은 무엇이었나요?",
+      "repeat": 3,
+      "latency_ms": 5112.89,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#118_000",
+        "gh:onramp-stt-api#11_000",
+        "gh:onramp-api#119_000",
+        "gh:onramp-stt-api#12_000",
+        "gh:onramp-api#152_000",
+        "gh:onramp-api#155_000",
+        "gh:onramp-api#155_008",
+        "gh:onramp-api#118_001"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#119_000"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_bm25",
+            "query": "STT Redis consumer XREADGROUP CrashLoopBackOff 원인",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a008",
+      "query": "리랭커가 꺼졌을 때 관련 문서가 있어도 답변이 보류되던 이유와 coverage 계산을 어떻게 바꿨나요?",
+      "repeat": 3,
+      "latency_ms": 5099.81,
+      "ranked_chunk_ids": [
+        "gh:onramp-api#203_000",
+        "gh:onramp-api#202_001",
+        "gh:onramp-api#202_000",
+        "gh:onramp-api#203_001",
+        "gh:onramp-api#203_005",
+        "gh:onramp-api#201_008",
+        "gh:onramp-api#203_004",
+        "gh:onramp-api#201_000"
+      ],
+      "relevant_chunk_ids": [
+        "gh:onramp-api#203_000"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "리랭커 꺼졌을 때 답변 보류 이유 coverage 계산 변경",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a009",
+      "query": "RAG 검색에서 도메인 하드필터를 폐기하고 소프트필터로 바꾼 이유와 새 검색 방식은 무엇인가요?",
+      "repeat": 3,
+      "latency_ms": 5331.92,
+      "ranked_chunk_ids": [
+        "5537921_001",
+        "gh:onramp-api#58_000",
+        "gh:onramp-api#58_005",
+        "gh:onramp-api#65_010",
+        "gh:onramp-api#48_000",
+        "gh:onramp-api#65_006",
+        "gh:onramp-api#50_000",
+        "gh:onramp-api#48_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_001",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "RAG 검색 도메인 하드필터 소프트필터 변경 이유 및 새 검색 방식",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a010",
+      "query": "6월 9일 회의에서 리랭커 경량화 방식으로 무엇을 채택했고 로컬 측정 결과는 어땠나요?",
+      "repeat": 3,
+      "latency_ms": 4924.4,
+      "ranked_chunk_ids": [
+        "5537906_000",
+        "5537921_003",
+        "5537943_003",
+        "5537906_001",
+        "5537921_000",
+        "5537943_000",
+        "5537906_006",
+        "5537895_000"
+      ],
+      "relevant_chunk_ids": [
+        "5537921_003",
+        "5537921_009"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "6월 9일 회의 리랭커 경량화 방식 로컬 측정 결과",
+            "hit_count": 20
+          },
+          {
+            "iteration": 2,
+            "tool": "search_bm25",
+            "query": "6월 9일 회의 리랭커 경량화 방식 로컬 측정 결과",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 2,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 2,
+        "rrf_applied": true,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a011",
+      "query": "신입이 모호하게 질문해도 문서 맥락을 찾기 쉽게 하려면 P0 임베딩 입력에 어떤 메타정보를 포함하는 것이 권장되나요?",
+      "repeat": 3,
+      "latency_ms": 5191.36,
+      "ranked_chunk_ids": [
+        "5537926_007",
+        "5537932_004",
+        "5537932_000",
+        "5537926_000",
+        "5537926_002",
+        "5537932_006",
+        "5537932_003",
+        "5537932_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_003"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "P0 임베딩 메타정보 포함 권장 사항",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    },
+    {
+      "strategy": "agentic",
+      "qid": "a012",
+      "query": "API 기술 문서는 임베딩 검색만으로 부족할 수 있다고 본 이유와 함께 써야 할 검색 방식은 무엇인가요?",
+      "repeat": 3,
+      "latency_ms": 5203.83,
+      "ranked_chunk_ids": [
+        "5537926_002",
+        "5537926_005",
+        "5537844_004",
+        "5537844_024",
+        "gh:onramp-api#169_000",
+        "gh:onramp-api#169_004",
+        "5537926_004",
+        "108117_001"
+      ],
+      "relevant_chunk_ids": [
+        "5537926_002"
+      ],
+      "diagnostics": {
+        "strategy": "agentic",
+        "fallback": null,
+        "calls": [
+          {
+            "iteration": 1,
+            "tool": "search_dense",
+            "query": "API 기술 문서 임베딩 검색 부족 이유 및 검색 방식",
+            "hit_count": 20
+          }
+        ],
+        "tool_call_count": 1,
+        "duplicate_calls": 0,
+        "policy_skipped_calls": 0,
+        "ranking_list_count": 1,
+        "rrf_applied": false,
+        "rerank_fallback": true
+      }
+    }
+  ]
+}

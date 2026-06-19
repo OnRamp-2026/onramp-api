@@ -254,7 +254,8 @@ class Settings(BaseSettings):
     # Agentic Retriever 1차 실험(#237): 기본 deterministic 유지. 로컬 A/B에서만 agentic opt-in.
     retriever_strategy: Literal["deterministic", "agentic"] = "deterministic"
     retriever_agentic_max_iterations: int = Field(default=2, ge=1, le=5)
-    retriever_agentic_max_tool_calls: int = Field(default=4, ge=1, le=10)
+    # 기존 로컬 env 값(4)은 허용하되 Agentic 정책이 실행 시 최대 2회로 하드캡한다.
+    retriever_agentic_max_tool_calls: int = Field(default=2, ge=1, le=10)
     retriever_agentic_tool_snippet_chars: int = Field(default=200, ge=50, le=1000)
 
     @model_validator(mode="after")
