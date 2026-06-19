@@ -43,13 +43,47 @@ async def chat(request: ChatRequest) -> ChatResponse:
         response = _to_response(state, request)
         if root is not None:
             root.update(output={"answerability_status": response.answerability_status, "domain": response.domain})
-            # trust_score를 online score로 부착 + trace_id를 응답에 노출(피드백 참조용)
-            # state["trust_score"]는 TrustScore 객체 → overall([0,1] float)을 꺼낸다.
-            overall = getattr(state.get("trust_score"), "overall", None)
-            if isinstance(overall, int | float):
-                score_current_trace(name="trust_score", value=float(overall))
+            # trust overall + 분해 성분(4축·게이트)을 online score로 부착 → Langfuse에서
+            # answerability_status별 보류 원인 분포를 집계 가능 (#256). trace_id는 피드백 참조용.
+            _score_trust_breakdown(state)
             response.trace_id = current_trace_id() or ""
         return response
+
+
+# Trust overall 블렌드 성분(4축) + 게이트 3종 — online score 이름 매핑.
+# overall은 기존 score 이름(trust_score)을 그대로 보존한다(#137 계약).
+_EVIDENCE_AXES = (
+    ("trust_score", "overall"),  # 가중 블렌드 (기존 이름 유지)
+    ("ev_version_fit", "version_fit_mean"),
+    ("ev_coverage", "coverage"),
+    ("ev_residual_dup", "residual_duplication"),
+    ("ev_authority", "authority_mean"),
+)
+_GATE_FLAGS = (
+    ("gate_conflicting", "conflicting"),
+    ("gate_deprecated", "deprecated_only"),
+    ("gate_sensitive", "sensitive_block"),
+)
+
+
+def _score_trust_breakdown(state: dict) -> None:
+    """Trust overall과 그 분해 성분(4축·게이트)을 현재 trace에 online score로 부착한다 (#256).
+
+    overall 단일값만으로는 '왜 보류됐는지'가 안 보여, 성분을 함께 남겨 Langfuse에서
+    answerability_status별 원인 분포(coverage 부족 vs 게이트 vs version_fit)를 집계할 수 있게 한다.
+    router 차단(UNANSWERABLE) 경로는 trust가 안 돌아 trust_score=None → 전부 skip.
+    getattr 방어 — 부분 생성 TrustScore(overall=...)에도 안전(없는 축은 건너뜀).
+    """
+    trust = state.get("trust_score")
+    if trust is not None:
+        for score_name, attr in _EVIDENCE_AXES:
+            value = getattr(trust, attr, None)
+            if isinstance(value, int | float) and not isinstance(value, bool):
+                score_current_trace(name=score_name, value=float(value))
+    gate = state.get("gate_flags")
+    if gate is not None:
+        for score_name, attr in _GATE_FLAGS:
+            score_current_trace(name=score_name, value=float(bool(getattr(gate, attr, False))))
 
 
 def _to_response(state: dict, request: ChatRequest) -> ChatResponse:

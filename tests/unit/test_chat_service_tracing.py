@@ -140,3 +140,63 @@ async def test_chat_records_trust_score_overall(monkeypatch):
     assert scored.get("name") == "trust_score"
     assert scored.get("value") == 0.83
     assert resp.trace_id == "tid-1"
+
+
+@pytest.mark.asyncio
+async def test_chat_records_trust_breakdown_scores(monkeypatch):
+    """보류 원인 진단용 — overall 외 4축·게이트가 분해 online score로 부착된다 (#256)."""
+    import app.observability.langfuse as lf
+    import app.services.chat_service as cs
+    from app.agents.state import GateFlags, TrustScore
+
+    async def fake_ainvoke(state, config=None):
+        return {
+            "trust_score": TrustScore(
+                overall=0.55,
+                version_fit_mean=0.7,
+                coverage=0.3,
+                residual_duplication=0.1,
+                authority_mean=0.9,
+            ),
+            "gate_flags": GateFlags(conflicting=True, deprecated_only=False, sensitive_block=False),
+        }
+
+    monkeypatch.setattr(cs.compiled_graph, "ainvoke", fake_ainvoke)
+
+    scores: list[tuple[str, float]] = []
+
+    class FakeRoot:
+        def update(self, **kw):
+            pass
+
+    class FakeCM:
+        def __enter__(self):
+            return FakeRoot()
+
+        def __exit__(self, *a):
+            return False
+
+    class FakeClient:
+        def start_as_current_observation(self, **kw):
+            return FakeCM()
+
+        def score_current_trace(self, **kw):
+            scores.append((kw["name"], kw["value"]))
+
+        def get_current_trace_id(self):
+            return "tid-2"
+
+    monkeypatch.setattr(lf, "get_langfuse_client", lambda: FakeClient())
+    monkeypatch.setattr(lf, "get_callback_handler", lambda: None)
+
+    await cs.chat(ChatRequest(query="안녕"))
+
+    by_name = dict(scores)
+    assert by_name["trust_score"] == 0.55  # overall 기존 계약 보존
+    assert by_name["ev_version_fit"] == 0.7
+    assert by_name["ev_coverage"] == 0.3
+    assert by_name["ev_residual_dup"] == 0.1
+    assert by_name["ev_authority"] == 0.9
+    assert by_name["gate_conflicting"] == 1.0  # bool True → 1.0
+    assert by_name["gate_deprecated"] == 0.0
+    assert by_name["gate_sensitive"] == 0.0
