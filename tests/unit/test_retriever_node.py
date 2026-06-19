@@ -3,7 +3,7 @@ import pytest
 from app.agents.retriever import node as node_mod
 from app.agents.retriever import search as search_mod
 from app.agents.retriever.agentic import AgenticRetrievalFallbackError, AgenticSearchResult
-from app.agents.retriever.node import retrieve_node
+from app.agents.retriever.node import retrieve_node, retrieve_with_diagnostics
 from app.agents.state import SourceDocument
 from app.config import Settings
 
@@ -81,12 +81,16 @@ async def test_node_agentic_strategy_uses_agentic_hits(monkeypatch):
     monkeypatch.setattr(node_mod, "get_reranker", lambda: _R())
     monkeypatch.setattr(node_mod, "get_lineages", lambda keys, **kw: {k: frozenset() for k in keys})
 
-    out = await retrieve_node(
-        {"refined_query": "q", "domains": [], "tenant_id": "tenant1-onramp", "model": "gpt-4o-mini"}
+    out, diagnostics = await retrieve_with_diagnostics(
+        {"refined_query": "q", "domains": [], "tenant_id": "tenant1-onramp", "model": "gpt-4o-mini"},
+        settings=Settings(retriever_strategy="agentic"),
     )
 
     assert out["documents"][0].content_snippet == "agentic"
     assert out["documents"][0].score == 0.77
+    assert diagnostics.strategy == "agentic"
+    assert diagnostics.rrf_applied is False
+    assert diagnostics.fallback is None
 
 
 @pytest.mark.asyncio

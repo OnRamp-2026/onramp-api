@@ -11,7 +11,9 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from functools import partial
+from typing import Any
 
 import anyio
 
@@ -31,9 +33,40 @@ logger = logging.getLogger(__name__)
 RankedRow = tuple[float, float, dict]
 
 
-async def retrieve_node(state: AgentState) -> dict:
-    """정제 쿼리로 검색·리랭킹해 top-N 출처 문서를 반환한다."""
-    settings = get_settings()
+@dataclass
+class RetrievalDiagnostics:
+    """Retriever A/B 평가용 진단값. 운영 AgentState에는 노출하지 않는다."""
+
+    strategy: str
+    fallback: str | None = None
+    calls: list[dict[str, Any]] = field(default_factory=list)
+    tool_call_count: int = 0
+    duplicate_calls: int = 0
+    ranking_list_count: int = 0
+    rrf_applied: bool = False
+    rerank_fallback: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "strategy": self.strategy,
+            "fallback": self.fallback,
+            "calls": self.calls,
+            "tool_call_count": self.tool_call_count,
+            "duplicate_calls": self.duplicate_calls,
+            "ranking_list_count": self.ranking_list_count,
+            "rrf_applied": self.rrf_applied,
+            "rerank_fallback": self.rerank_fallback,
+        }
+
+
+async def retrieve_with_diagnostics(
+    state: AgentState,
+    *,
+    settings: Settings | None = None,
+) -> tuple[dict, RetrievalDiagnostics]:
+    """운영 Retriever와 동일한 경로를 실행하고 평가용 진단값을 함께 반환한다."""
+    settings = settings or get_settings()
+    diagnostics = RetrievalDiagnostics(strategy=settings.retriever_strategy)
     refined = state["refined_query"]
     # 질의 도메인 집합(순서 우선). domains 키가 **아예 없을 때만** 구형 단수 domain으로 폴백.
     # (명시적 domains=[] — 예: Trust 재검색 초기화 — 은 그대로 빈 집합으로 존중, 단수로 복구 금지)
@@ -77,14 +110,21 @@ async def retrieve_node(state: AgentState) -> dict:
                     ),
                 )
                 hits = agentic_result.hits
+                diagnostics.calls = list(agentic_result.metadata.get("calls", []))
+                diagnostics.tool_call_count = int(agentic_result.metadata.get("tool_call_count", 0))
+                diagnostics.duplicate_calls = int(agentic_result.metadata.get("duplicate_calls", 0))
+                diagnostics.ranking_list_count = int(agentic_result.metadata.get("ranking_list_count", 0))
+                diagnostics.rrf_applied = bool(agentic_result.metadata.get("rrf_applied", False))
                 if span is not None:
                     span.update(metadata={**agentic_result.metadata, "fallback": None})
             except AgenticRetrievalFallbackError as exc:
                 logger.warning("Agentic Retriever 결과 없음 — deterministic 검색 폴백 (%s)", exc.reason)
+                diagnostics.fallback = exc.reason
                 if span is not None:
                     span.update(metadata={"fallback": exc.reason})
             except Exception as exc:
                 logger.warning("Agentic Retriever 실패 — deterministic 검색 폴백", exc_info=True)
+                diagnostics.fallback = type(exc).__name__
                 if span is not None:
                     span.update(metadata={"fallback": type(exc).__name__})
 
@@ -149,8 +189,18 @@ async def retrieve_node(state: AgentState) -> dict:
         _to_source_doc(payload, ranking_score, raw_score, vec_score.get(payload.get("chunk_id"), 0.0), settings)
         for ranking_score, raw_score, payload in ranked[: settings.retriever_top_n]
     ]
+    diagnostics.rerank_fallback = fallback_reason is not None
     # 리랭커 폴백 여부를 Trust로 전달 — coverage 산정이 raw rerank τ 대신 검색점수 비율을 쓰게 한다 (#202)
-    return {"documents": docs, "rerank_fallback": fallback_reason is not None, "agent_trace": ["retriever"]}
+    return (
+        {"documents": docs, "rerank_fallback": fallback_reason is not None, "agent_trace": ["retriever"]},
+        diagnostics,
+    )
+
+
+async def retrieve_node(state: AgentState) -> dict:
+    """정제 쿼리로 검색·리랭킹해 top-N 출처 문서를 반환한다."""
+    output, _ = await retrieve_with_diagnostics(state)
+    return output
 
 
 def _domain_values(domains: Sequence[Domain | str] | None) -> list[str]:
