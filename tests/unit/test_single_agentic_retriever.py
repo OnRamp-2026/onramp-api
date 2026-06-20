@@ -181,6 +181,78 @@ async def test_same_query_can_expand_source_search_to_all_documents(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_initial_source_search_also_collects_global_candidates(monkeypatch):
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="1",
+                    name="hybrid_search_by_source",
+                    arguments={"query": "ArgoCD credential bootstrap", "source": "confluence"},
+                )
+            ],
+        )
+
+    called = []
+
+    async def fake_tool(name, arguments, *, context):
+        called.append((name, arguments))
+        if name == "hybrid_search_by_source":
+            return [
+                ScoredPoint(
+                    id="confluence-1",
+                    version=0,
+                    score=0.9,
+                    payload={
+                        "chunk_id": "confluence-1",
+                        "page_id": "page-1",
+                        "content": "일반 Secret 문서",
+                        "source": "confluence",
+                    },
+                )
+            ]
+        return [
+            ScoredPoint(
+                id="github-1",
+                version=0,
+                score=0.8,
+                payload={
+                    "chunk_id": "github-1",
+                    "page_id": "gh:gitops#5",
+                    "content": "ArgoCD credential bootstrap 구현",
+                    "source": "github",
+                },
+            )
+        ]
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    out = await run_agentic_step(
+        {
+            "query": "ArgoCD credential bootstrap 방식은?",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+        },
+        Settings(),
+    )
+
+    assert [(name, arguments.get("source")) for name, arguments in called] == [
+        ("hybrid_search_by_source", "confluence"),
+        ("hybrid_search", None),
+    ]
+    assert {candidate.chunk_id for candidate in out["retrieval_candidates"]} == {
+        "confluence-1",
+        "github-1",
+    }
+    assert [trace.tool for trace in out["tool_trace"]] == [
+        "hybrid_search_by_source",
+        "hybrid_search",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_retrieve_node_runs_single_agentic_and_reranks(monkeypatch):
     async def fake_llm(*args, **kwargs):
         return ToolResponse(

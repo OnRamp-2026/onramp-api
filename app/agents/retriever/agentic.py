@@ -45,6 +45,26 @@ def _attempted_tool_identities(state: AgentState, existing: list[RetrievalCandid
     return attempted
 
 
+def _expand_initial_source_search(calls: list[ToolCall], *, limit: int) -> list[ToolCall]:
+    expanded: list[ToolCall] = []
+    for call in calls:
+        if len(expanded) >= limit:
+            break
+        expanded.append(call)
+        if call.name != "hybrid_search_by_source" or len(expanded) >= limit:
+            continue
+        query = _normalize(str(call.arguments.get("query") or ""))
+        if query:
+            expanded.append(
+                ToolCall(
+                    id=f"{call.id}:global",
+                    name="hybrid_search",
+                    arguments={"query": query},
+                )
+            )
+    return expanded
+
+
 def _domains(state: AgentState) -> tuple[str, ...]:
     return tuple(getattr(domain, "value", domain) for domain in state.get("domains", []))
 
@@ -124,6 +144,8 @@ async def run_agentic_step(state: AgentState, settings: Settings) -> dict[str, A
         fallback = type(exc).__name__
 
     first_step = not existing
+    if first_step:
+        calls = _expand_initial_source_search(calls, limit=settings.single_agentic_max_tools_per_step)
     if not calls and first_step:
         calls = [ToolCall(id="fallback", name="hybrid_search", arguments={"query": state.get("query", "")})]
         fallback = "missing_initial_tool"
