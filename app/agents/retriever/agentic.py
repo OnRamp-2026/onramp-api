@@ -8,6 +8,7 @@ import re
 from time import perf_counter
 from typing import Any
 
+from app.agents.answer.answerability import ANSWERABLE_THRESHOLD
 from app.agents.retriever.tools import TOOL_SCHEMAS, SearchToolContext, execute_tool
 from app.agents.state import AgentState, RetrievalCandidate, RetrievalPhase, ToolTrace
 from app.config import Settings
@@ -66,6 +67,13 @@ def _domains(state: AgentState) -> tuple[str, ...]:
     return tuple(getattr(domain, "value", domain) for domain in state.get("domains", []))
 
 
+def _can_complete_without_llm(state: AgentState, existing: list[RetrievalCandidate]) -> bool:
+    trust = state.get("trust_score")
+    gate = state.get("gate_flags")
+    blocked = bool(gate and (gate.conflicting or gate.deprecated_only or gate.sensitive_block))
+    return bool(existing and trust and trust.overall >= ANSWERABLE_THRESHOLD and not blocked)
+
+
 def _evidence_prompt(state: AgentState) -> str:
     documents = [
         {
@@ -116,6 +124,8 @@ async def run_agentic_step(state: AgentState, settings: Settings) -> dict[str, A
     if not tenant_id:
         raise ValueError("single_agentic 검색에는 tenant_id가 필요합니다")
     existing = list(state.get("retrieval_candidates", []))
+    if _can_complete_without_llm(state, existing):
+        return {"retrieval_phase": RetrievalPhase.COMPLETE, "agent_trace": ["retriever"]}
     candidate_doc_ids = frozenset(
         str(candidate.payload.get("page_id") or "") for candidate in existing if candidate.payload.get("page_id")
     )

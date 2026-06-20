@@ -4,7 +4,7 @@ from qdrant_client.models import ScoredPoint
 from app.agents.retriever import agentic
 from app.agents.retriever.agentic import merge_candidates, run_agentic_step
 from app.agents.retriever.node import retrieve_node
-from app.agents.state import RetrievalCandidate, RetrievalPhase
+from app.agents.state import GateFlags, RetrievalCandidate, RetrievalPhase, TrustScore
 from app.config import Settings
 from app.services.llm_selector import ToolCall, ToolResponse
 
@@ -56,6 +56,27 @@ async def test_second_step_without_tool_completes(monkeypatch):
             "tenant_id": "tenant-a",
             "retriever_strategy": "single_agentic",
             "retrieval_candidates": [_candidate(0.5)],
+        },
+        Settings(),
+    )
+    assert out["retrieval_phase"] == RetrievalPhase.COMPLETE
+
+
+@pytest.mark.asyncio
+async def test_high_trust_second_step_completes_without_retriever_llm(monkeypatch):
+    async def fail_llm(*args, **kwargs):
+        raise AssertionError("high-trust evidence must skip retriever LLM")
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fail_llm)
+    out = await run_agentic_step(
+        {
+            "query": "원문",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "retrieval_candidates": [_candidate(0.9)],
+            "documents": [],
+            "trust_score": TrustScore(overall=0.95, coverage=1.0),
+            "gate_flags": GateFlags(),
         },
         Settings(),
     )

@@ -14,6 +14,7 @@ import logging
 
 from app.agents.answer.answerability import (
     NO_SOURCE_REASON,
+    PARTIAL_THRESHOLD,
     decide_answerability,
     reason_for,
 )
@@ -168,6 +169,29 @@ async def answer_node(state: AgentState) -> dict:
             reason=reason_for(status),
         )
 
+    gate = state.get("gate_flags")
+    trust = state.get("trust_score")
+    preflight_status = decide_answerability(
+        documents,
+        evidence_score=(trust.overall if trust else None),
+        gate=gate,
+    )
+    if preflight_status in _HOLD_STATUSES and (
+        gate
+        and (gate.conflicting or gate.deprecated_only or gate.sensitive_block)
+        or trust
+        and trust.overall < PARTIAL_THRESHOLD
+    ):
+        held_sources = [] if preflight_status == AnswerabilityStatus.NOT_ENOUGH_EVIDENCE else documents
+        return _result(
+            answer_format=answer_format,
+            answer=FiveElements(),
+            answer_text="",
+            sources=held_sources,
+            status=preflight_status,
+            reason=reason_for(preflight_status),
+        )
+
     parent_contexts = await _fetch_parent_contexts(
         documents,
         state.get("tenant_id"),
@@ -211,8 +235,6 @@ async def answer_node(state: AgentState) -> dict:
     sources = sorted(sources, key=lambda d: d.per_doc_evidence, reverse=True)
 
     # Trust 게이트(충돌/만료/민감차단) 우선 → evidence_score → LLM 자기판정 순. (포맷 무관 — 공통)
-    gate = state.get("gate_flags")
-    trust = state.get("trust_score")
     status = decide_answerability(
         documents,
         evidence_score=(trust.overall if trust else None),
