@@ -1,6 +1,7 @@
 """POST /v1/chat 엔드포인트."""
 
 import logging
+from time import perf_counter
 
 from fastapi import APIRouter
 
@@ -8,8 +9,11 @@ from app.api.deps import CurrentUser, DatabaseSession
 from app.models.request import ChatRequest, FeedbackRequest
 from app.models.response import ChatResponse
 from app.observability import create_trace_score
+from app.observability.chat_observation import chat_observation_scope
+from app.services.chat_observation_service import persist_chat_observation
 from app.services.chat_service import chat as chat_service
 from app.services.conversation_service import persist_turn
+from app.services.llm_selector import usage_accumulator
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +27,33 @@ async def chat_endpoint(request: ChatRequest, user: CurrentUser, db: DatabaseSes
     인증 필수(#163) — 미인증 요청은 401. 질문/답변을 사용자 대화 기록에 저장하고
     conversation_id를 응답에 실어준다.
     """
-    response = await chat_service(request)
+    started_at = perf_counter()
+    response: ChatResponse | None = None
+    with chat_observation_scope() as observation, usage_accumulator() as usage:
+        try:
+            response = await chat_service(request)
+        except Exception:
+            await persist_chat_observation(
+                db,
+                tenant_id=user.tenant_id,
+                request=request,
+                response=None,
+                retry_count=observation.retry_count,
+                usage=usage,
+                duration_ms=int((perf_counter() - started_at) * 1000),
+                failed=True,
+            )
+            raise
+        await persist_chat_observation(
+            db,
+            tenant_id=user.tenant_id,
+            request=request,
+            response=response,
+            retry_count=observation.retry_count,
+            usage=usage,
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            failed=False,
+        )
     if user.subject:
         try:
             response.conversation_id = await persist_turn(

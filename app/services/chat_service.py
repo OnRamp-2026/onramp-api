@@ -12,6 +12,7 @@ from app.middleware.request_id import request_id_var
 from app.models.request import ChatRequest
 from app.models.response import ChatResponse, FiveElementsResponse, SourceDoc
 from app.observability import current_trace_id, langfuse_run_config, langfuse_span, score_current_trace
+from app.observability.chat_observation import record_chat_retry_count
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             raise OnRampError("답변 생성 중 오류가 발생했습니다", status_code=500) from exc
 
         response = _to_response(state, request)
+        record_chat_retry_count(int(state.get("retry_count") or 0))
         if root is not None:
             root.update(output={"answerability_status": response.answerability_status, "domain": response.domain})
             # trust overall + 분해 성분(4축·게이트)을 online score로 부착 → Langfuse에서

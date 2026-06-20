@@ -71,7 +71,13 @@ def create_app() -> FastAPI:
 
     # Routers
     app.include_router(metrics_router)
-    app.include_router(build_v1_router(enable_slack_auth=settings.auth_enable_slack_login), prefix="/v1")
+    app.include_router(
+        build_v1_router(
+            enable_slack_auth=settings.auth_enable_slack_login,
+            enable_dev_auth=settings.auth_dev_token_enabled,
+        ),
+        prefix="/v1",
+    )
     if settings.auth_enable_slack_login:
         # 브라우저 SPA = 쿠키 세션 + redirect(/auth/login·callback·me·logout). API/토큰은 /v1/auth/slack/*.
         app.include_router(browser_auth_router)

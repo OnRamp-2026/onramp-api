@@ -10,6 +10,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -372,6 +373,32 @@ class ChatLog(Base):
     __table_args__ = (
         Index("ix_chat_log_tenant_created", "tenant_id", created_at.desc()),
         Index("ix_chat_log_domain", "tenant_id", "domain"),
+    )
+
+
+class ChatObservation(Base):
+    __tablename__ = "chat_observations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    requested_model: Mapped[str] = mapped_column(String(128), default="")
+    model_used: Mapped[str] = mapped_column(String(128), default="")
+    domain: Mapped[str] = mapped_column(String(64), default="")
+    answerability_status: Mapped[str] = mapped_column(String(64), default="")
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    duration_ms: Mapped[int] = mapped_column(BigInteger, default=0)
+    source_count: Mapped[int] = mapped_column(Integer, default=0)
+    result_bucket: Mapped[str] = mapped_column(String(16), index=True)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        Index("ix_chat_observations_tenant_created", "tenant_id", created_at.desc()),
+        Index("ix_chat_observations_tenant_bucket_created", "tenant_id", "result_bucket", created_at.desc()),
     )
 
 
