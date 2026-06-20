@@ -347,6 +347,7 @@ class Settings(BaseSettings):
     # raw 점수(τ 진단)는 오염시키지 않는다.
     rank_version_weight: float = Field(default=0.1, ge=0.0)  # version_fit 가산 계수
     rank_authority_weight: float = Field(default=0.05, ge=0.0)  # site tier 가산 계수
+    rank_boost_max_spread: float = Field(default=0.05, ge=0.0)
     # site 권위 등급 — 현 코퍼스는 전부 공식 문서라 변별력 없음(어댑터 자리, 설계 4.3).
     # 사내 Confluence 전환 시 space 등급·verified 라벨이 이 자리를 채운다.
     site_tier: dict[str, float] = Field(

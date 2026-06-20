@@ -325,6 +325,22 @@ def apply_ranking_boosts(
     return apply_authority_weight(score, payload, settings)
 
 
+def limit_ranking_boost_spread(
+    rows: list[tuple[float, float, dict]],
+    *,
+    max_spread: float,
+) -> list[tuple[float, float, dict]]:
+    """후보 간 metadata boost 격차를 제한해 강한 raw relevance 역전을 막는다."""
+    if not rows:
+        return []
+    boosts = [ranking_score - raw_score for ranking_score, raw_score, _payload in rows]
+    base_boost = min(boosts)
+    return [
+        (raw_score + base_boost + min(max(boost - base_boost, 0.0), max_spread), raw_score, payload)
+        for (ranking_score, raw_score, payload), boost in zip(rows, boosts, strict=True)
+    ]
+
+
 def _recency_factor(last_modified: str, half_life_days: int) -> float:
     try:
         dt = datetime.fromisoformat(last_modified.replace("Z", "+00:00"))

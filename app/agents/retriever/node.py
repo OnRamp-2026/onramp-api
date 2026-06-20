@@ -15,7 +15,7 @@ from functools import partial
 
 import anyio
 
-from app.agents.retriever.rerank import apply_ranking_boosts, get_reranker
+from app.agents.retriever.rerank import apply_ranking_boosts, get_reranker, limit_ranking_boost_spread
 from app.agents.retriever.search import SearchFilters, search_with_mode
 from app.agents.state import AgentState, Domain, RetryAction, SourceDocument
 from app.config import Settings, get_settings
@@ -124,6 +124,7 @@ async def _rank_results(
                 (apply_ranking_boosts(raw, payload, domains, lineages, target_versions, settings), raw, payload)
                 for raw, payload in reranked
             ]
+            ranked = limit_ranking_boost_spread(ranked, max_spread=settings.rank_boost_max_spread)
             ranked.sort(key=lambda item: item[0], reverse=True)  # ranking 점수로 재정렬 (raw는 진단용 보존)
         except ModuleNotFoundError:  # sentence-transformers 미설치 → 리랭커 비활성
             logger.warning(

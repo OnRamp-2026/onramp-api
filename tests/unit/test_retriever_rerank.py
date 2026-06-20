@@ -188,3 +188,25 @@ def test_apply_ranking_boosts_chains_all():
         + s.rank_authority_weight * 1.0
     )
     assert out == expected
+
+
+def test_limit_ranking_boost_spread_prevents_large_raw_score_reversal():
+    from app.agents.retriever.rerank import limit_ranking_boost_spread
+
+    rows = [
+        (1.23, 0.99, {"chunk_id": "exact"}),
+        (1.26, 0.91, {"chunk_id": "recent"}),
+    ]
+    limited = limit_ranking_boost_spread(rows, max_spread=0.05)
+    assert sorted(limited, key=lambda item: item[0], reverse=True)[0][2]["chunk_id"] == "exact"
+
+
+def test_limit_ranking_boost_spread_preserves_metadata_tiebreak_for_equal_raw_scores():
+    from app.agents.retriever.rerank import limit_ranking_boost_spread
+
+    rows = [
+        (0.90, 0.70, {"chunk_id": "old"}),
+        (1.00, 0.70, {"chunk_id": "new"}),
+    ]
+    limited = limit_ranking_boost_spread(rows, max_spread=0.05)
+    assert sorted(limited, key=lambda item: item[0], reverse=True)[0][2]["chunk_id"] == "new"
