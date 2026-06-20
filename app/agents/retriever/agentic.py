@@ -30,6 +30,21 @@ def _normalize(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _tool_identity(tool: str, query: str, source: str = "") -> tuple[str, str, str]:
+    return tool, _normalize(query).casefold(), source.casefold()
+
+
+def _attempted_tool_identities(state: AgentState, existing: list[RetrievalCandidate]) -> set[tuple[str, str, str]]:
+    attempted = {
+        _tool_identity(trace.tool, trace.query, trace.source)
+        for trace in state.get("tool_trace", [])
+    }
+    for candidate in existing:
+        source = str(candidate.payload.get("source") or "") if candidate.tool_name == "hybrid_search_by_source" else ""
+        attempted.add(_tool_identity(candidate.tool_name, candidate.query, source))
+    return attempted
+
+
 def _domains(state: AgentState) -> tuple[str, ...]:
     return tuple(getattr(domain, "value", domain) for domain in state.get("domains", []))
 
@@ -115,13 +130,16 @@ async def run_agentic_step(state: AgentState, settings: Settings) -> dict[str, A
     if not calls:
         return {"retrieval_phase": RetrievalPhase.COMPLETE, "agent_trace": ["retriever"]}
 
-    previous = {_normalize(query).casefold() for query in state.get("previous_queries", [])}
+    attempted = _attempted_tool_identities(state, existing)
     additions: list[RetrievalCandidate] = []
     traces: list[ToolTrace] = []
     queries: list[str] = []
     for call in calls:
         query = _normalize(str(call.arguments.get("query") or ""))
-        if call.name != "opensearch_get_document" and (not query or query.casefold() in previous):
+        source = str(call.arguments.get("source") or "")
+        identity_query = query or str(call.arguments.get("doc_id") or "")
+        identity = _tool_identity(call.name, identity_query, source)
+        if not identity_query or identity in attempted:
             continue
         started = perf_counter()
         try:
@@ -131,11 +149,10 @@ async def run_agentic_step(state: AgentState, settings: Settings) -> dict[str, A
             logger.warning("Single Agentic tool 실패: %s", call.name, exc_info=True)
             hits = []
             tool_fallback = type(exc).__name__
-        source = str(call.arguments.get("source") or "")
         traces.append(
             ToolTrace(
                 tool=call.name,
-                query=query or str(call.arguments.get("doc_id") or ""),
+                query=identity_query,
                 source=source,
                 n_results=len(hits),
                 retry=state.get("retry_count", 0),
@@ -143,9 +160,9 @@ async def run_agentic_step(state: AgentState, settings: Settings) -> dict[str, A
                 fallback=tool_fallback,
             )
         )
+        attempted.add(identity)
         if query:
             queries.append(query)
-            previous.add(query.casefold())
         for hit in hits:
             payload = hit.payload or {}
             additions.append(
@@ -157,6 +174,8 @@ async def run_agentic_step(state: AgentState, settings: Settings) -> dict[str, A
                     query=query,
                 )
             )
+    if existing and not traces:
+        return {"retrieval_phase": RetrievalPhase.COMPLETE, "agent_trace": ["retriever"]}
     merged = merge_candidates(existing, additions, limit=settings.single_agentic_max_candidates)
     retry_count = state.get("retry_count", 0) + (0 if first_step else 1)
     return {

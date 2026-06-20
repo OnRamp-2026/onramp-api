@@ -80,12 +80,104 @@ async def test_duplicate_query_is_not_executed(monkeypatch):
             "query": "원문",
             "tenant_id": "tenant-a",
             "retriever_strategy": "single_agentic",
-            "retrieval_candidates": [_candidate(0.5)],
+            "retrieval_candidates": [
+                RetrievalCandidate(
+                    chunk_id="c1",
+                    payload={"chunk_id": "c1", "content": "x", "page_id": "p1"},
+                    search_score=0.5,
+                    tool_name="hybrid_search",
+                    query="same query",
+                )
+            ],
             "previous_queries": ["same query"],
         },
         Settings(),
     )
-    assert out["retrieval_candidates"][0].chunk_id == "c1"
+    assert out["retrieval_phase"] == RetrievalPhase.COMPLETE
+
+
+@pytest.mark.asyncio
+async def test_same_query_can_switch_from_confluence_to_github(monkeypatch):
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="1",
+                    name="hybrid_search_by_source",
+                    arguments={"query": "same query", "source": "github"},
+                )
+            ],
+        )
+
+    called = []
+
+    async def fake_tool(name, arguments, *, context):
+        called.append((name, arguments["query"], arguments["source"]))
+        return []
+
+    existing = RetrievalCandidate(
+        chunk_id="c1",
+        payload={"chunk_id": "c1", "content": "x", "page_id": "p1", "source": "confluence"},
+        search_score=0.5,
+        tool_name="hybrid_search_by_source",
+        query="same query",
+    )
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    out = await run_agentic_step(
+        {
+            "query": "원문",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "retrieval_candidates": [existing],
+            "previous_queries": ["same query"],
+        },
+        Settings(),
+    )
+
+    assert called == [("hybrid_search_by_source", "same query", "github")]
+    assert out["retrieval_phase"] == RetrievalPhase.SEARCHED
+
+
+@pytest.mark.asyncio
+async def test_same_query_can_expand_source_search_to_all_documents(monkeypatch):
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="",
+            tool_calls=[ToolCall(id="1", name="hybrid_search", arguments={"query": "same query"})],
+        )
+
+    called = []
+
+    async def fake_tool(name, arguments, *, context):
+        called.append((name, arguments["query"]))
+        return []
+
+    existing = RetrievalCandidate(
+        chunk_id="c1",
+        payload={"chunk_id": "c1", "content": "x", "page_id": "p1", "source": "confluence"},
+        search_score=0.5,
+        tool_name="hybrid_search_by_source",
+        query="same query",
+    )
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    out = await run_agentic_step(
+        {
+            "query": "원문",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "retrieval_candidates": [existing],
+            "previous_queries": ["same query"],
+        },
+        Settings(),
+    )
+
+    assert called == [("hybrid_search", "same query")]
+    assert out["retrieval_phase"] == RetrievalPhase.SEARCHED
 
 
 @pytest.mark.asyncio
