@@ -61,6 +61,22 @@ async def test_node_maps_to_source_document(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_node_keeps_late_exact_fact_in_chunk_context(monkeypatch):
+    content = f"{'prefix ' * 100}Schema MUST be between -4 and 8 inclusive."
+
+    async def fake_search(qv, top_k, *, domain=None, **k):
+        return [_hit("c1", content, 0.9)]
+
+    class _R:
+        def rerank(self, q, cands):
+            return [(0.99, p) for _, p in cands]
+
+    _patch(monkeypatch, fake_search, _R())
+    out = await retrieve_node({"refined_query": "Schema 범위", "domains": []})
+    assert "-4 and 8" in out["documents"][0].content_snippet
+
+
+@pytest.mark.asyncio
 async def test_node_domain_filter_fallback(monkeypatch):
     calls = []
 

@@ -158,7 +158,14 @@ async def _rank_results(
         and str(row[2].get("chunk_id") or "") not in selected_ids
     )
     docs = [
-        _to_source_doc(payload, ranking_score, raw_score, vec_score.get(payload.get("chunk_id"), 0.0), settings)
+        _to_source_doc(
+            payload,
+            ranking_score,
+            raw_score,
+            vec_score.get(payload.get("chunk_id"), 0.0),
+            query,
+            settings,
+        )
         for ranking_score, raw_score, payload in selected
     ]
     return docs, fallback_reason
@@ -202,15 +209,37 @@ def _clean_url(url: str | None) -> str:
     return f"{scheme}://{re.sub(r'/{2,}', '/', rest)}"
 
 
+def _select_snippet(content: str, query: str, max_chars: int) -> str:
+    if len(content) <= max_chars:
+        return content
+    terms = {term.casefold() for term in re.findall(r"[0-9A-Za-z가-힣_-]{2,}", query)}
+    lowered = content.casefold()
+    positions = [lowered.find(term) for term in terms if lowered.find(term) >= 0]
+    if not positions:
+        return content[:max_chars]
+    candidates: list[tuple[int, int, str]] = []
+    for position in positions:
+        start = max(0, min(position - max_chars // 3, len(content) - max_chars))
+        snippet = content[start : start + max_chars]
+        score = sum(term in snippet.casefold() for term in terms)
+        candidates.append((score, -start, snippet))
+    return max(candidates)[2]
+
+
 def _to_source_doc(
-    payload: dict, ranking_score: float, raw_score: float, score: float, settings: Settings
+    payload: dict,
+    ranking_score: float,
+    raw_score: float,
+    score: float,
+    query: str,
+    settings: Settings,
 ) -> SourceDocument:
     return SourceDocument(
         title=payload.get("page_title", ""),
         url=_clean_url(payload.get("source_url", "")),
         space_key=payload.get("space_key", ""),
         source=payload.get("source", "") or "",
-        content_snippet=payload.get("content", "")[: settings.snippet_max_chars],
+        content_snippet=_select_snippet(payload.get("content", ""), query, settings.snippet_max_chars),
         score=score,
         rerank_score=ranking_score,
         raw_rerank_score=raw_score,
