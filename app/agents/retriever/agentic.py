@@ -35,10 +35,7 @@ def _tool_identity(tool: str, query: str, source: str = "") -> tuple[str, str, s
 
 
 def _attempted_tool_identities(state: AgentState, existing: list[RetrievalCandidate]) -> set[tuple[str, str, str]]:
-    attempted = {
-        _tool_identity(trace.tool, trace.query, trace.source)
-        for trace in state.get("tool_trace", [])
-    }
+    attempted = {_tool_identity(trace.tool, trace.query, trace.source) for trace in state.get("tool_trace", [])}
     for candidate in existing:
         source = str(candidate.payload.get("source") or "") if candidate.tool_name == "hybrid_search_by_source" else ""
         attempted.add(_tool_identity(candidate.tool_name, candidate.query, source))
