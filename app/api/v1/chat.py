@@ -10,8 +10,8 @@ from app.models.request import ChatRequest, FeedbackRequest
 from app.models.response import ChatResponse
 from app.observability import create_trace_score
 from app.observability.chat_observation import chat_observation_scope
-from app.services.chat_service import chat as chat_service
 from app.services.chat_observation_service import persist_chat_observation
+from app.services.chat_service import chat as chat_service
 from app.services.conversation_service import persist_turn
 from app.services.llm_selector import usage_accumulator
 
