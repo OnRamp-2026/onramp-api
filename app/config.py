@@ -331,6 +331,7 @@ class Settings(BaseSettings):
     # 차단성 게이트는 precision 우선 — 사실상 동점(0.005)만 충돌 후보로 본다.
     # 점수 휴리스틱 자체가 약한 근사이며 근본 해결은 P2 내용 기반 모순 감지(설계 5.2).
     trust_conflict_score_gap: float = Field(default=0.005, ge=0.0)
+    trust_score_conflict_gate_enabled: bool = False
     # [MASKED_*] 마커 수가 이 값이면 sensitivity_risk=1.0 포화. ge=1 — 0/음수면 채점이 무력화됨.
     trust_sensitivity_masked_cap: int = Field(default=5, ge=1)
 

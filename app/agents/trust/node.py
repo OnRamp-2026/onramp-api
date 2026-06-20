@@ -403,6 +403,8 @@ def _conflicting(survivors: list[SourceDocument], settings: Settings) -> bool:
     (워크스루 D: 고아 2.2 vs 정상 2.4)가 충돌로 오탐되는 두 번째 출구를 차단한다.
     버전 층위가 다르면 충돌 혐의보다 미결합 형제 혐의가 우선이다.
     """
+    if not settings.trust_score_conflict_gate_enabled:
+        return False
     floor, gap = settings.trust_rerank_floor, settings.trust_conflict_score_gap
     by_topic: dict[tuple[str, str, str], float] = {}
     for d in survivors:

@@ -174,14 +174,28 @@ async def test_walkthrough_d_orphan_no_conflict(monkeypatch) -> None:
     assert out["retry_action"] == RetryAction.PROCEED  # 주제 2개 충족 (알려진 과대 집계 — 9.1)
 
 
-async def test_conflict_fires_within_same_version_tier(monkeypatch) -> None:
-    """대조군: 같은 site·같은 버전의 서로 다른 주제가 막상막하면 충돌 게이트 발동."""
+async def test_score_tie_does_not_block_complementary_documents(monkeypatch) -> None:
+    """점수 동률만으로 실제 모순이 없는 보완 문서를 차단하지 않는다."""
     docs = [
-        _doc(raw=0.931, page_id="a", doc_key="apache:topic-a", site="apache", version="2.4"),
-        _doc(raw=0.930, page_id="b", doc_key="apache:topic-b", site="apache", version="2.4"),
+        _doc(
+            raw=0.931,
+            page_id="a",
+            doc_key="datadog:stdout",
+            site="datadog",
+            version="latest",
+            content="컨테이너 애플리케이션은 STDOUT으로 로그를 출력한다.",
+        ),
+        _doc(
+            raw=0.930,
+            page_id="b",
+            doc_key="datadog:stderr",
+            site="datadog",
+            version="latest",
+            content="오류 로그는 STDERR로 출력한다.",
+        ),
     ]
     out = await _run(monkeypatch, docs, lineages={})
-    assert out["gate_flags"].conflicting is True
+    assert out["gate_flags"].conflicting is False
 
 
 async def test_masked_secret_configuration_query_is_not_blocked(monkeypatch) -> None:
