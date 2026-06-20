@@ -149,9 +149,17 @@ async def _rank_results(
                 }
             )
 
+    selected = ranked[: settings.retriever_top_n]
+    selected_ids = {str(payload.get("chunk_id") or "") for _, _, payload in selected}
+    selected.extend(
+        row
+        for row in ranked[settings.retriever_top_n :]
+        if str(row[2].get("chunk_id") or "").startswith("document:")
+        and str(row[2].get("chunk_id") or "") not in selected_ids
+    )
     docs = [
         _to_source_doc(payload, ranking_score, raw_score, vec_score.get(payload.get("chunk_id"), 0.0), settings)
-        for ranking_score, raw_score, payload in ranked[: settings.retriever_top_n]
+        for ranking_score, raw_score, payload in selected
     ]
     return docs, fallback_reason
 

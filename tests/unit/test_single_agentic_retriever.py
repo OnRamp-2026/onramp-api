@@ -298,3 +298,60 @@ async def test_retrieve_node_runs_single_agentic_and_reranks(monkeypatch):
     assert out["retrieval_phase"] == RetrievalPhase.SEARCHED
     assert out["documents"][0].chunk_id == "c1"
     assert out["documents"][0].source == "confluence"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_node_preserves_full_document_evidence_outside_top_n(monkeypatch):
+    async def fake_step(state, settings):
+        return {
+            "retrieval_phase": RetrievalPhase.SEARCHED,
+            "previous_queries": ["incident 원인"],
+            "retrieval_candidates": [
+                RetrievalCandidate(
+                    chunk_id="chunk-1",
+                    payload={
+                        "chunk_id": "chunk-1",
+                        "page_id": "incident-1",
+                        "page_title": "청크",
+                        "content": "요약 청크",
+                        "source": "github",
+                    },
+                    search_score=0.9,
+                    tool_name="hybrid_search",
+                    query="incident 원인",
+                ),
+                RetrievalCandidate(
+                    chunk_id="document:incident-1",
+                    payload={
+                        "chunk_id": "document:incident-1",
+                        "page_id": "incident-1",
+                        "page_title": "원문",
+                        "content": "전체 장애 원문",
+                        "source": "github",
+                    },
+                    search_score=1.0,
+                    tool_name="opensearch_get_document",
+                    query="incident-1",
+                ),
+            ],
+        }
+
+    class _Reranker:
+        def rerank(self, query, candidates):
+            return [(0.99 if payload["chunk_id"] == "chunk-1" else 0.01, payload) for _, payload in candidates]
+
+    monkeypatch.setattr(agentic, "run_agentic_step", fake_step)
+    monkeypatch.setattr("app.agents.retriever.node.get_settings", lambda: Settings(retriever_top_n=1))
+    monkeypatch.setattr("app.agents.retriever.node.get_reranker", lambda: _Reranker())
+    monkeypatch.setattr("app.agents.retriever.node.get_lineages", lambda keys, **kwargs: {})
+
+    out = await retrieve_node(
+        {
+            "query": "incident 원인",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "domains": [],
+        }
+    )
+
+    assert [doc.chunk_id for doc in out["documents"]] == ["chunk-1", "document:incident-1"]
