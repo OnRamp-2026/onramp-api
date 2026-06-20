@@ -67,6 +67,11 @@ class RetryAction(StrEnum):
     PROCEED = "proceed"  # 재검색 불필요 (또는 한도 소진 강제 진행)
 
 
+class RetrievalPhase(StrEnum):
+    SEARCHED = "searched"
+    COMPLETE = "complete"
+
+
 class AnswerabilityStatus(StrEnum):
     """답변 가능성 상태 (Answer Agent의 최종 처리 방식). Sprint 3 P1.
 
@@ -93,6 +98,7 @@ class SourceDocument:
     title: str = ""
     url: str = ""
     space_key: str = ""
+    source: str = ""
     content_snippet: str = ""
     score: float = 0.0  # 벡터 검색 유사도
     # 점수 분리 (#103, 설계 7.3): 정렬은 블렌드(rerank_score), 진단은 원점수(raw_rerank_score)
@@ -166,6 +172,26 @@ class GateFlags:
     sensitive_block: bool = False  # 고위험 민감정보 차단
 
 
+@dataclass
+class RetrievalCandidate:
+    chunk_id: str
+    payload: dict
+    search_score: float
+    tool_name: str
+    query: str
+
+
+@dataclass
+class ToolTrace:
+    tool: str
+    query: str
+    source: str = ""
+    n_results: int = 0
+    retry: int = 0
+    latency_ms: float = 0.0
+    fallback: str = ""
+
+
 # ---------------------------------------------------------------------------
 # AgentState (LangGraph 공유 상태)
 # ---------------------------------------------------------------------------
@@ -182,6 +208,8 @@ class AgentState(TypedDict, total=False):
     # ── 사용자 입력 ──
     query: str
     model: str  # LLM 모델명 (빈값이면 config 기본값)
+    tenant_id: str
+    retriever_strategy: str
 
     # ── Router Agent 출력 ──
     use_case: UseCase
@@ -195,6 +223,10 @@ class AgentState(TypedDict, total=False):
     # ── Retriever Agent 출력 ──
     documents: list[SourceDocument]
     rerank_fallback: bool  # 리랭커 폴백(미설치·OOM·remote 실패) 여부 → Trust coverage 산정 분기(#202)
+    retrieval_phase: RetrievalPhase
+    retrieval_candidates: list[RetrievalCandidate]
+    previous_queries: Annotated[list[str], add]
+    tool_trace: Annotated[list[ToolTrace], add]
 
     # ── Trust Agent 출력 (Evidence Confidence, #108 재설계) ──
     #    병합 → per-doc 채점 → collapse → coverage → overall → 재검색 사다리 → (소진 후) 게이트

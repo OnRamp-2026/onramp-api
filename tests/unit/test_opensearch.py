@@ -127,6 +127,7 @@ async def test_search_builds_tenant_and_ladder_filters():
         top_k=10,
         tenant_id="tenant-a",
         domain="incident",
+        source="github",
         version="v1",
         pinned_doc_keys=("doc-a",),
         excluded_doc_keys=("doc-b",),
@@ -135,6 +136,7 @@ async def test_search_builds_tenant_and_ladder_filters():
     assert hits[0].id == "c1"
     assert '"tenant_id":"tenant-a"' in captured["body"]
     assert '"domain":"incident"' in captured["body"]
+    assert '"source":"github"' in captured["body"]
     assert '"product_version":"v1"' in captured["body"]
     assert '"doc-a"' in captured["body"]
     assert '"doc-b"' in captured["body"]

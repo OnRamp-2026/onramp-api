@@ -30,8 +30,14 @@ RankedRow = tuple[float, float, dict]
 
 
 async def retrieve_node(state: AgentState) -> dict:
-    """정제 쿼리로 검색·리랭킹해 top-N 출처 문서를 반환한다."""
+    """설정된 strategy로 검색·리랭킹해 top-N 출처 문서를 반환한다."""
     settings = get_settings()
+    if state.get("retriever_strategy") == "single_agentic" or settings.retriever_strategy == "single_agentic":
+        return await _retrieve_single_agentic(state, settings)
+    return await _retrieve_deterministic(state, settings)
+
+
+async def _retrieve_deterministic(state: AgentState, settings: Settings) -> dict:
     refined = state["refined_query"]
     # 질의 도메인 집합(순서 우선). domains 키가 **아예 없을 때만** 구형 단수 domain으로 폴백.
     # (명시적 domains=[] — 예: Trust 재검색 초기화 — 은 그대로 빈 집합으로 존중, 단수로 복구 금지)
@@ -62,11 +68,43 @@ async def retrieve_node(state: AgentState) -> dict:
         domain=(domains[0] if domains else None),
         mode=settings.retriever_domain_filter_mode,
         query_text=refined,
+        tenant_id=state.get("tenant_id"),
         filters=None if filters.is_empty() else filters,
         settings=settings,
     )
 
     results = [(point.score, point.payload or {}) for point in hits]
+    docs, fallback_reason = await _rank_results(refined, results, domains, target_versions, settings)
+    return {"documents": docs, "rerank_fallback": fallback_reason is not None, "agent_trace": ["retriever"]}
+
+
+async def _retrieve_single_agentic(state: AgentState, settings: Settings) -> dict:
+    from app.agents.retriever.agentic import run_agentic_step
+    from app.agents.state import RetrievalPhase
+
+    step = await run_agentic_step(state, settings)
+    if step.get("retrieval_phase") == RetrievalPhase.COMPLETE:
+        return step
+    candidates = step.get("retrieval_candidates", [])
+    results = [(candidate.search_score, candidate.payload) for candidate in candidates]
+    domains = _domain_values(state.get("domains", []))
+    target_versions = [str(v) for v in state.get("target_versions", [])]
+    query = step.get("previous_queries", [])[-1] if step.get("previous_queries") else state.get("query", "")
+    docs, fallback_reason = await _rank_results(query, results, domains, target_versions, settings)
+    return {
+        **step,
+        "documents": docs,
+        "rerank_fallback": fallback_reason is not None,
+    }
+
+
+async def _rank_results(
+    query: str,
+    results: list[tuple[float, dict]],
+    domains: list[str],
+    target_versions: list[str],
+    settings: Settings,
+) -> tuple[list[SourceDocument], str | None]:
     vec_score = {payload.get("chunk_id"): score for score, payload in results}
     candidates = [(payload.get("content", ""), payload) for _, payload in results]
 
@@ -81,7 +119,7 @@ async def retrieve_node(state: AgentState) -> dict:
     ) as span:
         try:
             # CrossEncoder.predict는 CPU 동기 작업 → 스레드로 오프로드 (이벤트 루프 비차단)
-            reranked = await anyio.to_thread.run_sync(get_reranker().rerank, refined, candidates)
+            reranked = await anyio.to_thread.run_sync(get_reranker().rerank, query, candidates)
             ranked: list[RankedRow] = [
                 (apply_ranking_boosts(raw, payload, domains, lineages, target_versions, settings), raw, payload)
                 for raw, payload in reranked
@@ -114,8 +152,7 @@ async def retrieve_node(state: AgentState) -> dict:
         _to_source_doc(payload, ranking_score, raw_score, vec_score.get(payload.get("chunk_id"), 0.0), settings)
         for ranking_score, raw_score, payload in ranked[: settings.retriever_top_n]
     ]
-    # 리랭커 폴백 여부를 Trust로 전달 — coverage 산정이 raw rerank τ 대신 검색점수 비율을 쓰게 한다 (#202)
-    return {"documents": docs, "rerank_fallback": fallback_reason is not None, "agent_trace": ["retriever"]}
+    return docs, fallback_reason
 
 
 def _domain_values(domains: Sequence[Domain | str] | None) -> list[str]:
@@ -163,6 +200,7 @@ def _to_source_doc(
         title=payload.get("page_title", ""),
         url=_clean_url(payload.get("source_url", "")),
         space_key=payload.get("space_key", ""),
+        source=payload.get("source", "") or "",
         content_snippet=payload.get("content", "")[: settings.snippet_max_chars],
         score=score,
         rerank_score=ranking_score,

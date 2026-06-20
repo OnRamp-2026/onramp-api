@@ -251,6 +251,11 @@ class Settings(BaseSettings):
     retriever_top_k: int = Field(default=20, ge=1)  # Qdrant 후보 풀
     retriever_top_n: int = Field(default=8, ge=1)  # 리랭킹 후 최종 (#227 5→8: 여러 문서 종합 답변용 컨텍스트 확대)
     snippet_max_chars: int = 500  # SourceDocument content_snippet 길이
+    retriever_strategy: Literal["deterministic", "single_agentic"] = "deterministic"
+    single_agentic_max_tools_per_step: int = Field(default=2, ge=1, le=4)
+    single_agentic_tool_snippet_chars: int = Field(default=300, ge=50, le=2000)
+    single_agentic_document_max_chars: int = Field(default=8000, ge=500, le=30000)
+    single_agentic_max_candidates: int = Field(default=50, ge=1, le=200)
 
     @model_validator(mode="after")
     def _check_retriever_window(self) -> "Settings":

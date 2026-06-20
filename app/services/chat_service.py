@@ -16,16 +16,19 @@ from app.observability import current_trace_id, langfuse_run_config, langfuse_sp
 logger = logging.getLogger(__name__)
 
 
-async def chat(request: ChatRequest) -> ChatResponse:
+async def chat(request: ChatRequest, tenant_id: str | None = None) -> ChatResponse:
     """질문을 그래프로 흘려 5요소 구조화 답변(ChatResponse)을 만든다."""
     # routing model에는 request.model만 — default_model을 섞으면 provider 선택이 그쪽으로 샌다.
     # 빈 model이면 selector가 config.llm_provider로 라우팅하고, default_model은 모델 이름으로만 쓰인다.
+    settings = get_settings()
     initial_state = {
         "query": request.query,
         "model": request.model,
+        "tenant_id": tenant_id or settings.auth_default_tenant,
+        "retriever_strategy": settings.retriever_strategy,
         # Trust 재검색 루프 시드 — max_retries 한도로 무한루프 방지
         "retry_count": 0,
-        "max_retries": get_settings().trust_max_retries,
+        "max_retries": settings.trust_max_retries,
     }
     # Langfuse 루트 span으로 한 턴을 감싼다 → 그래프(CallbackHandler) 노드 스팬 + call_llm
     # generation이 모두 이 한 trace 아래로 중첩된다(비활성이면 no-op). 노드 스팬 생성을 위해

@@ -15,8 +15,8 @@ import json
 
 import pytest
 
-from app.agents.graph import build_graph, compiled_graph, route_decision
-from app.agents.state import AnswerabilityStatus, Domain, UseCase
+from app.agents.graph import build_graph, compiled_graph, retriever_to_next, route_decision, trust_to_next
+from app.agents.state import AnswerabilityStatus, Domain, RetrievalPhase, UseCase
 from app.config import get_settings
 
 
@@ -146,6 +146,23 @@ class TestRouteDecision:
     def test_missing_use_case_defaults_to_retriever(self) -> None:
         """use_case가 없으면 검색으로 간주한다 (fallback)."""
         assert route_decision({}) == "retriever"
+
+
+class TestSingleAgenticDecision:
+    def test_retriever_routes_complete_to_answer(self) -> None:
+        assert (
+            retriever_to_next({"retriever_strategy": "single_agentic", "retrieval_phase": RetrievalPhase.COMPLETE})
+            == "answer"
+        )
+
+    def test_retriever_routes_searched_to_trust(self) -> None:
+        assert (
+            retriever_to_next({"retriever_strategy": "single_agentic", "retrieval_phase": RetrievalPhase.SEARCHED})
+            == "trust"
+        )
+
+    def test_trust_routes_exhausted_to_answer(self) -> None:
+        assert trust_to_next({"retriever_strategy": "single_agentic", "retry_count": 1, "max_retries": 1}) == "answer"
 
 
 class TestGraphStructure:

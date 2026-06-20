@@ -158,7 +158,11 @@ class IndexService:
                             continue
 
                         # 1. Qdrant / OpenSearch upsert (search index first — idempotent)
-                        n = await self._index_children(chunked_page.children)
+                        n = await self._index_children(
+                            chunked_page.children,
+                            tenant_id=tenant_id,
+                            source=source,
+                        )
 
                         # 2. rotate snapshot + save document in PostgreSQL
                         await repo.rotate_and_save_document(
@@ -277,7 +281,13 @@ class IndexService:
             except Exception:
                 logger.exception("OpenSearch stale chunk delete failed (non-fatal)")
 
-    async def _index_children(self, children: list[ChildChunk]) -> int:
+    async def _index_children(
+        self,
+        children: list[ChildChunk],
+        *,
+        tenant_id: str,
+        source: str,
+    ) -> int:
         if self.index_children_fn is not None:
             return await self.index_children_fn(children)
         return await index_children(
@@ -285,4 +295,6 @@ class IndexService:
             embedder=self.embedder,
             client=self.client,
             settings=self.settings,
+            tenant_id=tenant_id,
+            source=source,
         )
