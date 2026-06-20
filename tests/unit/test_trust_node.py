@@ -150,6 +150,20 @@ async def test_walkthrough_c2_eol_without_newer_proceeds_to_gate(monkeypatch) ->
     assert out["gate_flags"].deprecated_only is True
 
 
+async def test_eol_status_query_uses_warning_instead_of_block(monkeypatch) -> None:
+    docs = [_doc(raw=0.95, page_id="apache-22", site="apache", version="2.2", eol=True)]
+    out = await _run(
+        monkeypatch,
+        docs,
+        lineages={},
+        retry=1,
+        max_retries=1,
+        query="Apache 2.2 문서의 유지보수 상태와 대체 문서는 무엇인가요?",
+    )
+    assert out["gate_flags"].deprecated_only is False
+    assert out["gate_flags"].deprecated_warning is True
+
+
 # ---------------------------------------------------------------------------
 # 워크스루 D — 정규화 실패 고아: 충돌 게이트 미발동 + EOL 캡 순서
 # ---------------------------------------------------------------------------

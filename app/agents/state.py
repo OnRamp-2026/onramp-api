@@ -169,6 +169,7 @@ class GateFlags:
 
     conflicting: bool = False  # 동등 권위 문서 간 내용 충돌
     deprecated_only: bool = False  # deprecated/archived 문서만 검색됨
+    deprecated_warning: bool = False  # EOL 상태 자체를 묻는 질의에는 차단 대신 경고
     sensitive_block: bool = False  # 고위험 민감정보 차단
 
 

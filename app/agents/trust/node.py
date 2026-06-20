@@ -377,6 +377,16 @@ def _requests_sensitive_value(query: str) -> bool:
     return bool(secret_term and value_request)
 
 
+def _asks_about_deprecated_state(query: str) -> bool:
+    normalized = re.sub(r"\s+", " ", query).casefold()
+    return bool(
+        re.search(
+            r"(eol|end.?of.?life|deprecated|지원.?종료|유지보수.?상태|과거.?버전|구버전|대체.?문서|최신.?대신)",
+            normalized,
+        )
+    )
+
+
 def evaluate_gates(
     survivors: list[SourceDocument],
     sensitivity: float,
@@ -387,10 +397,12 @@ def evaluate_gates(
     """게이트가 사다리보다 먼저 판정되면 retry 기회 없이 OUTDATED 직행하는 사고가 난다 —
     반드시 사다리 소진(PROCEED 확정) 후에 호출한다.
     """
-    deprecated_only = bool(survivors) and all(d.is_eol for d in survivors)
+    eol_only = bool(survivors) and all(d.is_eol for d in survivors)
+    deprecated_warning = eol_only and _asks_about_deprecated_state(query)
     return GateFlags(
         conflicting=_conflicting(survivors, settings),
-        deprecated_only=deprecated_only,
+        deprecated_only=eol_only and not deprecated_warning,
+        deprecated_warning=deprecated_warning,
         sensitive_block=sensitivity >= 1.0 and _requests_sensitive_value(query),
     )
 

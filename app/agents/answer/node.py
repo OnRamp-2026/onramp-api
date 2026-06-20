@@ -225,6 +225,16 @@ async def answer_node(state: AgentState) -> dict:
         status, reason = AnswerabilityStatus.PARTIALLY_ANSWERABLE, NO_SOURCE_REASON
     else:
         reason = reason_for(status)
+    if (
+        gate
+        and gate.deprecated_warning
+        and status
+        in {
+            AnswerabilityStatus.ANSWERABLE,
+            AnswerabilityStatus.PARTIALLY_ANSWERABLE,
+        }
+    ):
+        reason = "EOL 또는 지원 종료 문서를 근거로 한 답변입니다."
 
     # 비교 질의에서 미회수 target 버전이 있으면 사유에 명시 (#108 — 회수율 coverage의 정직한 고지)
     missing = state.get("missing_versions", [])

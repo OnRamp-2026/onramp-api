@@ -321,6 +321,24 @@ async def test_answer_gate_takes_priority_over_evidence_score(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_answer_allows_eol_status_query_with_warning(monkeypatch):
+    from app.agents.state import TrustScore
+
+    monkeypatch.setattr(node_mod, "call_llm", _mock_llm(_free_json("answerable", (0,))))
+    out = await answer_node(
+        {
+            "query": "Apache 2.2의 유지보수 상태는?",
+            "documents": [_doc()],
+            "domains": [Domain.MANUAL],
+            "trust_score": TrustScore(overall=0.95),
+            "gate_flags": GateFlags(deprecated_warning=True),
+        }
+    )
+    assert out["answerability_status"] == AnswerabilityStatus.ANSWERABLE
+    assert "EOL" in out["answerability_reason"]
+
+
+@pytest.mark.asyncio
 async def test_answer_partially_mentions_missing_versions(monkeypatch):
     from app.agents.state import TrustScore
 
