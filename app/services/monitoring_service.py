@@ -130,7 +130,9 @@ async def _load_rows(
     end = _utcnow()
     start = end - window
     previous_start = start - window
-    stmt = select(ChatObservation).where(ChatObservation.created_at >= previous_start, ChatObservation.created_at <= end)
+    stmt = select(ChatObservation).where(
+        ChatObservation.created_at >= previous_start, ChatObservation.created_at <= end
+    )
     if monitoring_scope.tenant_id is not None:
         stmt = stmt.where(ChatObservation.tenant_id == monitoring_scope.tenant_id)
     result = await db.scalars(stmt.order_by(ChatObservation.created_at.asc()))
@@ -165,7 +167,9 @@ def _build_aggregate(
     requery_rate = _safe_rate(requery_count, count)
     failure_rate = _safe_rate(failure_count, count)
     current_request_series = _build_series(rows, start=start, end=end, period=period, value_getter=lambda row: 1)
-    cost_series = _build_series(rows, start=start, end=end, period=period, value_getter=lambda row: row.estimated_cost_usd)
+    cost_series = _build_series(
+        rows, start=start, end=end, period=period, value_getter=lambda row: row.estimated_cost_usd
+    )
     avg_cost_series = _average_series(
         rows,
         start=start,
@@ -183,7 +187,9 @@ def _build_aggregate(
         denominator=lambda row: 1,
         percentile=0.95,
     )
-    search_rate_series = _rate_series(rows, start=start, end=end, period=period, predicate=lambda row: row.result_bucket == "requery")
+    search_rate_series = _rate_series(
+        rows, start=start, end=end, period=period, predicate=lambda row: row.result_bucket == "requery"
+    )
     previous_total_cost = sum(row.estimated_cost_usd for row in previous_rows)
     previous_total_tokens = sum(row.total_tokens for row in previous_rows)
     previous_count = len(previous_rows)
@@ -191,8 +197,7 @@ def _build_aggregate(
     tenant_costs = _group_by_tenant(rows, metric=lambda row: row.estimated_cost_usd)
     tenant_requests = _group_by_tenant(rows, metric=lambda row: 1)
     tenant_avg_costs = {
-        tenant_id: tenant_costs.get(tenant_id, 0.0) / tenant_requests.get(tenant_id, 1)
-        for tenant_id in tenant_requests
+        tenant_id: tenant_costs.get(tenant_id, 0.0) / tenant_requests.get(tenant_id, 1) for tenant_id in tenant_requests
     }
     return {
         "rows": rows,
@@ -302,7 +307,7 @@ def _build_overview_cards(aggregate: dict[str, Any]) -> list[dict[str, Any]]:
             "caption": f"총 {_format_tokens(total_tokens)} 사용, {token_delta}",
             "items": [
                 {"label": "이번 기간 누적", "value": _format_tokens(total_tokens)},
-                {"label": "일 평균 비용", "value": _format_usd(_daily_average(total_cost, aggregate['period']))},
+                {"label": "일 평균 비용", "value": _format_usd(_daily_average(total_cost, aggregate["period"]))},
                 {
                     "label": "가장 큰 테넌트",
                     "value": _format_top_tenant_value(top_tenant, total_cost),
@@ -537,7 +542,13 @@ def _build_average_cost_detail(aggregate: dict[str, Any]) -> dict[str, Any]:
     else:
         breakdown_items = [
             _breakdown_item("성공 요청", aggregate["costByBucket"]["success"], aggregate["totalCost"], raw_value=True),
-            _breakdown_item("재질의 요청", aggregate["costByBucket"]["requery"], aggregate["totalCost"], raw_value=True, tone="warning"),
+            _breakdown_item(
+                "재질의 요청",
+                aggregate["costByBucket"]["requery"],
+                aggregate["totalCost"],
+                raw_value=True,
+                tone="warning",
+            ),
             _breakdown_item("실패 요청", aggregate["costByBucket"]["failure"], aggregate["totalCost"], raw_value=True),
         ]
         notes = [
@@ -673,8 +684,7 @@ def _average_series(
         index = _bucket_index(_normalize_datetime(row.created_at), start=start, end=end, count=len(grouped))
         grouped[index]["samples"].append(float(numerator(row)))
     return [
-        {"label": bucket["label"], "value": round(_percentile(bucket["samples"], percentile), 3)}
-        for bucket in grouped
+        {"label": bucket["label"], "value": round(_percentile(bucket["samples"], percentile), 3)} for bucket in grouped
     ]
 
 
@@ -863,7 +873,9 @@ def _average_cost_caption(aggregate: dict[str, Any], highest_avg_cost_tenant: tu
     return f"현재 선택 범위 기준 {delta}"
 
 
-def _breakdown_item(label: str, value: float, total: float, *, tone: str | None = None, raw_value: bool = False) -> dict[str, Any]:
+def _breakdown_item(
+    label: str, value: float, total: float, *, tone: str | None = None, raw_value: bool = False
+) -> dict[str, Any]:
     if raw_value:
         ratio = _safe_rate(value, total)
         item_value = _format_usd(value)

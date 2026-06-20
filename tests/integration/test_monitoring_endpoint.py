@@ -63,8 +63,18 @@ async def _seed_chat_observations(session: AsyncSession) -> None:
     now = datetime.now(UTC)
     rows = [
         _row("tenant-a", "success", now - timedelta(days=5), total_tokens=1000, cost=1.2, duration_ms=900),
-        _row("tenant-a", "requery", now - timedelta(days=4), total_tokens=1800, cost=2.4, duration_ms=1800, retry_count=1),
-        _row("tenant-a", "failure", now - timedelta(days=3), total_tokens=400, cost=0.5, duration_ms=2600, answerability_status="not_enough_evidence"),
+        _row(
+            "tenant-a", "requery", now - timedelta(days=4), total_tokens=1800, cost=2.4, duration_ms=1800, retry_count=1
+        ),
+        _row(
+            "tenant-a",
+            "failure",
+            now - timedelta(days=3),
+            total_tokens=400,
+            cost=0.5,
+            duration_ms=2600,
+            answerability_status="not_enough_evidence",
+        ),
         _row("tenant-a", "success", now - timedelta(days=2), total_tokens=1200, cost=1.4, duration_ms=1100),
         _row("tenant-b", "success", now - timedelta(days=1), total_tokens=900, cost=0.9, duration_ms=950),
         _row("tenant-a", "success", now - timedelta(days=40), total_tokens=900, cost=0.8, duration_ms=700),
@@ -150,7 +160,9 @@ async def test_response_quality_detail_is_latency_focused(
 
 @pytest.mark.asyncio
 async def test_search_quality_aggregates_success_failure_requery(monitoring_client: AsyncClient) -> None:
-    response = await monitoring_client.get("/v1/monitoring/details/search_quality", params={"scope": "tenant-a", "period": "30d"})
+    response = await monitoring_client.get(
+        "/v1/monitoring/details/search_quality", params={"scope": "tenant-a", "period": "30d"}
+    )
 
     assert response.status_code == 200
     payload = response.json()
