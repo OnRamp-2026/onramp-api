@@ -24,6 +24,7 @@ retriever와 answer 사이에 위치한다.
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
 from functools import partial
 
@@ -364,7 +365,25 @@ async def _rewrite_query(refined_query: str, model: str, settings: Settings) -> 
 # ---------------------------------------------------------------------------
 
 
-def evaluate_gates(survivors: list[SourceDocument], sensitivity: float, settings: Settings) -> GateFlags:
+def _requests_sensitive_value(query: str) -> bool:
+    normalized = re.sub(r"\s+", " ", query).casefold()
+    secret_term = re.search(
+        r"(secret|token|password|credential|api[-_ ]?key|비밀|토큰|비밀번호|인증.?값|키값)", normalized
+    )
+    value_request = re.search(
+        r"(실제|원문|평문|raw|값|value|알려|보여|공개|노출|출력|복호화|reveal|show|print|decrypt)",
+        normalized,
+    )
+    return bool(secret_term and value_request)
+
+
+def evaluate_gates(
+    survivors: list[SourceDocument],
+    sensitivity: float,
+    settings: Settings,
+    *,
+    query: str = "",
+) -> GateFlags:
     """게이트가 사다리보다 먼저 판정되면 retry 기회 없이 OUTDATED 직행하는 사고가 난다 —
     반드시 사다리 소진(PROCEED 확정) 후에 호출한다.
     """
@@ -372,7 +391,7 @@ def evaluate_gates(survivors: list[SourceDocument], sensitivity: float, settings
     return GateFlags(
         conflicting=_conflicting(survivors, settings),
         deprecated_only=deprecated_only,
-        sensitive_block=sensitivity >= 1.0,
+        sensitive_block=sensitivity >= 1.0 and _requests_sensitive_value(query),
     )
 
 
@@ -507,7 +526,7 @@ async def deterministic_trust_node(state: AgentState) -> dict:
         return result
 
     # ⑦ PROCEED 확정 → 게이트 판정 (사다리 소진 후에만 — 설계 v1.5)
-    gates = evaluate_gates(survivors, output.sensitivity_risk, settings)
+    gates = evaluate_gates(survivors, output.sensitivity_risk, settings, query=state.get("query", ""))
     result["should_re_retrieve"] = False
     result["retry_action"] = RetryAction.PROCEED
     result["gate_flags"] = gates

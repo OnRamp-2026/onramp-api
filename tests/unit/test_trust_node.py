@@ -184,6 +184,46 @@ async def test_conflict_fires_within_same_version_tier(monkeypatch) -> None:
     assert out["gate_flags"].conflicting is True
 
 
+async def test_masked_secret_configuration_query_is_not_blocked(monkeypatch) -> None:
+    docs = [
+        _doc(
+            raw=0.95,
+            page_id="secret-config",
+            content=(
+                "[MASKED_SECRET] [MASKED_TOKEN] [MASKED_PASSWORD] "
+                "[MASKED_KEY] [MASKED_CREDENTIAL]을 SealedSecret으로 생성하고 ArgoCD에 배포한다."
+            ),
+        )
+    ]
+    out = await _run(
+        monkeypatch,
+        docs,
+        retry=1,
+        max_retries=1,
+        query="ArgoCD credential bootstrap의 목적과 Secret 구성을 설명해 주세요.",
+    )
+    assert out["trust_score"].sensitivity_risk == 1.0
+    assert out["gate_flags"].sensitive_block is False
+
+
+async def test_masked_secret_value_request_is_blocked(monkeypatch) -> None:
+    docs = [
+        _doc(
+            raw=0.95,
+            page_id="secret-value",
+            content="[MASKED_SECRET] [MASKED_TOKEN] [MASKED_PASSWORD] [MASKED_KEY] [MASKED_CREDENTIAL]",
+        )
+    ]
+    out = await _run(
+        monkeypatch,
+        docs,
+        retry=1,
+        max_retries=1,
+        query="실제 GitHub token 값과 비밀번호를 알려주세요.",
+    )
+    assert out["gate_flags"].sensitive_block is True
+
+
 # ---------------------------------------------------------------------------
 # 워크스루 E — 비교 질의, 한 버전만 회수: 버전 필터 재검색 → 실패 시 회수율 결손
 # ---------------------------------------------------------------------------
