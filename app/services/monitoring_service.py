@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from math import ceil
@@ -775,7 +776,7 @@ def _pick_top_item(values: dict[str, float]) -> tuple[str, float] | None:
     return max(values.items(), key=lambda item: item[1])
 
 
-def _percentile(values: list[int | float], pct: float) -> float:
+def _percentile(values: Sequence[int | float], pct: float) -> float:
     cleaned = sorted(float(value) for value in values if value is not None)
     if not cleaned:
         return 0.0
