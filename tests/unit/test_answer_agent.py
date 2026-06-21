@@ -265,6 +265,20 @@ def test_decide_gate_conflicting_outdated():
     assert decide_answerability(docs, gate=GateFlags(deprecated_only=True)) == AnswerabilityStatus.OUTDATED_EVIDENCE
 
 
+def test_decide_sensitive_block_does_not_block():
+    # #258: 민감정보 게이트 하드 차단 제거 — masked 밀도가 높아도 근거 충분하면 답변한다.
+    docs = [_doc()]
+    assert (
+        decide_answerability(docs, gate=GateFlags(sensitive_block=True), evidence_score=0.85)
+        == AnswerabilityStatus.ANSWERABLE
+    )
+    # 충돌 게이트는 sensitive_block과 무관하게 여전히 동작한다.
+    assert (
+        decide_answerability(docs, gate=GateFlags(sensitive_block=True, conflicting=True))
+        == AnswerabilityStatus.CONFLICTING_EVIDENCE
+    )
+
+
 def test_decide_p1_score_thresholds():
     docs = [_doc()]
     assert decide_answerability(docs, evidence_score=0.85) == AnswerabilityStatus.ANSWERABLE

@@ -163,7 +163,7 @@ class GateFlags:
 
     conflicting: bool = False  # 동등 권위 문서 간 내용 충돌
     deprecated_only: bool = False  # deprecated/archived 문서만 검색됨
-    sensitive_block: bool = False  # 고위험 민감정보 차단
+    sensitive_block: bool = False  # masked 밀도≥cap (관측 전용 — #258로 비차단; gate_sensitive score)
 
 
 # ---------------------------------------------------------------------------
