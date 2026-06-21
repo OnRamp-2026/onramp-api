@@ -13,13 +13,24 @@ from app.models.response import AssetApproveResponse, AssetResponse, FiveElement
 from app.services.asset_service import _five_elements_to_wiki
 
 
-async def get_report(session: AsyncSession, *, tenant_id: str, report_id: UUID) -> Report:
-    report = await session.scalar(
-        select(Report).where(
-            Report.id == report_id,
-            Report.tenant_id == tenant_id,
-        )
+async def get_report(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    report_id: UUID,
+    user_id: str | None = None,
+) -> Report:
+    statement = select(Report).where(
+        Report.id == report_id,
+        Report.tenant_id == tenant_id,
     )
+    if user_id is not None:
+        statement = statement.join(
+            TranscriptionWorkflow,
+            (TranscriptionWorkflow.transcription_id == Report.source_transcription_id)
+            & (TranscriptionWorkflow.tenant_id == Report.tenant_id),
+        ).where(TranscriptionWorkflow.created_by_user_id == user_id)
+    report = await session.scalar(statement)
     if report is None:
         raise OnRampError("보고서를 찾을 수 없습니다", status_code=404)
     return report
@@ -29,10 +40,11 @@ async def update_report(
     session: AsyncSession,
     *,
     tenant_id: str,
+    user_id: str | None = None,
     report_id: UUID,
     update: AssetUpdateRequest,
 ) -> Report:
-    report = await get_report(session, tenant_id=tenant_id, report_id=report_id)
+    report = await get_report(session, tenant_id=tenant_id, user_id=user_id, report_id=report_id)
     if report.status != ReportStatus.draft:
         raise OnRampError("등록 중이거나 이미 등록된 보고서는 수정할 수 없습니다", status_code=409)
     for field in ("title", "category", "situation", "cause", "evidence", "solution", "infra_context"):
@@ -48,10 +60,11 @@ async def approve_report(
     session: AsyncSession,
     *,
     tenant_id: str,
+    user_id: str | None = None,
     report_id: UUID,
     confluence: ConfluenceClient | None = None,
 ) -> AssetApproveResponse:
-    report = await session.scalar(
+    statement = (
         select(Report)
         .where(
             Report.id == report_id,
@@ -59,6 +72,13 @@ async def approve_report(
         )
         .with_for_update()
     )
+    if user_id is not None:
+        statement = statement.join(
+            TranscriptionWorkflow,
+            (TranscriptionWorkflow.transcription_id == Report.source_transcription_id)
+            & (TranscriptionWorkflow.tenant_id == Report.tenant_id),
+        ).where(TranscriptionWorkflow.created_by_user_id == user_id)
+    report = await session.scalar(statement)
     if report is None:
         raise OnRampError("보고서를 찾을 수 없습니다", status_code=404)
     if report.status == ReportStatus.published:

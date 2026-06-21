@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Header, Response, status
 
-from app.api.deps import CurrentTenant, DatabaseSession, SttClientDependency
+from app.api.deps import AssetUser, DatabaseSession, SttClientDependency
 from app.models.transcription import (
     TranscriptionCreateRequest,
     TranscriptionCreateResponse,
@@ -30,7 +30,7 @@ async def create_transcription(
     response: Response,
     session: DatabaseSession,
     stt_client: SttClientDependency,
-    tenant_id: CurrentTenant,
+    user: AssetUser,
     idempotency_key: Annotated[
         str | None,
         Header(alias="Idempotency-Key", max_length=255),
@@ -39,7 +39,8 @@ async def create_transcription(
     creation, created = await create_workflow(
         session,
         stt_client,
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
+        user_id=user.subject,
         idempotency_key=idempotency_key,
         request=request,
     )
@@ -58,12 +59,13 @@ async def mark_upload_complete(
     request: UploadCompleteRequest,
     session: DatabaseSession,
     stt_client: SttClientDependency,
-    tenant_id: CurrentTenant,
+    user: AssetUser,
 ) -> UploadCompleteResponse:
     workflow = await complete_upload(
         session,
         stt_client,
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
+        user_id=user.subject,
         transcription_id=transcription_id,
         request=request,
     )
@@ -78,11 +80,12 @@ async def mark_upload_complete(
 async def get_transcription_status(
     transcription_id: UUID,
     session: DatabaseSession,
-    tenant_id: CurrentTenant,
+    user: AssetUser,
 ) -> TranscriptionStatusResponse:
     workflow = await get_workflow(
         session,
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
+        user_id=user.subject,
         transcription_id=transcription_id,
     )
     return status_response(workflow)

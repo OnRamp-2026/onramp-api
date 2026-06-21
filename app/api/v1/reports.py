@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
-from app.api.deps import CurrentTenant, DatabaseSession
+from app.api.deps import AssetUser, DatabaseSession
 from app.models.request import AssetUpdateRequest
 from app.models.response import AssetApproveResponse, AssetResponse
 from app.services import report_service
@@ -16,9 +16,14 @@ router = APIRouter(prefix="/reports")
 async def get_report(
     report_id: UUID,
     session: DatabaseSession,
-    tenant_id: CurrentTenant,
+    user: AssetUser,
 ) -> AssetResponse:
-    report = await report_service.get_report(session, tenant_id=tenant_id, report_id=report_id)
+    report = await report_service.get_report(
+        session,
+        tenant_id=user.tenant_id,
+        user_id=user.subject,
+        report_id=report_id,
+    )
     return report_service.report_response(report)
 
 
@@ -27,11 +32,12 @@ async def update_report(
     report_id: UUID,
     update: AssetUpdateRequest,
     session: DatabaseSession,
-    tenant_id: CurrentTenant,
+    user: AssetUser,
 ) -> AssetResponse:
     report = await report_service.update_report(
         session,
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
+        user_id=user.subject,
         report_id=report_id,
         update=update,
     )
@@ -43,11 +49,12 @@ async def update_report(
 async def approve_report(
     report_id: UUID,
     session: DatabaseSession,
-    tenant_id: CurrentTenant,
+    user: AssetUser,
 ) -> AssetApproveResponse:
     response = await report_service.approve_report(
         session,
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id,
+        user_id=user.subject,
         report_id=report_id,
     )
     await session.commit()

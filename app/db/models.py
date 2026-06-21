@@ -92,6 +92,7 @@ class TranscriptionWorkflow(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     transcription_id: Mapped[uuid.UUID] = mapped_column(unique=True, index=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    created_by_user_id: Mapped[str] = mapped_column(String(128), default="")
     idempotency_key: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[WorkflowStatus] = mapped_column(
         Enum(
@@ -118,7 +119,18 @@ class TranscriptionWorkflow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "idempotency_key", name="uq_transcription_workflow_idempotency"),
+        Index(
+            "ix_transcription_workflow_tenant_user_updated_at",
+            "tenant_id",
+            "created_by_user_id",
+            updated_at.desc(),
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "created_by_user_id",
+            "idempotency_key",
+            name="uq_transcription_workflow_user_idempotency",
+        ),
         UniqueConstraint("tenant_id", "transcription_id", name="uq_transcription_workflow_tenant"),
     )
 

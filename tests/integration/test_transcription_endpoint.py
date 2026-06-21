@@ -10,8 +10,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.api.deps import get_current_tenant, get_db_session, get_stt_client
+from app.api.deps import get_db_session, get_stt_client
 from app.api.v1.transcriptions import router as transcriptions_router
+from app.auth.session import SessionUser, get_current_user
 from app.db.base import Base
 from app.middleware.error_handler import register_error_handlers
 from app.services.stt_result_client import (
@@ -23,6 +24,17 @@ from app.services.stt_result_client import (
 app = FastAPI()
 register_error_handlers(app)
 app.include_router(transcriptions_router, prefix="/v1")
+
+
+def current_user(*, tenant_id: str = "tenant-a", user_id: str = "user-a") -> SessionUser:
+    return SessionUser(
+        tenant_id=tenant_id,
+        subject=user_id,
+        provider="test",
+        name="Test User",
+        email="test@example.com",
+        claims={},
+    )
 
 
 class FakeSttResultClient:
@@ -106,7 +118,7 @@ async def transcription_client() -> AsyncIterator[tuple[AsyncClient, FakeSttResu
 
     app.dependency_overrides[get_db_session] = override_session
     app.dependency_overrides[get_stt_client] = lambda: stt_client
-    app.dependency_overrides[get_current_tenant] = lambda: "tenant-a"
+    app.dependency_overrides[get_current_user] = current_user
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -242,7 +254,7 @@ async def test_tenant_cannot_access_another_tenants_workflow(
 ) -> None:
     client, _ = transcription_client
     created = (await client.post("/v1/transcriptions", json=request_body())).json()
-    app.dependency_overrides[get_current_tenant] = lambda: "tenant-b"
+    app.dependency_overrides[get_current_user] = lambda: current_user(tenant_id="tenant-b")
 
     response = await client.get(f"/v1/transcriptions/{created['transcription_id']}")
 
@@ -255,7 +267,7 @@ async def test_tenant_cannot_complete_another_tenants_upload(
 ) -> None:
     client, _ = transcription_client
     created = (await client.post("/v1/transcriptions", json=request_body())).json()
-    app.dependency_overrides[get_current_tenant] = lambda: "tenant-b"
+    app.dependency_overrides[get_current_user] = lambda: current_user(tenant_id="tenant-b")
 
     response = await client.post(
         f"/v1/transcriptions/{created['transcription_id']}/upload-complete",
@@ -263,3 +275,21 @@ async def test_tenant_cannot_complete_another_tenants_upload(
     )
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_user_cannot_access_another_users_workflow(
+    transcription_client: tuple[AsyncClient, FakeSttResultClient],
+) -> None:
+    client, _ = transcription_client
+    created = (await client.post("/v1/transcriptions", json=request_body())).json()
+    app.dependency_overrides[get_current_user] = lambda: current_user(user_id="user-b")
+
+    status = await client.get(f"/v1/transcriptions/{created['transcription_id']}")
+    complete = await client.post(
+        f"/v1/transcriptions/{created['transcription_id']}/upload-complete",
+        json={"etag": '"etag-1"', "size_bytes": 1024},
+    )
+
+    assert status.status_code == 404
+    assert complete.status_code == 404
