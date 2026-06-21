@@ -186,7 +186,9 @@ async def test_list_assets_applies_status_and_limit_in_database(
             limit=1,
         )
 
-    select_statements = [statement.upper() for statement in executed_sql if statement.lstrip().upper().startswith("SELECT")]
+    select_statements = [
+        statement.upper() for statement in executed_sql if statement.lstrip().upper().startswith("SELECT")
+    ]
     assert len(result.items) == 1
     assert result.items[0].status == "failed"
     assert result.counts.model_dump() == {

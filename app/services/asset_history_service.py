@@ -134,18 +134,10 @@ async def list_assets(
         failed=failed or 0,
     )
 
-    items_statement = (
-        select(TranscriptionWorkflow, Report)
-        .outerjoin(Report, join_condition)
-        .where(*owner_condition)
-    )
+    items_statement = select(TranscriptionWorkflow, Report).outerjoin(Report, join_condition).where(*owner_condition)
     if status is not None:
         items_statement = items_statement.where(status_expression == status)
-    rows = (
-        await session.execute(
-            items_statement.order_by(TranscriptionWorkflow.updated_at.desc()).limit(limit)
-        )
-    ).all()
+    rows = (await session.execute(items_statement.order_by(TranscriptionWorkflow.updated_at.desc()).limit(limit))).all()
     return AssetHistoryListResponse(
         items=[_item(workflow, report) for workflow, report in rows],
         counts=counts,
