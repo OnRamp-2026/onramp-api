@@ -1,7 +1,7 @@
 """add asset workflow owner
 
-Revision ID: 20260621_0009
-Revises: 20260620_0008
+Revision ID: 20260621_0010
+Revises: 20260621_0009
 Create Date: 2026-06-21
 """
 
@@ -9,8 +9,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "20260621_0009"
-down_revision = "20260620_0008"
+revision = "20260621_0010"
+down_revision = "20260621_0009"
 branch_labels = None
 depends_on = None
 
