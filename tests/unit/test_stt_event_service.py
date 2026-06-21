@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db.base import Base
-from app.db.models import ReportJob, ReportJobStatus, TranscriptionWorkflow, WorkflowStatus
+from app.db.models import Report, ReportJob, ReportJobStatus, ReportStatus, TranscriptionWorkflow, WorkflowStatus
 from app.queue.events import ProgressUpdated, StreamEnvelope, TranscriptCompleted, TranscriptionCompleted
 from app.services.stt_event_service import SttEventService, UnrecoverableSttEventError
 
@@ -290,6 +290,24 @@ async def test_deleted_event_removes_deleting_workflow_and_related_rows(
                 result_object_key="result.json",
             )
         )
+        session.add(
+            Report(
+                tenant_id=persisted.tenant_id,
+                source_transcription_id=persisted.transcription_id,
+                title=persisted.title,
+                category=persisted.category,
+                situation="상황",
+                cause="원인",
+                evidence="근거",
+                solution="해결",
+                infra_context="환경",
+                status=ReportStatus.draft,
+                raw_text_sha256="a" * 64,
+                corrected_text_sha256="b" * 64,
+                dictionary_version="v1",
+                result_object_key="result.json",
+            )
+        )
         await session.commit()
 
     envelope = StreamEnvelope(
@@ -307,6 +325,7 @@ async def test_deleted_event_removes_deleting_workflow_and_related_rows(
     async with session_factory() as session:
         assert await session.get(TranscriptionWorkflow, workflow.id) is None
         assert list(await session.scalars(select(ReportJob))) == []
+        assert list(await session.scalars(select(Report))) == []
 
 
 @pytest.mark.asyncio
