@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models import Report, ReportStatus, TranscriptionWorkflow, WorkflowStatus
 from app.models.asset_history import (
@@ -20,6 +21,22 @@ _FAILED = {
     WorkflowStatus.report_failed,
     WorkflowStatus.cancelled,
 }
+
+
+def _status_expression() -> ColumnElement[str]:
+    return case(
+        (TranscriptionWorkflow.status.in_(_FAILED), "failed"),
+        (
+            or_(
+                Report.status == ReportStatus.published,
+                TranscriptionWorkflow.status == WorkflowStatus.published,
+            ),
+            "completed",
+        ),
+        (Report.status == ReportStatus.publishing, "processing"),
+        (Report.id.is_not(None), "draft"),
+        else_="processing",
+    )
 
 
 def _status(workflow: TranscriptionWorkflow, report: Report | None) -> AssetHistoryStatus:
@@ -87,24 +104,49 @@ async def list_assets(
     status: AssetHistoryStatus | None = None,
     limit: int = 50,
 ) -> AssetHistoryListResponse:
+    status_expression = _status_expression()
+    join_condition = (Report.source_transcription_id == TranscriptionWorkflow.transcription_id) & (
+        Report.tenant_id == TranscriptionWorkflow.tenant_id
+    )
+    owner_condition = (
+        TranscriptionWorkflow.tenant_id == tenant_id,
+        TranscriptionWorkflow.created_by_user_id == user_id,
+    )
+    total, processing, draft, completed, failed = (
+        await session.execute(
+            select(
+                func.count(),
+                func.sum(case((status_expression == "processing", 1), else_=0)),
+                func.sum(case((status_expression == "draft", 1), else_=0)),
+                func.sum(case((status_expression == "completed", 1), else_=0)),
+                func.sum(case((status_expression == "failed", 1), else_=0)),
+            )
+            .select_from(TranscriptionWorkflow)
+            .outerjoin(Report, join_condition)
+            .where(*owner_condition)
+        )
+    ).one()
+    counts = AssetHistoryCounts(
+        all=total,
+        processing=processing or 0,
+        draft=draft or 0,
+        completed=completed or 0,
+        failed=failed or 0,
+    )
+
+    items_statement = (
+        select(TranscriptionWorkflow, Report)
+        .outerjoin(Report, join_condition)
+        .where(*owner_condition)
+    )
+    if status is not None:
+        items_statement = items_statement.where(status_expression == status)
     rows = (
         await session.execute(
-            select(TranscriptionWorkflow, Report)
-            .outerjoin(
-                Report,
-                (Report.source_transcription_id == TranscriptionWorkflow.transcription_id)
-                & (Report.tenant_id == TranscriptionWorkflow.tenant_id),
-            )
-            .where(
-                TranscriptionWorkflow.tenant_id == tenant_id,
-                TranscriptionWorkflow.created_by_user_id == user_id,
-            )
-            .order_by(TranscriptionWorkflow.updated_at.desc())
+            items_statement.order_by(TranscriptionWorkflow.updated_at.desc()).limit(limit)
         )
     ).all()
-    all_items = [_item(workflow, report) for workflow, report in rows]
-    counts = AssetHistoryCounts(all=len(all_items))
-    for item in all_items:
-        setattr(counts, item.status, getattr(counts, item.status) + 1)
-    filtered = [item for item in all_items if status is None or item.status == status]
-    return AssetHistoryListResponse(items=filtered[:limit], counts=counts)
+    return AssetHistoryListResponse(
+        items=[_item(workflow, report) for workflow, report in rows],
+        counts=counts,
+    )

@@ -70,10 +70,11 @@ async def test_workflow_and_report_are_scoped_to_current_user(
                 user_id="user-b",
                 transcription_id=transcription_id,
             )
-        with pytest.raises(OnRampError):
+        with pytest.raises(OnRampError) as exc_info:
             await get_report(
                 session,
                 tenant_id="tenant-a",
                 user_id="user-b",
                 report_id=report.id,
             )
+        assert exc_info.value.status_code == 404

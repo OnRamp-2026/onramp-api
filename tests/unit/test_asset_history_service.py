@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db.base import Base
@@ -19,6 +20,28 @@ async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     factory = async_sessionmaker(engine, expire_on_commit=False)
     yield factory
     await engine.dispose()
+
+
+@pytest.fixture
+def executed_sql(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> Iterator[list[str]]:
+    engine = session_factory.kw["bind"]
+    statements: list[str] = []
+
+    def record_statement(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", record_statement)
+    yield statements
+    event.remove(engine.sync_engine, "before_cursor_execute", record_statement)
 
 
 def workflow(*, user_id: str, status: WorkflowStatus, title: str) -> TranscriptionWorkflow:
@@ -139,3 +162,41 @@ async def test_list_assets_treats_confluence_publishing_as_processing(
         result = await list_assets(session, tenant_id="tenant-a", user_id="user-a")
 
     assert result.items[0].status == "processing"
+
+
+@pytest.mark.asyncio
+async def test_list_assets_applies_status_and_limit_in_database(
+    session_factory: async_sessionmaker[AsyncSession],
+    executed_sql: list[str],
+) -> None:
+    failed_old = workflow(user_id="user-a", status=WorkflowStatus.report_failed, title="오래된 실패")
+    failed_new = workflow(user_id="user-a", status=WorkflowStatus.cancelled, title="최근 실패")
+    processing = workflow(user_id="user-a", status=WorkflowStatus.correcting, title="처리 중")
+    async with session_factory() as session:
+        session.add_all([failed_old, failed_new, processing])
+        await session.commit()
+
+    executed_sql.clear()
+    async with session_factory() as session:
+        result = await list_assets(
+            session,
+            tenant_id="tenant-a",
+            user_id="user-a",
+            status="failed",
+            limit=1,
+        )
+
+    select_statements = [statement.upper() for statement in executed_sql if statement.lstrip().upper().startswith("SELECT")]
+    assert len(result.items) == 1
+    assert result.items[0].status == "failed"
+    assert result.counts.model_dump() == {
+        "all": 3,
+        "processing": 1,
+        "draft": 0,
+        "completed": 0,
+        "failed": 2,
+    }
+    assert len(select_statements) == 2
+    assert "CASE" in select_statements[0]
+    assert "CASE" in select_statements[1]
+    assert "LIMIT" in select_statements[1]
