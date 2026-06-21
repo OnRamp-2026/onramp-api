@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db.base import Base
-from app.db.models import ReportJob, TranscriptionWorkflow, WorkflowStatus
+from app.db.models import ReportJob, ReportJobStatus, TranscriptionWorkflow, WorkflowStatus
 from app.queue.events import ProgressUpdated, StreamEnvelope, TranscriptCompleted, TranscriptionCompleted
 from app.services.stt_event_service import SttEventService, UnrecoverableSttEventError
 
@@ -268,3 +268,76 @@ async def test_different_stream_groups_can_process_same_event_id(
     assert persisted is not None
     assert persisted.status == WorkflowStatus.transcript_completed
     assert persisted.transcript_completed_received_at is not None
+
+
+@pytest.mark.asyncio
+async def test_deleted_event_removes_deleting_workflow_and_related_rows(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    workflow = await create_workflow(session_factory)
+    async with session_factory() as session:
+        persisted = await session.get(TranscriptionWorkflow, workflow.id)
+        assert persisted is not None
+        persisted.status = WorkflowStatus.deleting
+        session.add(
+            ReportJob(
+                tenant_id=persisted.tenant_id,
+                source_transcription_id=persisted.transcription_id,
+                status=ReportJobStatus.completed,
+                raw_text_sha256="a" * 64,
+                corrected_text_sha256="b" * 64,
+                dictionary_version="v1",
+                result_object_key="result.json",
+            )
+        )
+        await session.commit()
+
+    envelope = StreamEnvelope(
+        event_id="evt-deleted",
+        event_type="transcription.deleted",
+        payload={
+            "transcription_id": str(workflow.transcription_id),
+            "tenant_id": workflow.tenant_id,
+        },
+    )
+    service = SttEventService(session_factory)
+    await service.process(envelope)
+    await service.process(envelope)
+
+    async with session_factory() as session:
+        assert await session.get(TranscriptionWorkflow, workflow.id) is None
+        assert list(await session.scalars(select(ReportJob))) == []
+
+
+@pytest.mark.asyncio
+async def test_progress_after_deletion_request_does_not_regress_workflow(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    workflow = await create_workflow(session_factory)
+    async with session_factory() as session:
+        persisted = await session.get(TranscriptionWorkflow, workflow.id)
+        assert persisted is not None
+        persisted.status = WorkflowStatus.deleting
+        await session.commit()
+
+    service = SttEventService(session_factory)
+    envelope = StreamEnvelope(
+        event_id="evt-progress-after-delete",
+        event_type="transcription.progressed",
+        payload=ProgressUpdated(
+            transcription_id=workflow.transcription_id,
+            tenant_id="tenant-a",
+            status="correcting",
+            completed_chunks=10,
+            total_chunks=10,
+            failed_chunks=0,
+            progress_ratio=1,
+            occurred_at=datetime.now(UTC),
+        ).model_dump(mode="json"),
+    )
+    await service.process(envelope)
+
+    async with session_factory() as session:
+        persisted = await session.get(TranscriptionWorkflow, workflow.id)
+    assert persisted is not None
+    assert persisted.status == WorkflowStatus.deleting

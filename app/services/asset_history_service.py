@@ -25,6 +25,7 @@ _FAILED = {
 
 def _status_expression() -> ColumnElement[str]:
     return case(
+        (TranscriptionWorkflow.status == WorkflowStatus.deleting, "deleting"),
         (TranscriptionWorkflow.status.in_(_FAILED), "failed"),
         (
             or_(
@@ -40,6 +41,8 @@ def _status_expression() -> ColumnElement[str]:
 
 
 def _status(workflow: TranscriptionWorkflow, report: Report | None) -> AssetHistoryStatus:
+    if workflow.status == WorkflowStatus.deleting:
+        return "deleting"
     if workflow.status in _FAILED:
         return "failed"
     if report is not None and report.status == ReportStatus.published:
@@ -112,12 +115,13 @@ async def list_assets(
         TranscriptionWorkflow.tenant_id == tenant_id,
         TranscriptionWorkflow.created_by_user_id == user_id,
     )
-    total, processing, draft, completed, failed = (
+    total, processing, draft, deleting, completed, failed = (
         await session.execute(
             select(
                 func.count(),
                 func.sum(case((status_expression == "processing", 1), else_=0)),
                 func.sum(case((status_expression == "draft", 1), else_=0)),
+                func.sum(case((status_expression == "deleting", 1), else_=0)),
                 func.sum(case((status_expression == "completed", 1), else_=0)),
                 func.sum(case((status_expression == "failed", 1), else_=0)),
             )
@@ -130,6 +134,7 @@ async def list_assets(
         all=total,
         processing=processing or 0,
         draft=draft or 0,
+        deleting=deleting or 0,
         completed=completed or 0,
         failed=failed or 0,
     )
