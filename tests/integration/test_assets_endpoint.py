@@ -6,14 +6,16 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.deps import get_db_session
 from app.api.v1.assets import router
 from app.auth.session import SessionUser, get_current_user
 from app.db.base import Base
-from app.db.models import TranscriptionWorkflow, WorkflowStatus
+from app.db.models import EventOutbox, Report, ReportStatus, TranscriptionWorkflow, WorkflowStatus
 from app.middleware.error_handler import register_error_handlers
+from app.queue.constants import DELETE_REQUESTED_EVENT_TYPE
 
 app = FastAPI()
 register_error_handlers(app)
@@ -86,3 +88,64 @@ async def test_assets_endpoint_rejects_empty_subject(assets_client: AsyncClient)
     response = await assets_client.get("/v1/assets")
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_delete_draft_asset_returns_deleting() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    item = workflow("user-a", "삭제할 초안")
+    item.status = WorkflowStatus.draft
+    async with session_factory() as session:
+        session.add(item)
+        session.add(
+            Report(
+                tenant_id=item.tenant_id,
+                source_transcription_id=item.transcription_id,
+                title=item.title,
+                category=item.category,
+                situation="상황",
+                cause="원인",
+                evidence="근거",
+                solution="해결",
+                infra_context="환경",
+                status=ReportStatus.draft,
+                raw_text_sha256="a" * 64,
+                corrected_text_sha256="b" * 64,
+                dictionary_version="v1",
+                result_object_key="result.json",
+            )
+        )
+        await session.commit()
+
+    async def override_session() -> AsyncIterator[AsyncSession]:
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db_session] = override_session
+    app.dependency_overrides[get_current_user] = lambda: user("user-a")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.delete(f"/v1/assets/{item.transcription_id}")
+
+        assert response.status_code == 202
+        assert response.json() == {
+            "transcription_id": str(item.transcription_id),
+            "status": "deleting",
+        }
+        async with session_factory() as session:
+            persisted = await session.get(TranscriptionWorkflow, item.id)
+            outbox = await session.scalar(
+                select(EventOutbox).where(
+                    EventOutbox.aggregate_id == str(item.transcription_id),
+                    EventOutbox.event_type == DELETE_REQUESTED_EVENT_TYPE,
+                )
+            )
+        assert persisted is not None
+        assert persisted.status == WorkflowStatus.deleting
+        assert outbox is not None
+    finally:
+        app.dependency_overrides.clear()
+        await engine.dispose()

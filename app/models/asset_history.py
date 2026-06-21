@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.models.response import FiveElementsResponse
 
-AssetHistoryStatus = Literal["processing", "draft", "completed", "failed"]
+AssetHistoryStatus = Literal["processing", "draft", "deleting", "completed", "failed"]
 
 
 class AssetHistorySource(BaseModel):
@@ -42,8 +42,14 @@ class AssetHistoryCounts(BaseModel):
     all: int = 0
     processing: int = 0
     draft: int = 0
+    deleting: int = 0
     completed: int = 0
     failed: int = 0
+
+
+class AssetDeletionResponse(BaseModel):
+    transcription_id: str
+    status: Literal["deleting"]
 
 
 class AssetHistoryListResponse(BaseModel):

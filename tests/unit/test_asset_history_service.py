@@ -118,6 +118,7 @@ async def test_list_assets_returns_only_current_user_and_combines_workflow_repor
         "all": 3,
         "processing": 1,
         "draft": 1,
+        "deleting": 0,
         "completed": 1,
         "failed": 0,
     }
@@ -165,6 +166,22 @@ async def test_list_assets_treats_confluence_publishing_as_processing(
 
 
 @pytest.mark.asyncio
+async def test_list_assets_exposes_deleting_status(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    deleting = workflow(user_id="user-a", status=WorkflowStatus.deleting, title="삭제 중")
+    async with session_factory() as session:
+        session.add_all([deleting, report_for(deleting, ReportStatus.draft)])
+        await session.commit()
+
+    async with session_factory() as session:
+        result = await list_assets(session, tenant_id="tenant-a", user_id="user-a")
+
+    assert result.items[0].status == "deleting"
+    assert result.counts.deleting == 1
+
+
+@pytest.mark.asyncio
 async def test_list_assets_applies_status_and_limit_in_database(
     session_factory: async_sessionmaker[AsyncSession],
     executed_sql: list[str],
@@ -195,6 +212,7 @@ async def test_list_assets_applies_status_and_limit_in_database(
         "all": 3,
         "processing": 1,
         "draft": 0,
+        "deleting": 0,
         "completed": 0,
         "failed": 2,
     }

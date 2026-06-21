@@ -40,6 +40,7 @@ class WorkflowStatus(StrEnum):
     report_queued = "report_queued"
     report_processing = "report_processing"
     draft = "draft"
+    deleting = "deleting"
     published = "published"
     transcription_failed = "transcription_failed"
     correction_failed = "correction_failed"

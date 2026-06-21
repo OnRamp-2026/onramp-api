@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import (
     EventInbox,
+    Report,
     ReportJob,
     ReportJobStatus,
     TranscriptionWorkflow,
@@ -15,13 +16,20 @@ from app.db.models import (
 )
 from app.queue.constants import (
     COMPLETED_EVENT_TYPE,
+    DELETED_EVENT_TYPE,
     PROGRESS_EVENT_TYPE,
     REPORT_EVENT_GROUP,
     TRANSCRIPT_COMPLETED_EVENT_TYPE,
     TRANSCRIPT_OBSERVER_GROUP,
     WORKFLOW_UPDATER_GROUP,
 )
-from app.queue.events import ProgressUpdated, StreamEnvelope, TranscriptCompleted, TranscriptionCompleted
+from app.queue.events import (
+    ProgressUpdated,
+    StreamEnvelope,
+    TranscriptCompleted,
+    TranscriptionCompleted,
+    TranscriptionDeleted,
+)
 
 
 class SttEventService:
@@ -35,6 +43,8 @@ class SttEventService:
             await self._process_transcript_completed(envelope)
         elif envelope.event_type == COMPLETED_EVENT_TYPE:
             await self._process_completed(envelope)
+        elif envelope.event_type == DELETED_EVENT_TYPE:
+            await self._process_deleted(envelope)
         else:
             raise UnrecoverableSttEventError(f"unsupported STT event type: {envelope.event_type}")
 
@@ -96,6 +106,30 @@ class SttEventService:
                 workflow.updated_at = utcnow()
             self._mark_processed(session, REPORT_EVENT_GROUP, envelope.event_id, str(existing.id))
 
+    async def _process_deleted(self, envelope: StreamEnvelope) -> None:
+        payload = TranscriptionDeleted.model_validate(envelope.payload)
+        async with self.session_factory() as session, session.begin():
+            if await self._is_processed(session, REPORT_EVENT_GROUP, envelope.event_id):
+                return
+            workflow = await self._workflow(session, payload.transcription_id)
+            self._verify_tenant(workflow, payload.tenant_id)
+            if workflow.status != WorkflowStatus.deleting:
+                raise UnrecoverableSttEventError("transcription workflow is not deleting")
+            await session.execute(
+                delete(ReportJob).where(
+                    ReportJob.tenant_id == payload.tenant_id,
+                    ReportJob.source_transcription_id == payload.transcription_id,
+                )
+            )
+            await session.execute(
+                delete(Report).where(
+                    Report.tenant_id == payload.tenant_id,
+                    Report.source_transcription_id == payload.transcription_id,
+                )
+            )
+            await session.delete(workflow)
+            self._mark_processed(session, REPORT_EVENT_GROUP, envelope.event_id, str(payload.transcription_id))
+
     @staticmethod
     async def _workflow(session: AsyncSession, transcription_id: uuid.UUID) -> TranscriptionWorkflow:
         workflow = await session.scalar(
@@ -150,6 +184,7 @@ class SttEventService:
             WorkflowStatus.report_queued,
             WorkflowStatus.report_processing,
             WorkflowStatus.draft,
+            WorkflowStatus.deleting,
             WorkflowStatus.published,
             WorkflowStatus.report_failed,
             WorkflowStatus.cancelled,
