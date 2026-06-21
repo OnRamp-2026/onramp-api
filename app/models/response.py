@@ -77,6 +77,8 @@ class ConversationMessage(BaseModel):
 
     role: str  # "user" | "assistant"
     content: str = ""
+    answer_format: str = "structured"  # "structured" | "freeform" (#191) — 히스토리 렌더 분기
+    answer_text: str = ""  # freeform일 때 본문
     answer: FiveElementsResponse | None = None
     sources: list[SourceDoc] = Field(default_factory=list)
     domain: str = ""

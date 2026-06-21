@@ -430,7 +430,10 @@ class Message(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), default="onramp")
     role: Mapped[str] = mapped_column(String(16))  # "user" | "assistant"
     content: Mapped[str] = mapped_column(Text, default="")
-    answer: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # assistant 5요소
+    # 답변 포맷(#191) — 히스토리 복원 시 라이브 채팅과 동일하게 렌더 분기. freeform이면 answer_text 사용.
+    answer_format: Mapped[str] = mapped_column(String(16), default="structured")  # "structured" | "freeform"
+    answer_text: Mapped[str] = mapped_column(Text, default="")  # freeform 답변 본문
+    answer: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # assistant 5요소(structured)
     sources: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)  # 인용 출처 스냅샷
     domain: Mapped[str | None] = mapped_column(String(32))
     answerability_status: Mapped[str | None] = mapped_column(String(32))
