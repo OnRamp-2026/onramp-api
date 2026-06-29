@@ -257,6 +257,9 @@ class Settings(BaseSettings):
     single_agentic_tool_snippet_chars: int = Field(default=300, ge=50, le=2000)
     single_agentic_document_max_chars: int = Field(default=8000, ge=500, le=30000)
     single_agentic_max_candidates: int = Field(default=50, ge=1, le=200)
+    # incident 원문 escalation 임계값 — 1차 검색 Trust coverage가 이 값 미만이면
+    # (incident 질의 한정) LLM 판단 없이 결정론적으로 opensearch_get_document 원문 조회로 확장.
+    single_agentic_escalate_coverage: float = Field(default=0.5, ge=0.0, le=1.0)
     # tool-call 판단 LLM의 일시 실패(timeout/5xx/rate-limit) 복원력.
     # 단발 호출은 일시 장애에 곧장 raw 질의 hybrid_search로 퇴화해 에이전트 추론을 버린다.
     # bounded retry로 일시 실패를 회복하고, 소진 시에만 기존 fallback으로 떨어진다.

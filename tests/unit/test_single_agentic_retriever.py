@@ -463,3 +463,152 @@ async def test_retrieve_node_preserves_full_document_evidence_outside_top_n(monk
     )
 
     assert [doc.chunk_id for doc in out["documents"]] == ["chunk-1", "document:incident-1"]
+
+
+def _incident_chunk(page_id: str, score: float, tool: str = "hybrid_search") -> RetrievalCandidate:
+    return RetrievalCandidate(
+        chunk_id=f"chunk:{page_id}",
+        payload={"chunk_id": f"chunk:{page_id}", "page_id": page_id, "content": "요약 청크", "source": "github"},
+        search_score=score,
+        tool_name=tool,
+        query="장애 원인",
+    )
+
+
+@pytest.mark.asyncio
+async def test_incident_low_coverage_escalates_to_document(monkeypatch):
+    """incident + coverage<임계 → LLM 판단 없이 결정론적으로 원문 조회(opensearch_get_document)."""
+
+    async def fail_llm(*args, **kwargs):
+        raise AssertionError("escalation은 판단 LLM을 건너뛰어야 한다")
+
+    called: list = []
+
+    async def fake_tool(name, arguments, *, context):
+        called.append((name, arguments))
+        return []
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fail_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    out = await run_agentic_step(
+        {
+            "query": "장애 원인?",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "domains": ["incident"],
+            "retrieval_candidates": [_incident_chunk("incident-1", 0.9)],
+            "trust_score": TrustScore(overall=0.3, coverage=0.2),
+        },
+        Settings(single_agentic_escalate_coverage=0.5),
+    )
+
+    assert called == [("opensearch_get_document", {"doc_id": "incident-1"})]
+    assert out["retrieval_phase"] == RetrievalPhase.SEARCHED
+    assert [t.tool for t in out["tool_trace"]] == ["opensearch_get_document"]
+
+
+@pytest.mark.asyncio
+async def test_incident_sufficient_coverage_no_escalation(monkeypatch):
+    """근거 충분(coverage≥임계)이면 escalation 안 함 — 기존 LLM 경로 유지."""
+
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="", tool_calls=[ToolCall(id="1", name="hybrid_search", arguments={"query": "재검색"})]
+        )
+
+    called: list = []
+
+    async def fake_tool(name, arguments, *, context):
+        called.append(name)
+        return []
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    await run_agentic_step(
+        {
+            "query": "q",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "domains": ["incident"],
+            "retrieval_candidates": [_incident_chunk("incident-1", 0.9)],
+            "trust_score": TrustScore(overall=0.3, coverage=0.9),
+        },
+        Settings(single_agentic_escalate_coverage=0.5),
+    )
+
+    assert called == ["hybrid_search"]  # LLM 경로 — 원문 escalation 없음
+
+
+@pytest.mark.asyncio
+async def test_non_incident_low_coverage_no_escalation(monkeypatch):
+    """비-incident는 coverage가 낮아도 원문 escalation 없음 — 기존 hybrid 유지(불변)."""
+
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="", tool_calls=[ToolCall(id="1", name="hybrid_search", arguments={"query": "재검색"})]
+        )
+
+    called: list = []
+
+    async def fake_tool(name, arguments, *, context):
+        called.append(name)
+        return []
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    await run_agentic_step(
+        {
+            "query": "q",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "domains": ["manual"],
+            "retrieval_candidates": [_incident_chunk("manual-1", 0.9)],
+            "trust_score": TrustScore(overall=0.3, coverage=0.1),
+        },
+        Settings(single_agentic_escalate_coverage=0.5),
+    )
+
+    assert called == ["hybrid_search"]
+
+
+@pytest.mark.asyncio
+async def test_already_fetched_document_not_re_escalated(monkeypatch):
+    """이미 원문 조회한 doc만 있으면 재-escalate 안 하고 LLM 경로로 진행."""
+
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="", tool_calls=[ToolCall(id="1", name="hybrid_search", arguments={"query": "재검색"})]
+        )
+
+    called: list = []
+
+    async def fake_tool(name, arguments, *, context):
+        called.append(name)
+        return []
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    already = RetrievalCandidate(
+        chunk_id="document:incident-1",
+        payload={"chunk_id": "document:incident-1", "page_id": "incident-1", "content": "원문"},
+        search_score=1.0,
+        tool_name="opensearch_get_document",
+        query="incident-1",
+    )
+    await run_agentic_step(
+        {
+            "query": "q",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "domains": ["incident"],
+            "retrieval_candidates": [already],
+            "trust_score": TrustScore(overall=0.3, coverage=0.1),
+        },
+        Settings(single_agentic_escalate_coverage=0.5),
+    )
+
+    assert called == ["hybrid_search"]  # 이미 조회한 doc 재-escalate 안 함 → LLM 경로

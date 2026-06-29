@@ -11,7 +11,7 @@ from typing import Any
 
 from app.agents.answer.answerability import ANSWERABLE_THRESHOLD
 from app.agents.retriever.tools import TOOL_SCHEMAS, SearchToolContext, execute_tool
-from app.agents.state import AgentState, RetrievalCandidate, RetrievalPhase, ToolTrace
+from app.agents.state import AgentState, Domain, RetrievalCandidate, RetrievalPhase, ToolTrace
 from app.config import Settings
 from app.middleware.error_handler import LLMError
 from app.observability import score_current_trace
@@ -68,8 +68,10 @@ def _emit_tool_observation(traces: list[ToolTrace], merged: list[RetrievalCandid
         + (f"[{trace.fallback}]" if trace.fallback else "")
         for trace in traces
     )
+    escalations = sum(1 for trace in traces if trace.tool == "opensearch_get_document")
     score_current_trace(name="agentic_tool_calls", value=float(len(traces)), comment=summary)
     score_current_trace(name="agentic_tool_fallbacks", value=float(fallbacks))
+    score_current_trace(name="agentic_doc_escalations", value=float(escalations))
     score_current_trace(name="agentic_candidates", value=float(len(merged)))
 
 
@@ -129,6 +131,27 @@ def _can_complete_without_llm(state: AgentState, existing: list[RetrievalCandida
     gate = state.get("gate_flags")
     blocked = bool(gate and (gate.conflicting or gate.deprecated_only or gate.sensitive_block))
     return bool(existing and trust and trust.overall >= ANSWERABLE_THRESHOLD and not blocked)
+
+
+def _escalation_doc_id(state: AgentState, existing: list[RetrievalCandidate], settings: Settings) -> str:
+    """근거 부족 시 결정론적으로 원문 조회할 doc_id를 고른다 (없으면 "").
+
+    트리거 = incident 도메인 + 1차 검색 Trust coverage가 임계값 미만(=깊은 근거 부족).
+    복잡도를 LLM에 다시 묻지 않고 *측정된 근거 충분성*으로 escalate한다. 비-incident나
+    근거 충분(coverage≥임계)이면 "" 반환 → 기존 hybrid/LLM 경로 그대로(불변).
+    이미 원문 조회한 doc는 건너뛰고, 청크 검색에서 점수 최상위 doc를 고른다.
+    """
+    if not existing or Domain.INCIDENT.value not in _domains(state):
+        return ""
+    trust = state.get("trust_score")
+    if trust is None or trust.coverage >= settings.single_agentic_escalate_coverage:
+        return ""
+    fetched = {c.payload.get("page_id") for c in existing if c.tool_name == "opensearch_get_document"}
+    for candidate in sorted(existing, key=lambda c: c.search_score, reverse=True):
+        doc_id = str(candidate.payload.get("page_id") or "")
+        if doc_id and doc_id not in fetched and candidate.tool_name != "opensearch_get_document":
+            return doc_id
+    return ""
 
 
 def _evidence_prompt(state: AgentState) -> str:
@@ -199,13 +222,20 @@ async def run_agentic_step(state: AgentState, settings: Settings) -> dict[str, A
         {"role": "user", "content": _evidence_prompt(state)},
     ]
     fallback = ""
-    try:
-        response = await _call_with_retry(messages, model=state.get("model", ""), settings=settings)
-        calls = response.tool_calls[: settings.single_agentic_max_tools_per_step]
-    except Exception as exc:
-        logger.warning("Single Agentic Retriever LLM 실패 — hybrid fallback", exc_info=True)
-        calls = [ToolCall(id="fallback", name="hybrid_search", arguments={"query": state.get("query", "")})]
-        fallback = type(exc).__name__
+    escalate_doc = _escalation_doc_id(state, existing, settings)
+    if escalate_doc:
+        # 근거 부족(incident & coverage<임계) → LLM 판단 없이 결정론적으로 원문 조회로 escalate.
+        # LLM 도구 선택이 불안정한 깊은-근거 질의에서 원문 확장을 보장하고 LLM 1회를 아낀다.
+        logger.info("Single Agentic 원문 escalation: doc_id=%s (coverage 부족)", escalate_doc)
+        calls = [ToolCall(id="escalate", name="opensearch_get_document", arguments={"doc_id": escalate_doc})]
+    else:
+        try:
+            response = await _call_with_retry(messages, model=state.get("model", ""), settings=settings)
+            calls = response.tool_calls[: settings.single_agentic_max_tools_per_step]
+        except Exception as exc:
+            logger.warning("Single Agentic Retriever LLM 실패 — hybrid fallback", exc_info=True)
+            calls = [ToolCall(id="fallback", name="hybrid_search", arguments={"query": state.get("query", "")})]
+            fallback = type(exc).__name__
 
     first_step = not existing
     if first_step:
