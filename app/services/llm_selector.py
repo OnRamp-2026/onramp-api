@@ -169,36 +169,47 @@ async def call_llm_with_tools(
 ) -> ToolResponse:
     """OpenAI tool-calling 응답을 provider-neutral 내부 타입으로 변환한다."""
     settings = settings or get_settings()
-    if resolve_provider(model, settings) != "openai":
+    provider = resolve_provider(model, settings)
+    if provider != "openai":
         raise LLMError("tool calling은 현재 OpenAI provider만 지원합니다")
     if not settings.openai_api_key:
         raise LLMError("OpenAI API 키가 설정되지 않았습니다")
     model_name = model or settings.default_model or _DEFAULT_MODEL
-    try:
-        create = cast(Any, _get_openai_client(settings).chat.completions.create)
-        resp = await create(
-            model=model_name,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto",
-            temperature=0.0,
-            timeout=timeout,
-        )
-    except Exception as exc:
-        raise LLMError("LLM tool 호출에 실패했습니다") from exc
-    if not resp.choices:
-        raise LLMError("LLM 응답에 choices가 없습니다")
-    message = resp.choices[0].message
-    calls: list[ToolCall] = []
-    for call in getattr(message, "tool_calls", None) or []:
+
+    # call_llm과 동일하게 Langfuse generation으로 감싸 tool-call의 token·cost·model을 기록한다
+    # (비활성이면 no-op). 이전에는 tool-calling 경로만 계측에서 누락돼 에이전트의 판단 LLM
+    # 호출이 trace에 보이지 않았다 — deterministic call_llm과 같은 trace에서 비교 가능해진다.
+    with langfuse_generation(name=f"llm.tools.{provider}", model=model or None, input=messages) as gen:
         try:
-            arguments = json.loads(call.function.arguments or "{}")
-        except json.JSONDecodeError:
-            arguments = {}
-        calls.append(ToolCall(id=call.id, name=call.function.name, arguments=arguments))
-    usage = _usage_details(getattr(resp, "usage", None))
-    _accumulate_usage(usage)
-    return ToolResponse(content=message.content or "", tool_calls=calls)
+            create = cast(Any, _get_openai_client(settings).chat.completions.create)
+            resp = await create(
+                model=model_name,
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0.0,
+                timeout=timeout,
+            )
+        except Exception as exc:  # openai/httpx 등 업스트림 실패 → 502
+            logger.warning("LLM tool 호출 실패 (provider=%s)", provider, exc_info=True)
+            raise LLMError("LLM tool 호출에 실패했습니다") from exc
+        if not resp.choices:
+            raise LLMError("LLM 응답에 choices가 없습니다")
+        message = resp.choices[0].message
+        calls: list[ToolCall] = []
+        for call in getattr(message, "tool_calls", None) or []:
+            try:
+                arguments = json.loads(call.function.arguments or "{}")
+            except json.JSONDecodeError:
+                arguments = {}
+            calls.append(ToolCall(id=call.id, name=call.function.name, arguments=arguments))
+        usage = _usage_details(getattr(resp, "usage", None))
+        if gen is not None:
+            gen.update(
+                model=getattr(resp, "model", None) or model_name, output=message.content or "", usage_details=usage
+            )
+        _accumulate_usage(usage)
+        return ToolResponse(content=message.content or "", tool_calls=calls)
 
 
 def _extra_kwargs(max_tokens: int | None, json_mode: bool) -> dict[str, Any]:

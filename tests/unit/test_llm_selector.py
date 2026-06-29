@@ -139,6 +139,50 @@ async def test_call_llm_with_tools_parses_function_call(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_call_llm_with_tools_records_usage_to_generation(monkeypatch):
+    """call_llm_with_tools도 generation에 model·output·usage_details를 기록한다 (이전엔 누락됐던 tool-calling 경로)."""
+    from contextlib import contextmanager
+
+    class _Comp:
+        async def create(self, **kw):
+            fn = type("F", (), {"name": "hybrid_search", "arguments": "{}"})()
+            tool = type("T", (), {"id": "call-1", "function": fn})()
+            msg = type("M", (), {"content": "", "tool_calls": [tool]})()
+            usage = type("U", (), {"prompt_tokens": 9, "completion_tokens": 3, "total_tokens": 12})()
+            return type(
+                "R", (), {"choices": [type("C", (), {"message": msg})()], "usage": usage, "model": "gpt-4o-mini"}
+            )()
+
+    client = type("Cl", (), {"chat": type("Ch", (), {"completions": _Comp()})()})()
+    monkeypatch.setattr(llm_selector, "_get_openai_client", lambda settings: client)
+
+    captured: dict = {}
+
+    class _Gen:
+        def update(self, **kw):
+            captured.update(kw)
+
+    @contextmanager
+    def _fake_gen(**kw):
+        captured["start"] = kw
+        yield _Gen()
+
+    monkeypatch.setattr(llm_selector, "langfuse_generation", _fake_gen)
+
+    resp = await call_llm_with_tools(
+        [{"role": "user", "content": "q"}],
+        [{"type": "function", "function": {"name": "hybrid_search"}}],
+        model="gpt-4o-mini",
+        settings=Settings(openai_api_key="sk-test"),
+    )
+
+    assert resp.tool_calls[0].name == "hybrid_search"
+    assert captured["start"]["name"] == "llm.tools.openai"
+    assert captured["model"] == "gpt-4o-mini"
+    assert captured["usage_details"] == {"input": 9, "output": 3, "total": 12}
+
+
+@pytest.mark.asyncio
 async def test_call_llm_openai_reasoning_model_omits_temperature(monkeypatch):
     """o1/o3 reasoning 모델은 temperature 미전달 + max_completion_tokens 사용."""
     fake = _FakeClient("reasoning")
