@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, status
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.db.postgres import check_postgres
@@ -32,7 +33,10 @@ async def readiness_check():
     }
 
     all_ok = all(v == "ok" for v in checks.values())
-    return {
+    payload = {
         "status": "ok" if all_ok else "degraded",
         "checks": checks,
     }
+    if all_ok:
+        return payload
+    return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=payload)

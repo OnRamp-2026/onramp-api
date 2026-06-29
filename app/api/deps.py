@@ -114,3 +114,15 @@ CurrentUser = Annotated[SessionUser, Depends(get_current_user)]
 OptionalUser = Annotated[SessionUser | None, Depends(get_optional_user)]
 StorageDependency = Annotated[ObjectStorage, Depends(get_object_storage)]
 SttClientDependency = Annotated[SttResultClient, Depends(get_stt_client)]
+
+
+def require_asset_user(user: CurrentUser) -> SessionUser:
+    if not user.subject:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="사용자 식별자가 있는 인증 토큰이 필요합니다.",
+        )
+    return user
+
+
+AssetUser = Annotated[SessionUser, Depends(require_asset_user)]

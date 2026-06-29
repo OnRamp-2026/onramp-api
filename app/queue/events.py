@@ -32,6 +32,16 @@ class TranscriptCompleted(BaseModel):
     result_object_key: str
 
 
+class TranscriptionDeleteRequested(BaseModel):
+    transcription_id: UUID
+    tenant_id: str = Field(min_length=1, max_length=128)
+
+
+class TranscriptionDeleted(BaseModel):
+    transcription_id: UUID
+    tenant_id: str = Field(min_length=1, max_length=128)
+
+
 class TranscriptionCompleted(BaseModel):
     transcription_id: UUID
     tenant_id: str = Field(min_length=1, max_length=128)

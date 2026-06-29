@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""  # pk-lf-… (비밀 아님)
     langfuse_secret_key: SecretStr = SecretStr("")  # sk-lf-…
     langfuse_host: str = ""  # self-host URL 또는 https://cloud.langfuse.com
+    monitoring_allow_all_scope_demo: bool = False
 
     @model_validator(mode="after")
     def _check_langfuse(self) -> "Settings":

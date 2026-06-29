@@ -64,6 +64,8 @@ async def persist_turn(
             tenant_id=tenant_id,
             role="assistant",
             content=response.answer.situation or "",
+            answer_format=response.answer_format or "structured",
+            answer_text=response.answer_text or "",
             answer=response.answer.model_dump(),
             sources=[s.model_dump() for s in response.sources],
             domain=response.domain or None,

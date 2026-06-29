@@ -39,6 +39,8 @@ async def get_conversation(conversation_id: str, user: CurrentUser, db: Database
         ConversationMessage(
             role=m.role,
             content=m.content,
+            answer_format=m.answer_format or "structured",
+            answer_text=m.answer_text or "",
             answer=FiveElementsResponse(**m.answer) if m.answer else None,
             sources=[SourceDoc(**s) for s in (m.sources or [])],
             domain=m.domain or "",

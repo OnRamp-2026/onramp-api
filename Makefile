@@ -1,4 +1,4 @@
-.PHONY: dev test lint format typecheck migrate clean eval eval-gate setup-reranker-onnx install-onnx build-reranker-onnx bench-reranker-onnx
+.PHONY: dev test lint format typecheck migrate clean eval eval-gate setup-reranker-onnx install-onnx build-reranker-onnx bench-reranker-onnx seed-monitoring-local
 
 # ONNX 리랭커 양자화 타깃 아키텍처 (Apple Silicon=arm64 / 운영 x86 파드=avx512_vnni)
 ARCH ?= arm64
@@ -75,6 +75,9 @@ down:
 logs:
 	docker compose logs -f
 
+seed-monitoring-local:
+	python scripts/seed_monitoring_local.py --clear
+
 # ─── 설치 ───
 install:
 	uv pip install -e ".[dev]"
@@ -123,6 +126,7 @@ help:
 	@echo "  make migrate-new      새 마이그레이션 생성"
 	@echo "  make up               로컬 인프라 실행 (docker compose)"
 	@echo "  make down             로컬 인프라 중지"
+	@echo "  make seed-monitoring-local  monitoring 검증용 chat_observations 시드 적재"
 	@echo "  make install          의존성 + pre-commit 설치 (1회성)"
 	@echo "  make install-rerank   리랭커 의존성(CPU torch + sentence-transformers) (1회성)"
 	@echo "  make setup-reranker-onnx  ONNX 리랭커 셋업 = install-onnx + build (최초 1회)"

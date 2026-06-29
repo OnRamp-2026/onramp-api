@@ -101,6 +101,7 @@ async def create_workflow(
     tenant_id: str,
     idempotency_key: str | None,
     request: TranscriptionCreateRequest,
+    user_id: str = "",
 ) -> tuple[WorkflowCreation, bool]:
     if re.fullmatch(r"[0-9A-Za-z_-]+", tenant_id) is None:
         raise OnRampError("유효하지 않은 tenant 식별자입니다.", status_code=400)
@@ -111,6 +112,7 @@ async def create_workflow(
         existing = await session.scalar(
             select(TranscriptionWorkflow).where(
                 TranscriptionWorkflow.tenant_id == tenant_id,
+                TranscriptionWorkflow.created_by_user_id == user_id,
                 TranscriptionWorkflow.idempotency_key == normalized_key,
             )
         )
@@ -126,6 +128,7 @@ async def create_workflow(
     workflow = TranscriptionWorkflow(
         transcription_id=transcription_id,
         tenant_id=tenant_id,
+        created_by_user_id=user_id,
         idempotency_key=normalized_key,
         status=WorkflowStatus.awaiting_upload,
         source_object_key="",  # will be set by STT API response
@@ -146,6 +149,7 @@ async def create_workflow(
         existing = await session.scalar(
             select(TranscriptionWorkflow).where(
                 TranscriptionWorkflow.tenant_id == tenant_id,
+                TranscriptionWorkflow.created_by_user_id == user_id,
                 TranscriptionWorkflow.idempotency_key == normalized_key,
             )
         )
@@ -167,12 +171,15 @@ async def get_workflow(
     *,
     tenant_id: str,
     transcription_id: UUID,
+    user_id: str | None = None,
     for_update: bool = False,
 ) -> TranscriptionWorkflow:
     statement = select(TranscriptionWorkflow).where(
         TranscriptionWorkflow.tenant_id == tenant_id,
         TranscriptionWorkflow.transcription_id == transcription_id,
     )
+    if user_id is not None:
+        statement = statement.where(TranscriptionWorkflow.created_by_user_id == user_id)
     if for_update:
         statement = statement.with_for_update().execution_options(populate_existing=True)
     workflow = await session.scalar(statement)
@@ -188,11 +195,13 @@ async def complete_upload(
     tenant_id: str,
     transcription_id: UUID,
     request: UploadCompleteRequest,
+    user_id: str | None = None,
 ) -> TranscriptionWorkflow:
     workflow = await get_workflow(
         session,
         tenant_id=tenant_id,
         transcription_id=transcription_id,
+        user_id=user_id,
         for_update=True,
     )
     if workflow.status == WorkflowStatus.queued:

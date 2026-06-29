@@ -10,6 +10,7 @@ from sqlalchemy import (
     BigInteger,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -39,6 +40,7 @@ class WorkflowStatus(StrEnum):
     report_queued = "report_queued"
     report_processing = "report_processing"
     draft = "draft"
+    deleting = "deleting"
     published = "published"
     transcription_failed = "transcription_failed"
     correction_failed = "correction_failed"
@@ -91,6 +93,7 @@ class TranscriptionWorkflow(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     transcription_id: Mapped[uuid.UUID] = mapped_column(unique=True, index=True, default=uuid.uuid4)
     tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    created_by_user_id: Mapped[str] = mapped_column(String(128), default="")
     idempotency_key: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[WorkflowStatus] = mapped_column(
         Enum(
@@ -117,7 +120,18 @@ class TranscriptionWorkflow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "idempotency_key", name="uq_transcription_workflow_idempotency"),
+        Index(
+            "ix_transcription_workflow_tenant_user_updated_at",
+            "tenant_id",
+            "created_by_user_id",
+            updated_at.desc(),
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "created_by_user_id",
+            "idempotency_key",
+            name="uq_transcription_workflow_user_idempotency",
+        ),
         UniqueConstraint("tenant_id", "transcription_id", name="uq_transcription_workflow_tenant"),
     )
 
@@ -375,6 +389,32 @@ class ChatLog(Base):
     )
 
 
+class ChatObservation(Base):
+    __tablename__ = "chat_observations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), index=True)
+    requested_model: Mapped[str] = mapped_column(String(128), default="")
+    model_used: Mapped[str] = mapped_column(String(128), default="")
+    domain: Mapped[str] = mapped_column(String(64), default="")
+    answerability_status: Mapped[str] = mapped_column(String(64), default="")
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    duration_ms: Mapped[int] = mapped_column(BigInteger, default=0)
+    source_count: Mapped[int] = mapped_column(Integer, default=0)
+    result_bucket: Mapped[str] = mapped_column(String(16), index=True)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        Index("ix_chat_observations_tenant_created", "tenant_id", created_at.desc()),
+        Index("ix_chat_observations_tenant_bucket_created", "tenant_id", "result_bucket", created_at.desc()),
+    )
+
+
 class Conversation(Base):
     """대화 1건 — 사이드바 '최근 대화' 목록의 한 줄. 로그인 사용자(tenant_id+user_id)에 귀속."""
 
@@ -403,7 +443,10 @@ class Message(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), default="onramp")
     role: Mapped[str] = mapped_column(String(16))  # "user" | "assistant"
     content: Mapped[str] = mapped_column(Text, default="")
-    answer: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # assistant 5요소
+    # 답변 포맷(#191) — 히스토리 복원 시 라이브 채팅과 동일하게 렌더 분기. freeform이면 answer_text 사용.
+    answer_format: Mapped[str] = mapped_column(String(16), default="structured")  # "structured" | "freeform"
+    answer_text: Mapped[str] = mapped_column(Text, default="")  # freeform 답변 본문
+    answer: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # assistant 5요소(structured)
     sources: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)  # 인용 출처 스냅샷
     domain: Mapped[str | None] = mapped_column(String(32))
     answerability_status: Mapped[str | None] = mapped_column(String(32))

@@ -49,13 +49,13 @@ def decide_answerability(
     인용 source 0건에 대한 ANSWERABLE 강등은 sources를 아는 node에서 처리한다.
     """
     # 1) 게이트 (P1) — Trust가 채울 때만
+    # sensitive_block은 차단하지 않는다 (#258): 마스킹이 적재 단계에서 PII를 이미 무력화하므로
+    # 마스킹된 문서로 답변해도 위험이 없다. masked 밀도는 gate_sensitive score로 관측만 한다.
     if gate is not None:
         if gate.conflicting:
             return AnswerabilityStatus.CONFLICTING_EVIDENCE
         if gate.deprecated_only:
             return AnswerabilityStatus.OUTDATED_EVIDENCE
-        if gate.sensitive_block:
-            return AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
 
     # 2) 결정론 floor — 문서 없으면 근거 부족
     if not documents:
