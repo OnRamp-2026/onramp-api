@@ -256,6 +256,12 @@ class Settings(BaseSettings):
     single_agentic_tool_snippet_chars: int = Field(default=300, ge=50, le=2000)
     single_agentic_document_max_chars: int = Field(default=8000, ge=500, le=30000)
     single_agentic_max_candidates: int = Field(default=50, ge=1, le=200)
+    # tool-call 판단 LLM의 일시 실패(timeout/5xx/rate-limit) 복원력.
+    # 단발 호출은 일시 장애에 곧장 raw 질의 hybrid_search로 퇴화해 에이전트 추론을 버린다.
+    # bounded retry로 일시 실패를 회복하고, 소진 시에만 기존 fallback으로 떨어진다.
+    single_agentic_llm_max_retries: int = Field(default=2, ge=0, le=5)
+    single_agentic_llm_timeout_s: float = Field(default=30.0, gt=0.0, le=120.0)
+    single_agentic_llm_backoff_base_s: float = Field(default=0.5, ge=0.0, le=10.0)
 
     @model_validator(mode="after")
     def _check_retriever_window(self) -> "Settings":

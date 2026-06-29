@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -12,9 +13,65 @@ from app.agents.answer.answerability import ANSWERABLE_THRESHOLD
 from app.agents.retriever.tools import TOOL_SCHEMAS, SearchToolContext, execute_tool
 from app.agents.state import AgentState, RetrievalCandidate, RetrievalPhase, ToolTrace
 from app.config import Settings
-from app.services.llm_selector import ToolCall, call_llm_with_tools
+from app.middleware.error_handler import LLMError
+from app.observability import score_current_trace
+from app.services.llm_selector import ToolCall, ToolResponse, call_llm_with_tools
 
 logger = logging.getLogger(__name__)
+
+
+async def _call_with_retry(messages: list[dict[str, Any]], *, model: str, settings: Settings) -> ToolResponse:
+    """tool-call 판단 LLM을 bounded retry로 호출 — 일시 실패(timeout/5xx/rate-limit)를 회복한다.
+
+    검색 인프라(execute_tool)는 이미 graceful degrade(빈 결과)라 재시도 대상이 아니다.
+    재시도를 모두 소진하면 마지막 예외를 올려 호출부가 기존 hybrid_search fallback으로
+    퇴화하게 한다 — 즉 복원력을 더하되 기존 안전망은 그대로 유지한다.
+    """
+    attempts = settings.single_agentic_llm_max_retries + 1
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return await call_llm_with_tools(
+                messages,
+                TOOL_SCHEMAS,
+                model=model,
+                timeout=settings.single_agentic_llm_timeout_s,
+                settings=settings,
+            )
+        except LLMError as exc:
+            last_exc = exc
+            if attempt + 1 >= attempts:
+                break
+            backoff = settings.single_agentic_llm_backoff_base_s * (2**attempt)
+            logger.warning(
+                "Single Agentic tool-call LLM 일시 실패 — 재시도 %d/%d (backoff %.2fs)",
+                attempt + 1,
+                attempts - 1,
+                backoff,
+            )
+            if backoff > 0:
+                await asyncio.sleep(backoff)
+    raise last_exc if last_exc is not None else LLMError("tool-call LLM 호출에 실패했습니다")
+
+
+def _emit_tool_observation(traces: list[ToolTrace], merged: list[RetrievalCandidate]) -> None:
+    """ToolTrace 요약을 현재 Langfuse trace에 score로 부착한다 (비활성이면 no-op).
+
+    에이전트의 자율 tool 선택·source·결과 수·fallback을 trace에서 바로 보이게 해
+    "왜 이 도구를 골랐고 언제 fallback했는지"를 운영 중에 디버깅할 수 있게 한다.
+    """
+    if not traces:
+        return
+    fallbacks = sum(1 for trace in traces if trace.fallback)
+    summary = "; ".join(
+        f"{trace.tool}{'/' + trace.source if trace.source else ''}→{trace.n_results}"
+        + (f"[{trace.fallback}]" if trace.fallback else "")
+        for trace in traces
+    )
+    score_current_trace(name="agentic_tool_calls", value=float(len(traces)), comment=summary)
+    score_current_trace(name="agentic_tool_fallbacks", value=float(fallbacks))
+    score_current_trace(name="agentic_candidates", value=float(len(merged)))
+
 
 SYSTEM_PROMPT = """너는 OnRamp Single Agentic Retriever다.
 원문 질문에 답할 근거를 찾고, Trust 평가를 참고해 검색을 종료하거나 재검색한다.
@@ -143,7 +200,7 @@ async def run_agentic_step(state: AgentState, settings: Settings) -> dict[str, A
     ]
     fallback = ""
     try:
-        response = await call_llm_with_tools(messages, TOOL_SCHEMAS, model=state.get("model", ""), settings=settings)
+        response = await _call_with_retry(messages, model=state.get("model", ""), settings=settings)
         calls = response.tool_calls[: settings.single_agentic_max_tools_per_step]
     except Exception as exc:
         logger.warning("Single Agentic Retriever LLM 실패 — hybrid fallback", exc_info=True)
@@ -207,6 +264,7 @@ async def run_agentic_step(state: AgentState, settings: Settings) -> dict[str, A
         return {"retrieval_phase": RetrievalPhase.COMPLETE, "agent_trace": ["retriever"]}
     merged = merge_candidates(existing, additions, limit=settings.single_agentic_max_candidates)
     retry_count = state.get("retry_count", 0) + (0 if first_step else 1)
+    _emit_tool_observation(traces, merged)
     return {
         "retrieval_candidates": merged,
         "previous_queries": queries,

@@ -6,6 +6,7 @@ from app.agents.retriever.agentic import merge_candidates, run_agentic_step
 from app.agents.retriever.node import retrieve_node
 from app.agents.state import GateFlags, RetrievalCandidate, RetrievalPhase, TrustScore
 from app.config import Settings
+from app.middleware.error_handler import LLMError
 from app.services.llm_selector import ToolCall, ToolResponse
 
 
@@ -42,6 +43,92 @@ async def test_first_step_without_tool_falls_back_to_hybrid(monkeypatch):
     )
     assert out["retrieval_phase"] == RetrievalPhase.SEARCHED
     assert out["tool_trace"][0].fallback == "missing_initial_tool"
+
+
+@pytest.mark.asyncio
+async def test_tool_call_llm_retries_transient_failure(monkeypatch):
+    """판단 LLM이 일시 실패(LLMError)하면 bounded retry로 회복 — fallback 퇴화 없이 정상 검색한다."""
+    attempts = {"n": 0}
+
+    async def flaky_llm(*args, **kwargs):
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise LLMError("일시 실패")
+        return ToolResponse(
+            content="",
+            tool_calls=[ToolCall(id="1", name="hybrid_search", arguments={"query": "검색어"})],
+        )
+
+    async def fake_tool(name, arguments, *, context):
+        return []
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", flaky_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    out = await run_agentic_step(
+        {"query": "원문", "tenant_id": "tenant-a", "retriever_strategy": "single_agentic"},
+        Settings(single_agentic_llm_max_retries=2, single_agentic_llm_backoff_base_s=0.0),
+    )
+
+    assert attempts["n"] == 3  # 2회 실패 후 3번째 성공
+    assert out["retrieval_phase"] == RetrievalPhase.SEARCHED
+    assert out["tool_trace"][0].fallback == ""  # 재시도로 회복 — fallback 아님
+
+
+@pytest.mark.asyncio
+async def test_tool_call_llm_exhausts_retries_then_hybrid_fallback(monkeypatch):
+    """재시도를 모두 소진하면 기존 hybrid_search fallback 안전망으로 떨어진다."""
+    attempts = {"n": 0}
+
+    async def always_fail(*args, **kwargs):
+        attempts["n"] += 1
+        raise LLMError("계속 실패")
+
+    async def fake_tool(name, arguments, *, context):
+        assert name == "hybrid_search"
+        return []
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", always_fail)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    out = await run_agentic_step(
+        {"query": "원문", "tenant_id": "tenant-a", "retriever_strategy": "single_agentic"},
+        Settings(single_agentic_llm_max_retries=2, single_agentic_llm_backoff_base_s=0.0),
+    )
+
+    assert attempts["n"] == 3  # 최초 1회 + 재시도 2회
+    assert out["tool_trace"][0].tool == "hybrid_search"
+    assert out["tool_trace"][0].fallback == "LLMError"
+
+
+@pytest.mark.asyncio
+async def test_tool_trace_emitted_as_langfuse_scores(monkeypatch):
+    """ToolTrace 요약(호출 수·fallback·후보 수)이 현재 trace에 score로 부착된다."""
+
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="",
+            tool_calls=[ToolCall(id="1", name="hybrid_search", arguments={"query": "검색어"})],
+        )
+
+    async def fake_tool(name, arguments, *, context):
+        return []
+
+    scores: list[dict] = []
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+    monkeypatch.setattr(agentic, "score_current_trace", lambda **kw: scores.append(kw))
+
+    await run_agentic_step(
+        {"query": "원문", "tenant_id": "tenant-a", "retriever_strategy": "single_agentic"},
+        Settings(),
+    )
+
+    names = {s["name"] for s in scores}
+    assert {"agentic_tool_calls", "agentic_tool_fallbacks", "agentic_candidates"} <= names
+    calls_score = next(s for s in scores if s["name"] == "agentic_tool_calls")
+    assert calls_score["value"] == 1.0
+    assert "hybrid_search" in calls_score["comment"]
 
 
 @pytest.mark.asyncio
