@@ -25,6 +25,7 @@ async def hybrid_search(
     top_k: int,
     tenant_id: str | None = None,
     domain: str | None,
+    source: str | None = None,
     filters: SearchFilters | None,
     settings: Settings,
     dense_search_fn: DenseSearchFn,
@@ -33,13 +34,22 @@ async def hybrid_search(
     final_top_k = max(top_k, settings.hybrid_final_top_k)
     dense_limit = max(settings.hybrid_dense_top_k, final_top_k)
     bm25_limit = max(settings.hybrid_bm25_top_k, final_top_k)
-    dense_hits = await dense_search_fn(query_vector, dense_limit, domain=domain, filters=filters, settings=settings)
+    dense_hits = await dense_search_fn(
+        query_vector,
+        dense_limit,
+        domain=domain,
+        tenant_id=tenant_id,
+        source=source,
+        filters=filters,
+        settings=settings,
+    )
     try:
         bm25_hits = await (opensearch_client or get_opensearch()).search(
             query_text,
             top_k=bm25_limit,
             tenant_id=tenant_id or settings.auth_default_tenant,
             domain=domain,
+            source=source,
             version=filters.version if filters else None,
             pinned_doc_keys=filters.pinned_doc_keys if filters else (),
             excluded_doc_keys=filters.excluded_doc_keys if filters else (),

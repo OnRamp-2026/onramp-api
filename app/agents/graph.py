@@ -13,8 +13,8 @@ from langgraph.graph.state import CompiledStateGraph
 from app.agents.answer.node import answer_node
 from app.agents.retriever.node import retrieve_node
 from app.agents.router.node import route_node
-from app.agents.state import AgentState, UseCase
-from app.agents.trust.node import trust_decision, trust_node
+from app.agents.state import AgentState, RetrievalPhase, UseCase
+from app.agents.trust.node import trust_node
 
 # ---------------------------------------------------------------------------
 # 조건부 엣지 함수
@@ -29,6 +29,20 @@ def route_decision(state: AgentState) -> str:
     """
     if state.get("use_case") == UseCase.UNANSWERABLE:
         return "end"
+    return "retriever"
+
+
+def retriever_to_next(state: AgentState) -> str:
+    if state.get("retriever_strategy") != "single_agentic":
+        return "trust"
+    return "answer" if state.get("retrieval_phase") == RetrievalPhase.COMPLETE else "trust"
+
+
+def trust_to_next(state: AgentState) -> str:
+    if state.get("retriever_strategy") != "single_agentic":
+        return "retriever" if state.get("should_re_retrieve") else "answer"
+    if state.get("retry_count", 0) >= state.get("max_retries", 0):
+        return "answer"
     return "retriever"
 
 
@@ -65,10 +79,14 @@ def build_graph() -> CompiledStateGraph:
     # Retriever → Trust → (근거 부족 시 재검색 루프 | 충분하면 Answer)
     #   Trust가 5축 채점 + 관련성(top rerank<τ) 기준으로 재검색 여부 결정.
     #   재시도는 max_retries 한도 내(무한루프 방지), 재시도 시 domain 필터 해제.
-    graph.add_edge("retriever", "trust")
+    graph.add_conditional_edges(
+        "retriever",
+        retriever_to_next,
+        {"trust": "trust", "answer": "answer"},
+    )
     graph.add_conditional_edges(
         "trust",
-        trust_decision,
+        trust_to_next,
         {
             "retriever": "retriever",  # 근거 부족 & 재시도 가능 → 재검색
             "answer": "answer",  # 근거 충분 → 답변 생성

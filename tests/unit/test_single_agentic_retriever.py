@@ -1,0 +1,465 @@
+import pytest
+from qdrant_client.models import ScoredPoint
+
+from app.agents.retriever import agentic
+from app.agents.retriever.agentic import merge_candidates, run_agentic_step
+from app.agents.retriever.node import retrieve_node
+from app.agents.state import GateFlags, RetrievalCandidate, RetrievalPhase, TrustScore
+from app.config import Settings
+from app.middleware.error_handler import LLMError
+from app.services.llm_selector import ToolCall, ToolResponse
+
+
+def _candidate(score: float, chunk_id: str = "c1") -> RetrievalCandidate:
+    return RetrievalCandidate(
+        chunk_id=chunk_id,
+        payload={"chunk_id": chunk_id, "content": "x", "page_id": "p1"},
+        search_score=score,
+        tool_name="hybrid_search",
+        query="q",
+    )
+
+
+def test_merge_candidates_keeps_higher_score():
+    merged = merge_candidates([_candidate(0.2)], [_candidate(0.8)], limit=10)
+    assert len(merged) == 1
+    assert merged[0].search_score == 0.8
+
+
+@pytest.mark.asyncio
+async def test_first_step_without_tool_falls_back_to_hybrid(monkeypatch):
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(content="done", tool_calls=[])
+
+    async def fake_tool(name, arguments, *, context):
+        assert name == "hybrid_search"
+        return []
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+    out = await run_agentic_step(
+        {"query": "원문", "tenant_id": "tenant-a", "retriever_strategy": "single_agentic"},
+        Settings(),
+    )
+    assert out["retrieval_phase"] == RetrievalPhase.SEARCHED
+    assert out["tool_trace"][0].fallback == "missing_initial_tool"
+
+
+@pytest.mark.asyncio
+async def test_tool_call_llm_retries_transient_failure(monkeypatch):
+    """판단 LLM이 일시 실패(LLMError)하면 bounded retry로 회복 — fallback 퇴화 없이 정상 검색한다."""
+    attempts = {"n": 0}
+
+    async def flaky_llm(*args, **kwargs):
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise LLMError("일시 실패")
+        return ToolResponse(
+            content="",
+            tool_calls=[ToolCall(id="1", name="hybrid_search", arguments={"query": "검색어"})],
+        )
+
+    async def fake_tool(name, arguments, *, context):
+        return []
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", flaky_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    out = await run_agentic_step(
+        {"query": "원문", "tenant_id": "tenant-a", "retriever_strategy": "single_agentic"},
+        Settings(single_agentic_llm_max_retries=2, single_agentic_llm_backoff_base_s=0.0),
+    )
+
+    assert attempts["n"] == 3  # 2회 실패 후 3번째 성공
+    assert out["retrieval_phase"] == RetrievalPhase.SEARCHED
+    assert out["tool_trace"][0].fallback == ""  # 재시도로 회복 — fallback 아님
+
+
+@pytest.mark.asyncio
+async def test_tool_call_llm_exhausts_retries_then_hybrid_fallback(monkeypatch):
+    """재시도를 모두 소진하면 기존 hybrid_search fallback 안전망으로 떨어진다."""
+    attempts = {"n": 0}
+
+    async def always_fail(*args, **kwargs):
+        attempts["n"] += 1
+        raise LLMError("계속 실패")
+
+    async def fake_tool(name, arguments, *, context):
+        assert name == "hybrid_search"
+        return []
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", always_fail)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    out = await run_agentic_step(
+        {"query": "원문", "tenant_id": "tenant-a", "retriever_strategy": "single_agentic"},
+        Settings(single_agentic_llm_max_retries=2, single_agentic_llm_backoff_base_s=0.0),
+    )
+
+    assert attempts["n"] == 3  # 최초 1회 + 재시도 2회
+    assert out["tool_trace"][0].tool == "hybrid_search"
+    assert out["tool_trace"][0].fallback == "LLMError"
+
+
+@pytest.mark.asyncio
+async def test_tool_trace_emitted_as_langfuse_scores(monkeypatch):
+    """ToolTrace 요약(호출 수·fallback·후보 수)이 현재 trace에 score로 부착된다."""
+
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="",
+            tool_calls=[ToolCall(id="1", name="hybrid_search", arguments={"query": "검색어"})],
+        )
+
+    async def fake_tool(name, arguments, *, context):
+        return []
+
+    scores: list[dict] = []
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+    monkeypatch.setattr(agentic, "score_current_trace", lambda **kw: scores.append(kw))
+
+    await run_agentic_step(
+        {"query": "원문", "tenant_id": "tenant-a", "retriever_strategy": "single_agentic"},
+        Settings(),
+    )
+
+    names = {s["name"] for s in scores}
+    assert {"agentic_tool_calls", "agentic_tool_fallbacks", "agentic_candidates"} <= names
+    calls_score = next(s for s in scores if s["name"] == "agentic_tool_calls")
+    assert calls_score["value"] == 1.0
+    assert "hybrid_search" in calls_score["comment"]
+
+
+@pytest.mark.asyncio
+async def test_second_step_without_tool_completes(monkeypatch):
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(content="enough", tool_calls=[])
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    out = await run_agentic_step(
+        {
+            "query": "원문",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "retrieval_candidates": [_candidate(0.5)],
+        },
+        Settings(),
+    )
+    assert out["retrieval_phase"] == RetrievalPhase.COMPLETE
+
+
+@pytest.mark.asyncio
+async def test_high_trust_second_step_completes_without_retriever_llm(monkeypatch):
+    async def fail_llm(*args, **kwargs):
+        raise AssertionError("high-trust evidence must skip retriever LLM")
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fail_llm)
+    out = await run_agentic_step(
+        {
+            "query": "원문",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "retrieval_candidates": [_candidate(0.9)],
+            "documents": [],
+            "trust_score": TrustScore(overall=0.95, coverage=1.0),
+            "gate_flags": GateFlags(),
+        },
+        Settings(),
+    )
+    assert out["retrieval_phase"] == RetrievalPhase.COMPLETE
+
+
+@pytest.mark.asyncio
+async def test_duplicate_query_is_not_executed(monkeypatch):
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="",
+            tool_calls=[ToolCall(id="1", name="hybrid_search", arguments={"query": "same query"})],
+        )
+
+    async def fail_tool(*args, **kwargs):
+        raise AssertionError("duplicate tool must not execute")
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fail_tool)
+    out = await run_agentic_step(
+        {
+            "query": "원문",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "retrieval_candidates": [
+                RetrievalCandidate(
+                    chunk_id="c1",
+                    payload={"chunk_id": "c1", "content": "x", "page_id": "p1"},
+                    search_score=0.5,
+                    tool_name="hybrid_search",
+                    query="same query",
+                )
+            ],
+            "previous_queries": ["same query"],
+        },
+        Settings(),
+    )
+    assert out["retrieval_phase"] == RetrievalPhase.COMPLETE
+
+
+@pytest.mark.asyncio
+async def test_same_query_can_switch_from_confluence_to_github(monkeypatch):
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="1",
+                    name="hybrid_search_by_source",
+                    arguments={"query": "same query", "source": "github"},
+                )
+            ],
+        )
+
+    called = []
+
+    async def fake_tool(name, arguments, *, context):
+        called.append((name, arguments["query"], arguments["source"]))
+        return []
+
+    existing = RetrievalCandidate(
+        chunk_id="c1",
+        payload={"chunk_id": "c1", "content": "x", "page_id": "p1", "source": "confluence"},
+        search_score=0.5,
+        tool_name="hybrid_search_by_source",
+        query="same query",
+    )
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    out = await run_agentic_step(
+        {
+            "query": "원문",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "retrieval_candidates": [existing],
+            "previous_queries": ["same query"],
+        },
+        Settings(),
+    )
+
+    assert called == [("hybrid_search_by_source", "same query", "github")]
+    assert out["retrieval_phase"] == RetrievalPhase.SEARCHED
+
+
+@pytest.mark.asyncio
+async def test_same_query_can_expand_source_search_to_all_documents(monkeypatch):
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="",
+            tool_calls=[ToolCall(id="1", name="hybrid_search", arguments={"query": "same query"})],
+        )
+
+    called = []
+
+    async def fake_tool(name, arguments, *, context):
+        called.append((name, arguments["query"]))
+        return []
+
+    existing = RetrievalCandidate(
+        chunk_id="c1",
+        payload={"chunk_id": "c1", "content": "x", "page_id": "p1", "source": "confluence"},
+        search_score=0.5,
+        tool_name="hybrid_search_by_source",
+        query="same query",
+    )
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    out = await run_agentic_step(
+        {
+            "query": "원문",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "retrieval_candidates": [existing],
+            "previous_queries": ["same query"],
+        },
+        Settings(),
+    )
+
+    assert called == [("hybrid_search", "same query")]
+    assert out["retrieval_phase"] == RetrievalPhase.SEARCHED
+
+
+@pytest.mark.asyncio
+async def test_initial_source_search_also_collects_global_candidates(monkeypatch):
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="1",
+                    name="hybrid_search_by_source",
+                    arguments={"query": "ArgoCD credential bootstrap", "source": "confluence"},
+                )
+            ],
+        )
+
+    called = []
+
+    async def fake_tool(name, arguments, *, context):
+        called.append((name, arguments))
+        if name == "hybrid_search_by_source":
+            return [
+                ScoredPoint(
+                    id="confluence-1",
+                    version=0,
+                    score=0.9,
+                    payload={
+                        "chunk_id": "confluence-1",
+                        "page_id": "page-1",
+                        "content": "일반 Secret 문서",
+                        "source": "confluence",
+                    },
+                )
+            ]
+        return [
+            ScoredPoint(
+                id="github-1",
+                version=0,
+                score=0.8,
+                payload={
+                    "chunk_id": "github-1",
+                    "page_id": "gh:gitops#5",
+                    "content": "ArgoCD credential bootstrap 구현",
+                    "source": "github",
+                },
+            )
+        ]
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+
+    out = await run_agentic_step(
+        {
+            "query": "ArgoCD credential bootstrap 방식은?",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+        },
+        Settings(),
+    )
+
+    assert [(name, arguments.get("source")) for name, arguments in called] == [
+        ("hybrid_search_by_source", "confluence"),
+        ("hybrid_search", None),
+    ]
+    assert {candidate.chunk_id for candidate in out["retrieval_candidates"]} == {
+        "confluence-1",
+        "github-1",
+    }
+    assert [trace.tool for trace in out["tool_trace"]] == [
+        "hybrid_search_by_source",
+        "hybrid_search",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_node_runs_single_agentic_and_reranks(monkeypatch):
+    async def fake_llm(*args, **kwargs):
+        return ToolResponse(
+            content="",
+            tool_calls=[ToolCall(id="1", name="hybrid_search", arguments={"query": "검색어"})],
+        )
+
+    async def fake_tool(*args, **kwargs):
+        return [
+            ScoredPoint(
+                id="c1",
+                version=0,
+                score=0.8,
+                payload={
+                    "chunk_id": "c1",
+                    "page_id": "p1",
+                    "page_title": "문서",
+                    "content": "근거",
+                    "source": "confluence",
+                },
+            )
+        ]
+
+    class _Reranker:
+        def rerank(self, query, candidates):
+            return [(0.9, payload) for _, payload in candidates]
+
+    monkeypatch.setattr(agentic, "call_llm_with_tools", fake_llm)
+    monkeypatch.setattr(agentic, "execute_tool", fake_tool)
+    monkeypatch.setattr("app.agents.retriever.node.get_reranker", lambda: _Reranker())
+    monkeypatch.setattr("app.agents.retriever.node.get_lineages", lambda keys, **kwargs: {})
+
+    out = await retrieve_node(
+        {
+            "query": "원문",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "domains": [],
+            "target_versions": [],
+        }
+    )
+
+    assert out["retrieval_phase"] == RetrievalPhase.SEARCHED
+    assert out["documents"][0].chunk_id == "c1"
+    assert out["documents"][0].source == "confluence"
+
+
+@pytest.mark.asyncio
+async def test_retrieve_node_preserves_full_document_evidence_outside_top_n(monkeypatch):
+    async def fake_step(state, settings):
+        return {
+            "retrieval_phase": RetrievalPhase.SEARCHED,
+            "previous_queries": ["incident 원인"],
+            "retrieval_candidates": [
+                RetrievalCandidate(
+                    chunk_id="chunk-1",
+                    payload={
+                        "chunk_id": "chunk-1",
+                        "page_id": "incident-1",
+                        "page_title": "청크",
+                        "content": "요약 청크",
+                        "source": "github",
+                    },
+                    search_score=0.9,
+                    tool_name="hybrid_search",
+                    query="incident 원인",
+                ),
+                RetrievalCandidate(
+                    chunk_id="document:incident-1",
+                    payload={
+                        "chunk_id": "document:incident-1",
+                        "page_id": "incident-1",
+                        "page_title": "원문",
+                        "content": "전체 장애 원문",
+                        "source": "github",
+                    },
+                    search_score=1.0,
+                    tool_name="opensearch_get_document",
+                    query="incident-1",
+                ),
+            ],
+        }
+
+    class _Reranker:
+        def rerank(self, query, candidates):
+            return [(0.99 if payload["chunk_id"] == "chunk-1" else 0.01, payload) for _, payload in candidates]
+
+    monkeypatch.setattr(agentic, "run_agentic_step", fake_step)
+    monkeypatch.setattr("app.agents.retriever.node.get_settings", lambda: Settings(retriever_top_n=1))
+    monkeypatch.setattr("app.agents.retriever.node.get_reranker", lambda: _Reranker())
+    monkeypatch.setattr("app.agents.retriever.node.get_lineages", lambda keys, **kwargs: {})
+
+    out = await retrieve_node(
+        {
+            "query": "incident 원인",
+            "tenant_id": "tenant-a",
+            "retriever_strategy": "single_agentic",
+            "domains": [],
+        }
+    )
+
+    assert [doc.chunk_id for doc in out["documents"]] == ["chunk-1", "document:incident-1"]

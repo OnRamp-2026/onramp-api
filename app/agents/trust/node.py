@@ -24,6 +24,7 @@ retriever와 answer 사이에 위치한다.
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
 from functools import partial
 
@@ -364,15 +365,45 @@ async def _rewrite_query(refined_query: str, model: str, settings: Settings) -> 
 # ---------------------------------------------------------------------------
 
 
-def evaluate_gates(survivors: list[SourceDocument], sensitivity: float, settings: Settings) -> GateFlags:
+def _requests_sensitive_value(query: str) -> bool:
+    normalized = re.sub(r"\s+", " ", query).casefold()
+    secret_term = re.search(
+        r"(secret|token|password|credential|api[-_ ]?key|비밀|토큰|비밀번호|인증.?값|키값)", normalized
+    )
+    value_request = re.search(
+        r"(실제|원문|평문|raw|값|value|알려|보여|공개|노출|출력|복호화|reveal|show|print|decrypt)",
+        normalized,
+    )
+    return bool(secret_term and value_request)
+
+
+def _asks_about_deprecated_state(query: str) -> bool:
+    normalized = re.sub(r"\s+", " ", query).casefold()
+    return bool(
+        re.search(
+            r"(eol|end.?of.?life|deprecated|지원.?종료|유지보수.?상태|과거.?버전|구버전|대체.?문서|최신.?대신)",
+            normalized,
+        )
+    )
+
+
+def evaluate_gates(
+    survivors: list[SourceDocument],
+    sensitivity: float,
+    settings: Settings,
+    *,
+    query: str = "",
+) -> GateFlags:
     """게이트가 사다리보다 먼저 판정되면 retry 기회 없이 OUTDATED 직행하는 사고가 난다 —
     반드시 사다리 소진(PROCEED 확정) 후에 호출한다.
     """
-    deprecated_only = bool(survivors) and all(d.is_eol for d in survivors)
+    eol_only = bool(survivors) and all(d.is_eol for d in survivors)
+    deprecated_warning = eol_only and _asks_about_deprecated_state(query)
     return GateFlags(
         conflicting=_conflicting(survivors, settings),
-        deprecated_only=deprecated_only,
-        sensitive_block=sensitivity >= 1.0,
+        deprecated_only=eol_only and not deprecated_warning,
+        deprecated_warning=deprecated_warning,
+        sensitive_block=sensitivity >= 1.0 and _requests_sensitive_value(query),
     )
 
 
@@ -384,6 +415,8 @@ def _conflicting(survivors: list[SourceDocument], settings: Settings) -> bool:
     (워크스루 D: 고아 2.2 vs 정상 2.4)가 충돌로 오탐되는 두 번째 출구를 차단한다.
     버전 층위가 다르면 충돌 혐의보다 미결합 형제 혐의가 우선이다.
     """
+    if not settings.trust_score_conflict_gate_enabled:
+        return False
     floor, gap = settings.trust_rerank_floor, settings.trust_conflict_score_gap
     by_topic: dict[tuple[str, str, str], float] = {}
     for d in survivors:
@@ -408,6 +441,31 @@ def _conflicting(survivors: list[SourceDocument], settings: Settings) -> bool:
 
 
 async def trust_node(state: AgentState) -> dict:
+    """Strategy별 Trust 계약을 dispatch한다."""
+    if state.get("retriever_strategy") == "single_agentic":
+        return await evaluate_trust_node(state)
+    return await deterministic_trust_node(state)
+
+
+async def evaluate_trust_node(state: AgentState) -> dict:
+    """Single Agentic 경로용 rules-only evaluator. 재작성·routing 신호를 만들지 않는다."""
+    retry = state.get("retry_count", 0)
+    evaluated = await deterministic_trust_node(
+        {
+            **state,
+            "first_pass_documents": [],
+            "retry_count": retry,
+            "max_retries": retry,
+        }
+    )
+    return {
+        key: evaluated[key]
+        for key in ("documents", "trust_score", "gate_flags", "missing_versions", "agent_trace")
+        if key in evaluated
+    }
+
+
+async def deterministic_trust_node(state: AgentState) -> dict:
     """문서를 채점하고 재검색 사다리를 결정한다."""
     settings = get_settings()
     documents = state.get("documents", [])
@@ -482,7 +540,7 @@ async def trust_node(state: AgentState) -> dict:
         return result
 
     # ⑦ PROCEED 확정 → 게이트 판정 (사다리 소진 후에만 — 설계 v1.5)
-    gates = evaluate_gates(survivors, output.sensitivity_risk, settings)
+    gates = evaluate_gates(survivors, output.sensitivity_risk, settings, query=state.get("query", ""))
     result["should_re_retrieve"] = False
     result["retry_action"] = RetryAction.PROCEED
     result["gate_flags"] = gates

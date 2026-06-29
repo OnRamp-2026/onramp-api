@@ -318,6 +318,27 @@ async def test_answer_uses_trust_overall_as_evidence_score(monkeypatch, overall,
 
 
 @pytest.mark.asyncio
+async def test_answer_skips_llm_when_trust_is_below_partial_threshold(monkeypatch):
+    from app.agents.state import TrustScore
+
+    async def fail_llm(*args, **kwargs):
+        raise AssertionError("low-trust evidence must skip answer LLM")
+
+    monkeypatch.setattr(node_mod, "call_llm", fail_llm)
+    out = await answer_node(
+        {
+            "query": "근거 없는 질문",
+            "documents": [_doc()],
+            "domains": [Domain.MANUAL],
+            "trust_score": TrustScore(overall=0.30),
+            "gate_flags": GateFlags(),
+        }
+    )
+    assert out["answerability_status"] == AnswerabilityStatus.NOT_ENOUGH_EVIDENCE
+    assert "error" not in out
+
+
+@pytest.mark.asyncio
 async def test_answer_gate_takes_priority_over_evidence_score(monkeypatch):
     from app.agents.state import TrustScore
 
@@ -332,6 +353,24 @@ async def test_answer_gate_takes_priority_over_evidence_score(monkeypatch):
         }
     )
     assert out["answerability_status"] == AnswerabilityStatus.OUTDATED_EVIDENCE
+
+
+@pytest.mark.asyncio
+async def test_answer_allows_eol_status_query_with_warning(monkeypatch):
+    from app.agents.state import TrustScore
+
+    monkeypatch.setattr(node_mod, "call_llm", _mock_llm(_free_json("answerable", (0,))))
+    out = await answer_node(
+        {
+            "query": "Apache 2.2의 유지보수 상태는?",
+            "documents": [_doc()],
+            "domains": [Domain.MANUAL],
+            "trust_score": TrustScore(overall=0.95),
+            "gate_flags": GateFlags(deprecated_warning=True),
+        }
+    )
+    assert out["answerability_status"] == AnswerabilityStatus.ANSWERABLE
+    assert "EOL" in out["answerability_reason"]
 
 
 @pytest.mark.asyncio

@@ -118,6 +118,13 @@ def test_build_filter_none_when_empty():
     assert _build_filter(None, SearchFilters()) is None
 
 
+def test_build_filter_includes_tenant_and_source():
+    from app.agents.retriever.search import _build_filter
+
+    result = _build_filter(None, None, tenant_id="tenant-a", source="github")
+    assert {condition.key for condition in result.must} == {"tenant_id", "source"}
+
+
 async def test_soft_mode_still_applies_ladder_filters(monkeypatch):
     """domain은 soft(무필터)여도 사다리 필터는 항상 적용된다 — 사다리 전략의 본질."""
     from app.agents.retriever.search import SearchFilters

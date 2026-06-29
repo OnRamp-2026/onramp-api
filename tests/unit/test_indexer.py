@@ -147,6 +147,28 @@ async def test_index_children_upserts_opensearch_when_enabled():
     assert os_client.documents[0]["embedding_text"].startswith("emb")
 
 
+@pytest.mark.asyncio
+async def test_index_children_uses_explicit_tenant_and_source():
+    client = _FakeClient()
+    os_client = _FakeOpenSearchClient()
+    settings = Settings(embedding_dim=3, bm25_search_enabled=True)
+
+    await index_children(
+        [_child("gh:repo#1_000")],
+        embedder=_FakeEmbedder(),
+        client=client,
+        opensearch_client=os_client,
+        settings=settings,
+        tenant_id="tenant-a",
+        source="github",
+    )
+
+    assert client.upserted[0].payload["tenant_id"] == "tenant-a"
+    assert client.upserted[0].payload["source"] == "github"
+    assert os_client.documents[0]["tenant_id"] == "tenant-a"
+    assert os_client.documents[0]["source"] == "github"
+
+
 def test_opensearch_document_normalizes_optional_lists():
     child = _child("pg_000")
     document = _opensearch_document(child, Settings(auth_default_tenant="tenant-a"))

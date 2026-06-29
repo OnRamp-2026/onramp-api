@@ -5,7 +5,7 @@ import pytest
 from app.config import Settings
 from app.middleware.error_handler import LLMError
 from app.services import llm_selector
-from app.services.llm_selector import call_llm, resolve_provider
+from app.services.llm_selector import call_llm, call_llm_with_tools, resolve_provider
 
 
 class _FakeCompletions:
@@ -113,6 +113,73 @@ async def test_call_llm_openai_success_and_json_mode(monkeypatch):
     call = fake.chat.completions.calls[0]
     assert call["model"] == "gpt-4o-mini"
     assert call["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_tools_parses_function_call(monkeypatch):
+    class _Comp:
+        async def create(self, **kwargs):
+            fn = type("F", (), {"name": "hybrid_search", "arguments": '{"query":"CrashLoopBackOff"}'})()
+            tool = type("T", (), {"id": "call-1", "function": fn})()
+            message = type("M", (), {"content": "", "tool_calls": [tool]})()
+            return type("R", (), {"choices": [type("C", (), {"message": message})()]})()
+
+    client = type("Client", (), {"chat": type("Chat", (), {"completions": _Comp()})()})()
+    monkeypatch.setattr(llm_selector, "_get_openai_client", lambda settings: client)
+
+    response = await call_llm_with_tools(
+        [{"role": "user", "content": "q"}],
+        [{"type": "function", "function": {"name": "hybrid_search"}}],
+        model="gpt-4o-mini",
+        settings=Settings(openai_api_key="sk-test"),
+    )
+
+    assert response.tool_calls[0].name == "hybrid_search"
+    assert response.tool_calls[0].arguments == {"query": "CrashLoopBackOff"}
+
+
+@pytest.mark.asyncio
+async def test_call_llm_with_tools_records_usage_to_generation(monkeypatch):
+    """call_llm_with_tools도 generation에 model·output·usage_details를 기록한다 (이전엔 누락됐던 tool-calling 경로)."""
+    from contextlib import contextmanager
+
+    class _Comp:
+        async def create(self, **kw):
+            fn = type("F", (), {"name": "hybrid_search", "arguments": "{}"})()
+            tool = type("T", (), {"id": "call-1", "function": fn})()
+            msg = type("M", (), {"content": "", "tool_calls": [tool]})()
+            usage = type("U", (), {"prompt_tokens": 9, "completion_tokens": 3, "total_tokens": 12})()
+            return type(
+                "R", (), {"choices": [type("C", (), {"message": msg})()], "usage": usage, "model": "gpt-4o-mini"}
+            )()
+
+    client = type("Cl", (), {"chat": type("Ch", (), {"completions": _Comp()})()})()
+    monkeypatch.setattr(llm_selector, "_get_openai_client", lambda settings: client)
+
+    captured: dict = {}
+
+    class _Gen:
+        def update(self, **kw):
+            captured.update(kw)
+
+    @contextmanager
+    def _fake_gen(**kw):
+        captured["start"] = kw
+        yield _Gen()
+
+    monkeypatch.setattr(llm_selector, "langfuse_generation", _fake_gen)
+
+    resp = await call_llm_with_tools(
+        [{"role": "user", "content": "q"}],
+        [{"type": "function", "function": {"name": "hybrid_search"}}],
+        model="gpt-4o-mini",
+        settings=Settings(openai_api_key="sk-test"),
+    )
+
+    assert resp.tool_calls[0].name == "hybrid_search"
+    assert captured["start"]["name"] == "llm.tools.openai"
+    assert captured["model"] == "gpt-4o-mini"
+    assert captured["usage_details"] == {"input": 9, "output": 3, "total": 12}
 
 
 @pytest.mark.asyncio

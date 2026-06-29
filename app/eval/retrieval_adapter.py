@@ -28,6 +28,7 @@ from app.agents.retriever.rerank import (
     apply_metadata_weight,
     apply_ranking_boosts,
     get_reranker,
+    limit_ranking_boost_spread,
 )
 from app.agents.retriever.search import FilterMode, dense_search, search_with_mode
 from app.config import Settings, get_settings
@@ -193,6 +194,7 @@ async def retrieve_for_eval(
             (apply_ranking_boosts(raw, payload, domains, lineages, [], settings), raw, payload)
             for raw, payload in reranked
         ]
+        rows = limit_ranking_boost_spread(rows, max_spread=settings.rank_boost_max_spread)
     except Exception as exc:  # 리랭커 실패 → vector 폴백 (운영 _vector_fallback 동일: raw=0.0)
         logger.warning("리랭커 실패로 dense 폴백: %s", exc, exc_info=True)
         rows = [

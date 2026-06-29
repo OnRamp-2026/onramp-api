@@ -32,10 +32,20 @@ class SearchFilters:
         return not (self.version or self.pinned_doc_keys or self.excluded_doc_keys)
 
 
-def _build_filter(domain: str | None, filters: SearchFilters | None) -> Filter | None:
+def _build_filter(
+    domain: str | None,
+    filters: SearchFilters | None,
+    *,
+    tenant_id: str | None = None,
+    source: str | None = None,
+) -> Filter | None:
     """domain 조건 + 사다리 필터를 하나의 Qdrant Filter로 합성한다."""
     must: list[Condition] = []
     must_not: list[Condition] = []
+    if tenant_id:
+        must.append(FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id)))
+    if source:
+        must.append(FieldCondition(key="source", match=MatchValue(value=source)))
     if domain:
         must.append(FieldCondition(key="domain", match=MatchValue(value=domain)))
     if filters:
@@ -55,6 +65,8 @@ async def dense_search(
     top_k: int,
     *,
     domain: str | None = None,
+    tenant_id: str | None = None,
+    source: str | None = None,
     filters: SearchFilters | None = None,
     client: QdrantClient | None = None,
     settings: Settings | None = None,
@@ -63,7 +75,7 @@ async def dense_search(
     client = client or get_qdrant()
     settings = settings or get_settings()
 
-    query_filter = _build_filter(domain, filters)
+    query_filter = _build_filter(domain, filters, tenant_id=tenant_id, source=source)
 
     # QdrantClient는 동기 → 이벤트 루프 비차단 위해 스레드로
     resp = await anyio.to_thread.run_sync(
@@ -86,6 +98,8 @@ async def search_with_mode(
     domain: str | None,
     mode: FilterMode,
     query_text: str = "",
+    tenant_id: str | None = None,
+    source: str | None = None,
     filters: SearchFilters | None = None,
     settings: Settings | None = None,
 ) -> list[ScoredPoint]:
@@ -110,21 +124,47 @@ async def search_with_mode(
             query_text,
             query_vector,
             top_k=top_k,
+            tenant_id=tenant_id,
             domain=effective_domain,
+            source=source,
             filters=filters,
             settings=settings,
             dense_search_fn=dense_search,
         )
 
     if mode == "soft" or not domain:
-        return await dense_search(query_vector, top_k, domain=None, filters=filters, settings=settings)
+        return await dense_search(
+            query_vector,
+            top_k,
+            domain=None,
+            tenant_id=tenant_id,
+            source=source,
+            filters=filters,
+            settings=settings,
+        )
 
-    hits = await dense_search(query_vector, top_k, domain=domain, filters=filters, settings=settings)
+    hits = await dense_search(
+        query_vector,
+        top_k,
+        domain=domain,
+        tenant_id=tenant_id,
+        source=source,
+        filters=filters,
+        settings=settings,
+    )
     if mode == "hard":
         return hits
     # hybrid — 저품질이면 무필터로 보완 (사다리 필터는 유지)
     if _is_low_quality(hits, settings):
-        extra = await dense_search(query_vector, top_k, domain=None, filters=filters, settings=settings)
+        extra = await dense_search(
+            query_vector,
+            top_k,
+            domain=None,
+            tenant_id=tenant_id,
+            source=source,
+            filters=filters,
+            settings=settings,
+        )
         hits = _merge_hits(hits, extra)
     return hits
 

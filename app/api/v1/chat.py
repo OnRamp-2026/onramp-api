@@ -31,7 +31,7 @@ async def chat_endpoint(request: ChatRequest, user: CurrentUser, db: DatabaseSes
     response: ChatResponse | None = None
     with chat_observation_scope() as observation, usage_accumulator() as usage:
         try:
-            response = await chat_service(request)
+            response = await chat_service(request, tenant_id=user.tenant_id)
         except Exception:
             await persist_chat_observation(
                 db,

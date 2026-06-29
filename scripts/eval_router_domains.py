@@ -24,11 +24,16 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.agents.router.node import classify_query
-from app.agents.state import UseCase
-from app.config import get_settings
-from app.eval.dataset import GoldenQuery, load_golden_set
-from app.eval.router_cache import (
+# 다른 CWD에서 직접 실행해도 repo package를 import할 수 있게 한다.
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from app.agents.router.node import classify_query  # noqa: E402
+from app.agents.state import UseCase  # noqa: E402
+from app.config import get_settings  # noqa: E402
+from app.eval.dataset import GoldenQuery, load_golden_set  # noqa: E402
+from app.eval.router_cache import (  # noqa: E402
     DEFAULT_CACHE_PATH,
     PredictionRecord,
     current_meta,
@@ -38,13 +43,12 @@ from app.eval.router_cache import (
     sha12,
     write_cache,
 )
-from app.eval.router_metrics import RouterPred, summarize
+from app.eval.router_metrics import RouterPred, summarize  # noqa: E402
 
 _REQUESTED_MODEL = ""  # 평가는 운영 기본 모델 사용 (config.default_model)
 
 # 모든 기본 경로는 **repo 루트 기준**으로 해결한다 — CWD에 의존하면 다른 디렉터리에서 실행 시
 # data/eval/*.jsonl을 못 찾는다. (스크립트는 repo_root/scripts/ 에 있으므로 parents[1]=repo root)
-_ROOT = Path(__file__).resolve().parents[1]
 _QUERIES = _ROOT / "data/eval/queries.jsonl"
 _QRELS = _ROOT / "data/eval/qrels.jsonl"
 _DEFAULT_RESULT_PATH = str(_ROOT / "data/eval/results/router_domains_baseline.json")

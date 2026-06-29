@@ -252,6 +252,17 @@ class Settings(BaseSettings):
     retriever_top_k: int = Field(default=20, ge=1)  # Qdrant 후보 풀
     retriever_top_n: int = Field(default=8, ge=1)  # 리랭킹 후 최종 (#227 5→8: 여러 문서 종합 답변용 컨텍스트 확대)
     snippet_max_chars: int = 500  # SourceDocument content_snippet 길이
+    retriever_strategy: Literal["deterministic", "single_agentic"] = "deterministic"
+    single_agentic_max_tools_per_step: int = Field(default=2, ge=1, le=4)
+    single_agentic_tool_snippet_chars: int = Field(default=300, ge=50, le=2000)
+    single_agentic_document_max_chars: int = Field(default=8000, ge=500, le=30000)
+    single_agentic_max_candidates: int = Field(default=50, ge=1, le=200)
+    # tool-call 판단 LLM의 일시 실패(timeout/5xx/rate-limit) 복원력.
+    # 단발 호출은 일시 장애에 곧장 raw 질의 hybrid_search로 퇴화해 에이전트 추론을 버린다.
+    # bounded retry로 일시 실패를 회복하고, 소진 시에만 기존 fallback으로 떨어진다.
+    single_agentic_llm_max_retries: int = Field(default=2, ge=0, le=5)
+    single_agentic_llm_timeout_s: float = Field(default=30.0, gt=0.0, le=120.0)
+    single_agentic_llm_backoff_base_s: float = Field(default=0.5, ge=0.0, le=10.0)
 
     @model_validator(mode="after")
     def _check_retriever_window(self) -> "Settings":
@@ -327,6 +338,7 @@ class Settings(BaseSettings):
     # 차단성 게이트는 precision 우선 — 사실상 동점(0.005)만 충돌 후보로 본다.
     # 점수 휴리스틱 자체가 약한 근사이며 근본 해결은 P2 내용 기반 모순 감지(설계 5.2).
     trust_conflict_score_gap: float = Field(default=0.005, ge=0.0)
+    trust_score_conflict_gate_enabled: bool = False
     # [MASKED_*] 마커 수가 이 값이면 sensitivity_risk=1.0 포화. ge=1 — 0/음수면 채점이 무력화됨.
     trust_sensitivity_masked_cap: int = Field(default=5, ge=1)
 
@@ -343,6 +355,7 @@ class Settings(BaseSettings):
     # raw 점수(τ 진단)는 오염시키지 않는다.
     rank_version_weight: float = Field(default=0.1, ge=0.0)  # version_fit 가산 계수
     rank_authority_weight: float = Field(default=0.05, ge=0.0)  # site tier 가산 계수
+    rank_boost_max_spread: float = Field(default=0.05, ge=0.0)
     # site 권위 등급 — 현 코퍼스는 전부 공식 문서라 변별력 없음(어댑터 자리, 설계 4.3).
     # 사내 Confluence 전환 시 space 등급·verified 라벨이 이 자리를 채운다.
     site_tier: dict[str, float] = Field(
