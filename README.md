@@ -14,40 +14,30 @@ Confluence·GitHub에 축적된 사내 지식을 자연어로 검색하고, 5요
 
 ---
 
-### Screenshots
+## Demo
 
 <table>
   <tr>
     <td width="50%" align="center">
-      
-      챗봇 5요소 답변 + 출처 · 
-
-https://github.com/user-attachments/assets/f992ecef-e5d6-46c4-b4a9-e30b88914584
-
-</sub>
+      <video src="https://github.com/user-attachments/assets/f992ecef-e5d6-46c4-b4a9-e30b88914584" controls width="100%"></video><br>
+      <sub>챗봇 — 자연어 질문 → 5요소 답변 + 출처</sub>
     </td>
     <td width="50%" align="center">
-      
-    회의 녹취 → 보고서 자산화 · 
-
-https://github.com/user-attachments/assets/3f19cd86-dac3-493f-a521-29500a970ab4
-
-</sub>
+      <video src="https://github.com/user-attachments/assets/3f19cd86-dac3-493f-a521-29500a970ab4" controls width="100%"></video><br>
+      <sub>자산화(STT) — 회의 녹취 → 보고서 → Confluence</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" align="center">
-      <img src="https://placehold.co/600x360?text=Langfuse+Trace" alt="Langfuse trace" width="100%"><br>
-      <sub>Langfuse trace — router/retriever/answer + <code>llm.tools.openai</code> · <code>docs/assets/langfuse_trace.png</code></sub>
+      <img src="docs/assets/langfuse_trace.png" alt="Langfuse trace" width="100%"><br>
+      <sub>Langfuse trace — router/retriever/trust/answer + <code>llm.tools.openai</code> + agentic scores</sub>
     </td>
     <td width="50%" align="center">
-      <img src="https://placehold.co/600x360?text=Architecture" alt="아키텍처" width="100%"><br>
-      <sub>아키텍처 다이어그램 · <code>docs/assets/architecture.png</code></sub>
+      <img src="docs/assets/architecture.png" alt="시스템 아키텍처" width="100%"><br>
+      <sub>시스템 아키텍처 — Clients → RAG API(Router/Retriever/Trust/Answer) → 3 stores + Ingestion</sub>
     </td>
   </tr>
 </table>
-
-> 📸 위 placeholder는 `docs/assets/`에 실제 이미지를 넣고 각 `<img src>`를 상대경로(예: `docs/assets/chat.png`)로 바꾸면 교체됩니다.
 
 ---
 
@@ -66,9 +56,7 @@ User → FastAPI → LangGraph Workflow
 관측: 전 구간 Langfuse trace + 에이전트 운영지표 Prometheus /metrics
 ```
 
-> **명명 주의 — "노드" vs "에이전트"**: `app/agents/`는 LangGraph 노드 디렉토리명일 뿐, 대부분은 tool을 쓰는 자율 에이전트가 아니다. **tool-calling 에이전트는 single_agentic retriever 하나**다.
-
-| 노드 | LLM | tool | 자율 판단 | 정확한 분류 |
+| 노드 | LLM | tool | 자율 판단 | 분류 |
 |---|---|---|---|---|
 | Router | 1회 | ✗ | 질문 분류/라우팅 | LLM 분류기 |
 | Retriever (deterministic, 기본) | ✗ | ✗ | ✗ | 검색 파이프라인(알고리즘) |

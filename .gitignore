@@ -63,3 +63,6 @@ uv.lock
 data/eval/reviews/*.blinded.jsonl
 # qrels 마이그레이션 검수 draft(원문 content preview 포함) → 추적 제외
 data/eval/reviews/qrels_migration*
+
+# 데모 영상은 GitHub user-attachments로 업로드 — 레포에 커밋하지 않음
+docs/assets/*.mp4
