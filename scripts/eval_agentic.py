@@ -67,6 +67,7 @@ async def run_arm(
 ) -> list[dict[str, Any]]:
     from app.agents.graph import compiled_graph  # import 시 graph 빌드 — arm 루프 밖 1회면 충분하나 명시 import
 
+    saved_env = {k: os.environ.get(k) for k in env_overrides}  # 원복용 — arm 간 env 누수 방지
     for key, val in env_overrides.items():
         os.environ[key] = val
     get_settings.cache_clear()
@@ -104,6 +105,13 @@ async def run_arm(
             }
         )
         print(f"  [{label}] {item.qid}: {rows[-1].get('answerability', 'ERR')}")
+    # env_overrides 원복 — 다음 arm으로 누수 방지
+    for key, prev in saved_env.items():
+        if prev is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = prev
+    get_settings.cache_clear()
     return rows
 
 

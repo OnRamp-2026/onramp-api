@@ -28,10 +28,12 @@ def expected_source(page_ids: list[str] | tuple[str, ...]) -> str | None:
 
 
 def tool_selection_stats(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """source-filtered 검색의 라우팅 정확도.
+    """source-filtered 검색의 라우팅 정확도 — **초기 source 선택**만 평가한다.
 
-    - correct: 기대 source로 검색을 냄
-    - misrouted: 다른 source로만 검색(기대 source 검색 없음) — github 질의에 confluence만 등
+    이후 재시도로 올바른 source를 뒤늦게 시도한 것(recovery)은 초기 라우팅 정확도와
+    별개이므로 첫 source-filtered 호출만 채점한다(set 매칭이 아니라 순서상 첫 선택).
+    - correct: 첫 source 선택이 기대 source와 일치
+    - misrouted: 첫 source 선택이 다른 source — github 질의에 confluence 등
     - neutral: source 미지정(무제한 hybrid만) — 오답 아님, 정확도 분모 제외
     accuracy = correct / (correct + misrouted). 평가 가능 행이 없으면 None.
     """
@@ -40,13 +42,14 @@ def tool_selection_stats(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
         exp = row.get("expected_source")
         if not exp:
             continue
-        used = set(row.get("tool_sources") or [])
-        if exp in used:
-            correct += 1
-        elif used:  # 다른 source만 사용
-            misrouted += 1
-        else:  # source 미지정(무제한 hybrid) → 중립
+        sources = row.get("tool_sources") or []
+        first = sources[0] if sources else None  # 초기 선택만 평가 (recovery 제외)
+        if first is None:  # source 미지정(무제한 hybrid) → 중립
             neutral += 1
+        elif first == exp:
+            correct += 1
+        else:  # 첫 선택이 다른 source → 오라우팅
+            misrouted += 1
     evaluable = correct + misrouted
     if evaluable == 0 and neutral == 0:
         return None

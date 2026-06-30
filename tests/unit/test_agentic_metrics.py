@@ -26,10 +26,13 @@ def test_tool_selection_stats_none_when_nothing_evaluable():
     assert tool_selection_stats([{"expected_source": None, "tool_sources": []}]) is None
 
 
-def test_tool_selection_correct_if_right_source_among_several():
-    # 오선택 후 올바른 source도 시도 → correct (회복)
+def test_tool_selection_scores_first_pick_only():
+    # 첫 선택이 오source → recovery로 뒤에 올바른 source를 시도해도 misrouted (초기 라우팅 평가)
     stats = tool_selection_stats([{"expected_source": "github", "tool_sources": ["confluence", "github"]}])
-    assert stats["correct"] == 1 and stats["misrouted"] == 0
+    assert stats["correct"] == 0 and stats["misrouted"] == 1
+    # 첫 선택이 올바르면 correct
+    stats2 = tool_selection_stats([{"expected_source": "github", "tool_sources": ["github", "confluence"]}])
+    assert stats2["correct"] == 1 and stats2["misrouted"] == 0
 
 
 def test_summarize_arm_aggregates_all_metrics():
