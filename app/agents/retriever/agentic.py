@@ -14,7 +14,7 @@ from app.agents.retriever.tools import TOOL_SCHEMAS, SearchToolContext, execute_
 from app.agents.state import AgentState, RetrievalCandidate, RetrievalPhase, ToolTrace
 from app.config import Settings
 from app.middleware.error_handler import LLMError
-from app.observability import score_current_trace
+from app.observability import agent_metrics, score_current_trace
 from app.services.llm_selector import ToolCall, ToolResponse, call_llm_with_tools
 
 logger = logging.getLogger(__name__)
@@ -71,6 +71,12 @@ def _emit_tool_observation(traces: list[ToolTrace], merged: list[RetrievalCandid
     score_current_trace(name="agentic_tool_calls", value=float(len(traces)), comment=summary)
     score_current_trace(name="agentic_tool_fallbacks", value=float(fallbacks))
     score_current_trace(name="agentic_candidates", value=float(len(merged)))
+    # 운영 모니터링용 집계 카운터 (#284) — Langfuse(요청별 디버깅)와 보완.
+    agent_metrics.record_agentic_step(
+        [trace.tool for trace in traces],
+        fallbacks=fallbacks,
+        retried=any(trace.retry > 0 for trace in traces),
+    )
 
 
 SYSTEM_PROMPT = """너는 OnRamp Single Agentic Retriever다.
