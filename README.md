@@ -14,13 +14,6 @@ Confluence·GitHub에 축적된 사내 지식을 자연어로 검색하고, 5요
 
 ---
 
-## Demo
-
-<p align="center">
-  <img src="https://placehold.co/760x420?text=OnRamp+Demo+(docs/assets/demo.gif)" alt="OnRamp demo" width="760">
-  <br><sub>자연어 질문 → 5요소 구조화 답변 · 회의 녹취 → 보고서 자산화 — <code>docs/assets/demo.gif</code>로 교체</sub>
-</p>
-
 ### Screenshots
 
 <table>
