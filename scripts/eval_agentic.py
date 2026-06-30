@@ -27,7 +27,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from app.config import get_settings  # noqa: E402
-from app.eval.agentic_metrics import expected_source, summarize_arm  # noqa: E402
+from app.eval.agentic_metrics import aggregate_repeats, expected_source, summarize_arm  # noqa: E402
 from app.eval.dataset import load_golden_set  # noqa: E402
 from app.services.llm_selector import usage_accumulator  # noqa: E402
 
@@ -129,12 +129,32 @@ def _print_table(summaries: list[dict[str, Any]]) -> None:
         )
 
 
+def _print_aggregate(aggregates: list[dict[str, Any]]) -> None:
+    print("\n=== AGGREGATE (mean±std over repeats) ===")
+    keys = [
+        "hit_rate@5",
+        "recall@5",
+        "ndcg@10",
+        "answerable_or_partial_rate",
+        "tool_selection_accuracy",
+        "latency_p50_ms",
+    ]
+    for a in aggregates:
+        m = a["metrics"]
+        parts = []
+        for k in keys:
+            v = m.get(k)
+            parts.append(f"{k}={v['mean']}±{v['std']}" if v else f"{k}=n/a")
+        print(f"[{a['arm']}] repeats={a['repeats']} | " + " ".join(parts))
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description="에이전틱 RAG 평가 자동화 하네스")
     parser.add_argument("--queries", default="data/eval/queries.jsonl")
     parser.add_argument("--qrels", default="data/eval/qrels.jsonl")
     parser.add_argument("--domain", default=None, help="도메인 필터 (예: incident). 미지정 시 전체")
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--repeats", type=int, default=1, help="arm×질의 반복 실행 횟수 (LLM 확률성→평균±std)")
     parser.add_argument("--model", default="")
     parser.add_argument("--tenant-id", default=None)
     parser.add_argument("--out", default=None)
@@ -145,22 +165,35 @@ async def main() -> int:
         golden = [g for g in golden if (g.domain or "") == args.domain]
     if args.limit:
         golden = golden[: args.limit]
-    print(f"golden queries: {len(golden)} (domain={args.domain or 'all'})")
+    print(f"golden queries: {len(golden)} (domain={args.domain or 'all'}, repeats={args.repeats})")
 
-    summaries: list[dict[str, Any]] = []
+    summaries: list[dict[str, Any]] = []  # 대표(첫 실행) — 표 호환
+    aggregates: list[dict[str, Any]] = []  # 반복 평균±std
     all_rows: dict[str, list[dict[str, Any]]] = {}
     for label, strategy, env in ARMS:
-        rows = await run_arm(label, strategy, env, golden, args)
-        ok = [r for r in rows if "error" not in r]
-        summaries.append({**summarize_arm(label, ok), "errors": len(rows) - len(ok)})
-        all_rows[label] = rows
+        per_repeat: list[dict[str, Any]] = []
+        for rep in range(args.repeats):
+            rows = await run_arm(label, strategy, env, golden, args)
+            ok = [r for r in rows if "error" not in r]
+            per_repeat.append({**summarize_arm(label, ok), "errors": len(rows) - len(ok)})
+            all_rows[f"{label}#{rep + 1}"] = rows
+        summaries.append(per_repeat[0])
+        aggregates.append(aggregate_repeats(label, per_repeat))
 
     _print_table(summaries)
+    if args.repeats > 1:
+        _print_aggregate(aggregates)
     report = {
         "generated_at_note": "stamp externally",
-        "config": {"domain": args.domain or "all", "queries": len(golden), "model": args.model},
-        "caveats": "answerability는 proxy(정답성 보장 아님), tool-selection은 page_id→source 휴리스틱, n 작음 — 지표적 해석.",
+        "config": {
+            "domain": args.domain or "all",
+            "queries": len(golden),
+            "repeats": args.repeats,
+            "model": args.model,
+        },
+        "caveats": "answerability는 proxy(정답성 보장 아님), tool-selection은 page_id→source 휴리스틱. 정답성(faithfulness/correctness)은 scripts/eval_generation.py(RAGAS, [eval] 설치)로 별도 측정.",
         "summaries": summaries,
+        "aggregates": aggregates,
         "rows": all_rows,
     }
     if args.out:
