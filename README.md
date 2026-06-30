@@ -16,25 +16,27 @@ Confluence·GitHub에 축적된 사내 지식을 자연어로 검색하고, 5요
 
 ## Demo
 
+<p align="center">
+  <b>챗봇</b> — 자연어 질문 → 5요소 답변 + 출처<br>
+  <video src="https://github.com/user-attachments/assets/f992ecef-e5d6-46c4-b4a9-e30b88914584" controls width="600"></video>
+</p>
+
+<p align="center">
+  <b>자산화 (STT)</b> — 회의 녹취 → 보고서 → Confluence<br>
+  <video src="https://github.com/user-attachments/assets/3f19cd86-dac3-493f-a521-29500a970ab4" controls width="600"></video>
+</p>
+
+### Screenshots
+
 <table>
   <tr>
     <td width="50%" align="center">
-      <video src="https://github.com/user-attachments/assets/f992ecef-e5d6-46c4-b4a9-e30b88914584" controls width="100%"></video><br>
-      <sub>챗봇 — 자연어 질문 → 5요소 답변 + 출처</sub>
+      <img src="docs/assets/architecture.png" alt="시스템 아키텍처" width="100%"><br>
+      <sub>시스템 아키텍처 — Clients → RAG API(Router/Retriever/Trust/Answer) → 3 stores + Ingestion</sub>
     </td>
-    <td width="50%" align="center">
-      <video src="https://github.com/user-attachments/assets/3f19cd86-dac3-493f-a521-29500a970ab4" controls width="100%"></video><br>
-      <sub>자산화(STT) — 회의 녹취 → 보고서 → Confluence</sub>
-    </td>
-  </tr>
-  <tr>
     <td width="50%" align="center">
       <img src="docs/assets/langfuse_trace.png" alt="Langfuse trace" width="100%"><br>
       <sub>Langfuse trace — router/retriever/trust/answer + <code>llm.tools.openai</code> + agentic scores</sub>
-    </td>
-    <td width="50%" align="center">
-      <img src="docs/assets/architecture.png" alt="시스템 아키텍처" width="100%"><br>
-      <sub>시스템 아키텍처 — Clients → RAG API(Router/Retriever/Trust/Answer) → 3 stores + Ingestion</sub>
     </td>
   </tr>
 </table>
