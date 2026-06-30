@@ -96,3 +96,45 @@ def summarize_arm(arm: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "latency_p95_ms": _percentile(latencies, 0.95),
         "mean_tokens": round(sum(tokens) / n) if n else 0,
     }
+
+
+def _flat_metrics(summary: dict[str, Any]) -> dict[str, float | None]:
+    """arm 요약에서 반복 집계 대상 헤드라인 수치만 평탄화."""
+    r = summary.get("retrieval", {}) or {}
+    ts = summary.get("tool_selection") or {}
+    return {
+        "hit_rate@5": r.get("hit_rate@5"),
+        "recall@5": r.get("recall@5"),
+        "mrr@10": r.get("mrr@10"),
+        "ndcg@10": r.get("ndcg@10"),
+        "answerable_or_partial_rate": summary.get("answerable_or_partial_rate"),
+        "tool_selection_accuracy": ts.get("accuracy"),
+        "fallback_rate": summary.get("fallback_rate"),
+        "retry_rate": summary.get("retry_rate"),
+        "latency_p50_ms": summary.get("latency_p50_ms"),
+        "mean_tokens": summary.get("mean_tokens"),
+    }
+
+
+def aggregate_repeats(arm: str, summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    """반복 실행한 arm 요약들을 지표별 평균±표준편차로 집계한다.
+
+    LLM 확률성을 통제해 arm 간 차이가 노이즈인지 실제인지(std로) 보이게 한다.
+    값이 None인 지표(예: deterministic의 tool_selection)는 평균에서 제외한다.
+    """
+    import statistics
+
+    flats = [_flat_metrics(s) for s in summaries]
+    metrics: dict[str, Any] = {}
+    keys = flats[0].keys() if flats else []
+    for k in keys:
+        vals: list[float] = [float(v) for f in flats if isinstance((v := f.get(k)), int | float)]
+        if not vals:
+            metrics[k] = None
+            continue
+        metrics[k] = {
+            "mean": round(statistics.mean(vals), 4),
+            "std": round(statistics.pstdev(vals), 4) if len(vals) > 1 else 0.0,
+            "n": len(vals),
+        }
+    return {"arm": arm, "repeats": len(summaries), "metrics": metrics}

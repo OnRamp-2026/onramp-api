@@ -89,3 +89,49 @@ def test_summarize_arm_partial_counts_as_answerable():
         },
     ]
     assert summarize_arm("x", rows)["answerable_or_partial_rate"] == 1.0
+
+
+def test_aggregate_repeats_mean_std():
+    from app.eval.agentic_metrics import aggregate_repeats
+
+    s1 = {
+        "retrieval": {"hit_rate@5": 0.8, "recall@5": 0.5, "mrr@10": 0.6, "ndcg@10": 0.6},
+        "answerable_or_partial_rate": 0.9,
+        "tool_selection": {"accuracy": 0.5},
+        "fallback_rate": 0.0,
+        "retry_rate": 0.1,
+        "latency_p50_ms": 100,
+        "mean_tokens": 50,
+    }
+    s2 = {
+        "retrieval": {"hit_rate@5": 0.6, "recall@5": 0.5, "mrr@10": 0.6, "ndcg@10": 0.4},
+        "answerable_or_partial_rate": 0.7,
+        "tool_selection": {"accuracy": 0.7},
+        "fallback_rate": 0.0,
+        "retry_rate": 0.1,
+        "latency_p50_ms": 200,
+        "mean_tokens": 70,
+    }
+    agg = aggregate_repeats("single_agentic", [s1, s2])
+    assert agg["arm"] == "single_agentic" and agg["repeats"] == 2
+    assert agg["metrics"]["hit_rate@5"] == {"mean": 0.7, "std": 0.1, "n": 2}
+    assert agg["metrics"]["tool_selection_accuracy"]["mean"] == 0.6
+    assert agg["metrics"]["latency_p50_ms"]["mean"] == 150.0
+
+
+def test_aggregate_repeats_skips_none_metrics():
+    from app.eval.agentic_metrics import aggregate_repeats
+
+    # deterministic: tool_selection None → 평균 대상에서 제외
+    s = {
+        "retrieval": {"hit_rate@5": 0.8, "recall@5": 0.5, "mrr@10": 0.6, "ndcg@10": 0.6},
+        "answerable_or_partial_rate": 0.9,
+        "tool_selection": None,
+        "fallback_rate": 0.0,
+        "retry_rate": 0.0,
+        "latency_p50_ms": 100,
+        "mean_tokens": 50,
+    }
+    agg = aggregate_repeats("deterministic", [s, s])
+    assert agg["metrics"]["tool_selection_accuracy"] is None
+    assert agg["metrics"]["hit_rate@5"]["std"] == 0.0  # 동일값 → std 0
