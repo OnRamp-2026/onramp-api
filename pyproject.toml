@@ -106,3 +106,12 @@ strict = false
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+# CI(Python 3.12)가 설치하는 최신 numpy 스텁은 PEP695 `type` 별칭(3.12+ 문법)을 쓴다.
+# 배포 런타임이 3.11(Dockerfile)이라 python_version은 3.11을 유지해야 하는데, 그러면
+# mypy 파서가 numpy 스텁의 `type` 문법을 거부해 우리 코드 검사 전에 중단된다.
+# numpy는 타입체크 대상이 아니므로 스텁 파싱 자체를 건너뛴다(Any 처리) — 우리 코드 커버리지 불변.
+[[tool.mypy.overrides]]
+module = "numpy.*"
+follow_imports = "skip"
+follow_imports_for_stubs = true
