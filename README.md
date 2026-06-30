@@ -19,12 +19,20 @@ Confluence·GitHub에 축적된 사내 지식을 자연어로 검색하고, 5요
 <table>
   <tr>
     <td width="50%" align="center">
-      <img src="https://placehold.co/600x360?text=Chat+Answer" alt="챗봇 답변" width="100%"><br>
-      <sub>챗봇 5요소 답변 + 출처 · <code>docs/assets/chat.png</code></sub>
+      
+      챗봇 5요소 답변 + 출처 · 
+
+https://github.com/user-attachments/assets/f992ecef-e5d6-46c4-b4a9-e30b88914584
+
+</sub>
     </td>
     <td width="50%" align="center">
-      <img src="https://placehold.co/600x360?text=Asset+Report" alt="자산화" width="100%"><br>
-      <sub>회의 녹취 → 보고서 자산화 · <code>docs/assets/asset.png</code></sub>
+      
+    회의 녹취 → 보고서 자산화 · 
+
+https://github.com/user-attachments/assets/3f19cd86-dac3-493f-a521-29500a970ab4
+
+</sub>
     </td>
   </tr>
   <tr>
