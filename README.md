@@ -2,24 +2,51 @@
 
 > 자연어 질문에 구조화된 답변을 생성하는 사내 지식 RAG 백엔드 (FastAPI + LangGraph)
 
+[![CI](https://github.com/OnRamp-2026/onramp-api/actions/workflows/ci.yaml/badge.svg)](https://github.com/OnRamp-2026/onramp-api/actions/workflows/ci.yaml)
+![Python](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C)
+![Qdrant](https://img.shields.io/badge/Qdrant-DC244C)
+![OpenSearch](https://img.shields.io/badge/OpenSearch-005EB8?logo=opensearch&logoColor=white)
+![Langfuse](https://img.shields.io/badge/Langfuse-observability-FD8D3C)
+
 Confluence·GitHub에 축적된 사내 지식을 자연어로 검색하고, 5요소(현재상황·원인·근거·해결·인프라) 구조화 답변을 생성합니다. 회의 녹취 → 보고서 자산화(STT) 파이프라인도 함께 제공합니다.
 
 ---
 
-## Demo / Screenshots
+## Demo
 
-> 아래 자리에 실제 화면을 넣어주세요 (이미지는 `docs/assets/`에 두고 상대경로로 링크).
+<p align="center">
+  <img src="https://placehold.co/760x420?text=OnRamp+Demo+(docs/assets/demo.gif)" alt="OnRamp demo" width="760">
+  <br><sub>자연어 질문 → 5요소 구조화 답변 · 회의 녹취 → 보고서 자산화 — <code>docs/assets/demo.gif</code>로 교체</sub>
+</p>
 
-| | |
-|---|---|
-| 챗봇 답변(5요소) | _`docs/assets/chat.png` — TODO_ |
-| 자산화(회의록→보고서) | _`docs/assets/asset.png` — TODO_ |
-| Langfuse trace (관측) | _`docs/assets/langfuse_trace.png` — TODO (router/retriever/answer span + llm.tools.openai generation)_ |
-| 아키텍처 다이어그램 | _`docs/assets/architecture.png` — TODO_ |
+### Screenshots
 
-<!-- 예시:
-![챗봇 답변](docs/assets/chat.png)
--->
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="https://placehold.co/600x360?text=Chat+Answer" alt="챗봇 답변" width="100%"><br>
+      <sub>챗봇 5요소 답변 + 출처 · <code>docs/assets/chat.png</code></sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="https://placehold.co/600x360?text=Asset+Report" alt="자산화" width="100%"><br>
+      <sub>회의 녹취 → 보고서 자산화 · <code>docs/assets/asset.png</code></sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="https://placehold.co/600x360?text=Langfuse+Trace" alt="Langfuse trace" width="100%"><br>
+      <sub>Langfuse trace — router/retriever/answer + <code>llm.tools.openai</code> · <code>docs/assets/langfuse_trace.png</code></sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="https://placehold.co/600x360?text=Architecture" alt="아키텍처" width="100%"><br>
+      <sub>아키텍처 다이어그램 · <code>docs/assets/architecture.png</code></sub>
+    </td>
+  </tr>
+</table>
+
+> 📸 위 placeholder는 `docs/assets/`에 실제 이미지를 넣고 각 `<img src>`를 상대경로(예: `docs/assets/chat.png`)로 바꾸면 교체됩니다.
 
 ---
 
