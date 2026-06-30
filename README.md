@@ -348,7 +348,6 @@ push → Jenkins → ruff + pytest + mypy → kaniko build → 사내 registry p
 | [`docs/ingestion.md`](docs/ingestion.md) | 데이터 적재 — 저장소·스크립트·로컬/prod·증분 |
 | [`docs/local_ingestion.md`](docs/local_ingestion.md) | 로컬 적재 단계별 절차 |
 | [`scripts/reranker/README.md`](scripts/reranker/README.md) | (선택) remote 리랭커 운영 |
-| [OnRamp-2026/docs `Jihong/`](https://github.com/OnRamp-2026/docs) | 설계·평가 문서(에이전틱·평가 하네스·라우팅) |
 
 ## Related Repositories
 
