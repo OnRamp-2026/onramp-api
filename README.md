@@ -28,18 +28,28 @@ Confluence·GitHub에 축적된 사내 지식을 자연어로 검색하고, 5요
 ```
 User → FastAPI → LangGraph Workflow
                       │
-                      ├── Router Agent      질문 분류·도메인 라우팅 / 범위 밖 질문 차단
-                      ├── Retriever         ① deterministic(기본): Dense(Qdrant) + BM25(OpenSearch) RRF → Reranker → boost
-                      │                     ② single_agentic(opt-in): LLM tool-calling 에이전트
-                      ├── Trust Agent       Evidence Confidence 4축 채점 → 근거 부족 시 재검색(rules-only)
-                      └── Answer Agent      Answerability Status 판단 → 5요소/freeform 답변 생성·보류
+                      ├── Router      질문 분류·도메인 라우팅 / 범위 밖 질문 차단
+                      ├── Retriever   ① deterministic(기본): Dense(Qdrant) + BM25(OpenSearch) RRF → Reranker → boost
+                      │               ② single_agentic(opt-in): LLM tool-calling 에이전트
+                      ├── Trust       Evidence Confidence 4축 채점 → 근거 부족 시 재검색(rules-only)
+                      └── Answer      Answerability Status 판단 → 5요소/freeform 답변 생성·보류
 
 실행 순서: Router → Retriever → Trust → (근거 부족 시 재검색, max_retries) → Answer
 관측: 전 구간 Langfuse trace + 에이전트 운영지표 Prometheus /metrics
 ```
 
-- **기본은 deterministic 그래프**(운영 default). 측정상 deterministic이 품질·지연·비용 우위라 메인으로 채택.
-- **single_agentic은 opt-in 실험 경로** — `RETRIEVER_STRATEGY=single_agentic`(env) 또는 요청 단위 설정으로만 작동. 끄면 운영 동작 불변. ([Agentic Retriever](#agentic-retriever-opt-in) 참고)
+> **명명 주의 — "노드" vs "에이전트"**: `app/agents/`는 LangGraph 노드 디렉토리명일 뿐, 대부분은 tool을 쓰는 자율 에이전트가 아니다. **tool-calling 에이전트는 single_agentic retriever 하나**다.
+
+| 노드 | LLM | tool | 자율 판단 | 정확한 분류 |
+|---|---|---|---|---|
+| Router | 1회 | ✗ | 질문 분류/라우팅 | LLM 분류기 |
+| Retriever (deterministic, 기본) | ✗ | ✗ | ✗ | 검색 파이프라인(알고리즘) |
+| Retriever (single_agentic, opt-in) | 루프 | 3개 | ✅ | **tool-calling 에이전트** |
+| Trust | 규칙(재작성 시만 1회) | ✗ | 재검색 사다리(규칙) | 규칙 평가기 |
+| Answer | 1회 | ✗ | ✗ | LLM 생성기 |
+
+- **두 가지 검색 전략(retrieval strategy)을 제공** — `deterministic`(기본: 고정 파이프라인, 빠르고 재현 가능)과 `single_agentic`(LLM이 도구를 골라 검색하는 tool-calling 에이전트).
+- `RETRIEVER_STRATEGY`(env) 또는 요청 단위로 전환. ([Agentic Retriever](#agentic-retriever) 참고)
 
 ## Tech Stack
 
@@ -164,12 +174,20 @@ Response (요약):
 - `answerability_status`: `answerable` / `partially_answerable` / `not_enough_evidence` / `conflicting_evidence` / `outdated_evidence`.
 - `trace_id`: Langfuse 활성 시 — `POST /v1/chat/feedback`로 사용자 피드백 score 부착.
 
-## Agentic Retriever (opt-in)
+## Agentic Retriever
 
-기본 deterministic 외에 **LLM tool-calling 기반 single_agentic retriever**를 실험 경로로 제공한다.
+deterministic 검색 전략과 함께, **LLM tool-calling 기반 single_agentic 검색 전략**을 제공한다. LLM이 질의를 보고 도구를 골라 검색·재검색하며, 도구는 서버측 가드로 보호된다.
 
 - 활성: `RETRIEVER_STRATEGY=single_agentic` (env) 또는 요청 state. 기본은 `deterministic` → **끄면 운영 동작 불변**.
-- 도구: `hybrid_search`(전체) · `hybrid_search_by_source(github|confluence)` · `opensearch_get_document(doc_id)`(incident 원문, candidate 제한).
+
+**도구 (LLM이 선택)**
+
+| 도구 | 인자 | 용도 | 서버측 가드 |
+|---|---|---|---|
+| `hybrid_search` | `query` | 전체 출처 Dense+BM25 RRF (기본) | tenant 강제 |
+| `hybrid_search_by_source` | `query`, `source`(`github`\|`confluence`) | 출처 제한 검색 | source 화이트리스트 |
+| `opensearch_get_document` | `doc_id` | incident 원문 전체 조회 | **incident 도메인 + 앞선 검색의 doc_id만**, 토큰 상한 |
+
 - 정책: **기본 hybrid**, 질의가 콘텐츠 타입을 분명히 드러낼 때만 source 제한(도메인/분포로 추측하지 않음).
 - 견고성: tool-call LLM bounded retry → 소진 시 hybrid fallback. tenant/source 서버측 강제.
 - 관측: tool 선택·fallback·후보 수를 Langfuse score + Prometheus 카운터로 노출.
