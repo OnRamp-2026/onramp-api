@@ -1,0 +1,63 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git branch *)",
+      "Bash(make test)",
+      "Bash(make test-unit)",
+      "Bash(make test-integration)",
+      "Bash(make test-cov)",
+      "Bash(make lint)",
+      "Bash(make typecheck)",
+      "Bash(make help)",
+      "Bash(pytest *)",
+      "Bash(ruff check *)",
+      "Bash(mypy *)",
+      "Bash(gh issue list *)",
+      "Bash(gh issue view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr view *)",
+      "Bash(alembic history *)",
+      "Bash(alembic current)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(gh pr create *)",
+      "Bash(gh issue create *)",
+      "Bash(make format)",
+      "Bash(make migrate*)",
+      "Bash(make eval*)",
+      "Bash(make up)",
+      "Bash(make down)",
+      "Bash(alembic upgrade *)",
+      "Bash(alembic downgrade *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git push --force *)",
+      "Bash(git commit --no-verify *)",
+      "Read(./.env)",
+      "Read(**/.env)",
+      "Edit(./.env)",
+      "Edit(**/.env)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git status --short 2>/dev/null; echo '▶ 검증했나요? make test / make typecheck / make lint (RAG 변경이면 make eval-gate) · 인수인계는 /handoff · 커밋에 Co-Authored-By 금지 · push·PR은 사람 승인 후.'"
+          }
+        ]
+      }
+    ]
+  }
+}

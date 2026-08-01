@@ -66,3 +66,8 @@ data/eval/reviews/qrels_migration*
 
 # 데모 영상은 GitHub user-attachments로 업로드 — 레포에 커밋하지 않음
 docs/assets/*.mp4
+
+# dev-workflow 템플릿 원본(중첩 git repo) — 루트 CLAUDE.md/.claude/docs로 이식 완료, 참고용 로컬 보관
+/dev-workflow/
+# subagent-driven-development 작업 공간(태스크 브리프·리포트·리뷰 패키지·ledger) — 로컬 스크래치
+.sdd/
