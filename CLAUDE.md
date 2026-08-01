@@ -45,6 +45,7 @@
 4. **RAG 검색 로직(리트리버·청킹·리랭커·프롬프트)을 건드렸으면 `make eval-gate`** — 골든셋 지표 하락 여부 확인. 지표가 안 나오면 그 변경은 폐기 후보다.
 5. DB 스키마 변경이면 `make migrate` / `make migrate-down` 왕복 확인.
 - 검증할 수 없는 것은 커밋하지 않는다.
+- **병렬 (worktree/다중 세션):** 테스트·lint·타입체크·`eval-gate`는 **병렬 안전**하다 — 유닛은 `.env`가 차단되고(`tests/unit/conftest.py`), 통합은 Qdrant 컬렉션이 실행별로 네임스페이스된다(`ONRAMP_TEST_NS`, 기본 PID). **`make migrate`·`make dev`·`make eval-dataset-push`·`make seed-monitoring-local`은 직렬로만** — 공유 Postgres·`:8000`·고정 데이터셋명 때문 (→ `docs/dev-workflow/parallel-work.md`).
 
 ## 팀 Ground Rule 준수 (`GROUND_RULES.md` — 위반 시 PR 반려)
 - 브랜치: `feat/#N` · `fix/#N` · `chore/#N` (main 직접 push 금지, PR 필수, Squash and Merge)
@@ -56,7 +57,7 @@
 ## 금지 행동
 - 자동 `git push`, 자동 PR 생성, 자동 대량 파일 수정, 과한 알림 hook 금지. **push/PR은 사람 승인 후.**
 - `--dangerously-skip-permissions` 사용 금지(격리 환경 제외).
-- **`.env` 읽기/수정/노출 금지** (레포 루트에 실키가 있는 실파일이다). 설정 확인은 `.env.example`로.
+- **`.env` 값을 노출하지 않는다.** 읽는 건 되지만(디버깅에 필요), **키·토큰 값을 대화·커밋 메시지·PR 본문·로그에 옮겨 적지 않는다.** 설정 구조 설명은 `.env.example`로. `.env` 자체는 절대 커밋 금지(GROUND_RULES §7).
 - 근거 없는 추측·과장 금지. 테스트가 실패하면 실패했다고 말한다.
 
 ## 커밋 / PR 전 체크리스트

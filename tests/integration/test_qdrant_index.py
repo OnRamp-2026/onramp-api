@@ -1,5 +1,7 @@
 """실 Qdrant 통합 테스트 — make up 상태에서 실행. 미가동 시 skip."""
 
+import os
+
 import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
@@ -7,7 +9,10 @@ from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, P
 from app.config import Settings
 from app.db.qdrant import ensure_collection
 
-COLLECTION = "onramp_itest"
+# 실행별 네임스페이스 — Qdrant는 머신에 하나뿐이라 worktree/세션을 나눠도 공유된다.
+# setup·teardown 양쪽에서 delete_collection 하므로, 이름이 겹치면 동시 실행 시 서로를 지운다.
+_NS = os.getenv("ONRAMP_TEST_NS") or str(os.getpid())
+COLLECTION = f"onramp_itest_{_NS}"
 DIM = 4
 
 

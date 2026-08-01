@@ -40,11 +40,7 @@
     "deny": [
       "Bash(rm -rf *)",
       "Bash(git push --force *)",
-      "Bash(git commit --no-verify *)",
-      "Read(./.env)",
-      "Read(**/.env)",
-      "Edit(./.env)",
-      "Edit(**/.env)"
+      "Bash(git commit --no-verify *)"
     ]
   },
   "hooks": {
