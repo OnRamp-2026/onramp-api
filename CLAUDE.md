@@ -45,6 +45,7 @@
 4. **RAG 검색 로직(리트리버·청킹·리랭커·프롬프트)을 건드렸으면 `make eval-gate`** — 골든셋 지표 하락 여부 확인. 지표가 안 나오면 그 변경은 폐기 후보다.
 5. DB 스키마 변경이면 `make migrate` / `make migrate-down` 왕복 확인.
 - 검증할 수 없는 것은 커밋하지 않는다.
+- **병렬 주의:** 다른 worktree/세션이 `make test-integration`(또는 `make test`)을 돌고 있으면 동시에 돌리지 않는다 — Qdrant 테스트 컬렉션명이 고정이라 서로 지운다. `make migrate`·`make dev`도 마찬가지. `test-unit`·`lint`·`typecheck`·`eval-gate`는 병렬 안전 (→ `docs/dev-workflow/parallel-work.md`).
 
 ## 팀 Ground Rule 준수 (`GROUND_RULES.md` — 위반 시 PR 반려)
 - 브랜치: `feat/#N` · `fix/#N` · `chore/#N` (main 직접 push 금지, PR 필수, Squash and Merge)
