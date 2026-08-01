@@ -28,60 +28,58 @@ Orca ADE 같은 도구는 이 과정(worktree 생성 · 터미널/에디터 연�
 | OpenSearch `:9200` · Postgres `:5432` · Redis `:6379` | **X** | `make up`으로 띄운 컨테이너는 머신 전체에 하나 (`docker-compose.yml`) |
 | `make dev`의 `:8000` | **X** | `Makefile`에 하드코딩. 둘째 worktree는 `uvicorn app.main:app --port 8001`로 직접 실행 |
 | OpenAI API 비용 | **X** | worktree 3개 = 임베딩/LLM 호출 3배 |
-| `.env` | **안 따라옴** | gitignore. 심링크 안 하면 앱이 아예 안 뜬다 |
+| `.env` | **안 따라옴** | gitignore. 앱 실행·통합 테스트에 필요하면 심링크 |
 | `.venv/` | **안 따라옴** | gitignore. worktree마다 `make install` 필요 |
 
 ## 병렬 안전 등급
 
 | 명령 | 병렬 | 이유 |
 |---|---|---|
-| `make test-unit` | **안전** (단 `.env` 주의) | in-memory sqlite · `FakeRedis` · `httpx.MockTransport`라 서로 밟을 공유 상태가 없다. **다만 결과가 `.env`에 좌우된다** — 아래 참조 |
+| `make test-unit` | **안전** | in-memory sqlite · `FakeRedis` · `httpx.MockTransport`라 공유 상태가 없다. `.env`도 차단된다(`tests/unit/conftest.py`) |
 | `make lint` · `make typecheck` | **안전** | 로컬 파일만 |
+| `make test` · `make test-integration` | **안전** | Qdrant 테스트 컬렉션이 실행별로 네임스페이스된다 — 아래 |
 | `make eval` · `make eval-gate` | **안전** | 공유 Qdrant/OpenSearch를 **읽기만** 한다. 쓰기는 `--write-baseline` 있을 때 로컬 `data/eval/baseline.json`뿐이고 두 타깃 다 안 넘긴다 (`Makefile`). 단 **API 비용은 배로** |
-| `make test` · `make test-integration` | **직렬** | Qdrant 컬렉션을 서로 지운다 — 아래 |
 | `make migrate` | **직렬** | 공유 Postgres 하나. 두 브랜치가 각자 마이그레이션을 만들면 head가 갈린다 |
-| `make dev` | **직렬** | `:8000` 하드코딩 |
+| `make dev` | **직렬** | `:8000` 하드코딩. 둘째는 `uvicorn app.main:app --port 8001`로 |
 | `make eval-dataset-push` | **직렬** | 고정 이름 Langfuse 데이터셋을 덮어쓴다 (`scripts/eval_push_dataset.py`) |
 | `make seed-monitoring-local` | **직렬** | 실 Postgres 행을 tenant 기준으로 지운다 (`scripts/seed_monitoring_local.py`) |
 
-## 왜 통합 테스트가 충돌하나
+## 통합 테스트 격리 — 실행별 컬렉션 네임스페이스
 
-컬렉션명이 **고정**이고, setup과 teardown **양쪽에서** 삭제한다:
+Qdrant는 머신에 하나뿐이라 worktree를 나눠도 공유된다. 테스트가 setup·teardown **양쪽에서** `delete_collection` 하므로, 컬렉션명이 고정이면 동시 실행 시 서로를 지운다. 그래서 실행별 접미사를 붙인다:
 
 ```python
-# tests/integration/test_qdrant_index.py:10,21-24
-COLLECTION = "onramp_itest"                                    # 실행별 구분 없음
-if COLLECTION in {...}: client.delete_collection(COLLECTION)   # setup에서 삭제
-yield client
-client.delete_collection(COLLECTION)                           # teardown에서 또 삭제
+# tests/integration/test_qdrant_index.py
+_NS = os.getenv("ONRAMP_TEST_NS") or str(os.getpid())
+COLLECTION = f"onramp_itest_{_NS}"
 ```
 
-worktree A가 검색 중인 컬렉션을 worktree B의 setup이 지운다. 반대로 B가 심은 데이터를 A의 teardown이 날린다. 같은 패턴이 3곳:
+같은 방식이 3곳: `test_qdrant_index.py`(`onramp_itest`) · `test_retrieval.py`(`onramp_c2_itest`) · `test_eval_retrieval.py`(`onramp_eval_itest`).
 
-| 파일 | 컬렉션명 |
+기본값은 **PID**라 아무 설정 없이도 병렬 실행이 안전하다. CI 잡처럼 이름을 고정하고 싶으면 `ONRAMP_TEST_NS`로 덮어쓴다:
+
+```bash
+ONRAMP_TEST_NS=ci-$GITHUB_RUN_ID make test-integration
+```
+
+**실측 검증** (Qdrant 기동 상태에서 두 세션 동시 실행):
+
+| | 결과 |
 |---|---|
-| `tests/integration/test_qdrant_index.py:10` | `onramp_itest` |
-| `tests/integration/test_retrieval.py:16` | `onramp_c2_itest` |
-| `tests/integration/test_eval_retrieval.py:18` | `onramp_eval_itest` |
+| 네임스페이스 이전 (고정명) | 두 세션 **모두 7 실패** |
+| 네임스페이스 이후 | 두 세션 **모두 7 통과**, 잔류 컬렉션 없음 |
 
-증상이 헷갈린다 — 실패 메시지는 "컬렉션이 없다"라서 **자기 코드 버그로 보인다.** 통합 테스트가 이유 없이 깨지면 다른 worktree가 도는지부터 확인할 것.
+> **참고:** Postgres·Redis·OpenSearch는 테스트가 건드리지 않는다. DB는 전부 `sqlite+aiosqlite:///:memory:`, Redis는 인라인 `FakeRedis`, OpenSearch는 `httpx.MockTransport`다. `tests/conftest.py`의 `client` 픽스처는 `ASGITransport`라 lifespan조차 안 돈다. **테스트가 쓰는 실 서비스는 Qdrant 하나뿐이다.**
 
-> **참고:** Postgres·Redis·OpenSearch는 테스트가 건드리지 않는다. DB는 전부 `sqlite+aiosqlite:///:memory:`, Redis는 인라인 `FakeRedis`, OpenSearch는 `httpx.MockTransport`다. `tests/conftest.py`의 `client` 픽스처는 `ASGITransport`라 lifespan조차 안 돈다. **충돌은 Qdrant 하나뿐이다.**
+## 유닛 테스트는 `.env`를 읽지 않는다
 
-## `.env`가 유닛 테스트 결과를 바꾼다 (함정)
+`Settings`는 pydantic-settings라 `Settings()`를 인자 없이 부르면 cwd의 `.env`를 읽어 **코드 기본값 위에 덮어쓴다.** 유닛 테스트는 "코드에 적힌 기본값"을 검증하므로 이게 섞이면 `.env`를 채워둔 로컬에서만 테스트가 깨진다(CI는 `.env`가 없어 통과).
 
-설정은 `pydantic-settings`가 **현재 디렉터리의 `.env`를 읽어** 만든다. 유닛 테스트도 이 설정을 쓰므로, **`.env`가 있느냐 없느냐로 결과가 달라진다.**
+`tests/unit/conftest.py`의 autouse 픽스처가 유닛 테스트 동안 `env_file`을 `None`으로 막는다. 덕분에 **`.env` 심링크를 걸든 말든 유닛 테스트 결과가 CI와 같다.**
 
-실측(2026-08-01, `chore/#299` 기준):
+환경변수(`os.environ`)는 차단하지 않는다 — CI가 의도적으로 주입하는 경로이고 `client` 픽스처도 `DEBUG`를 환경변수로 세팅한다. 통합 테스트에는 적용하지 않는다(실 자격증명·호스트가 필요).
 
-| 위치 | `test_observability_langfuse.py` + `test_retriever_node.py` |
-|---|---|
-| 원본 디렉터리 (`.env` 있음) | **7 실패** — `test_langfuse_disabled_by_default`가 `assert True is False` 등 |
-| 새 worktree (`.env` 없음) | **34개 전부 통과** |
-
-CI는 `.env` 없이 돌아서 통과한다(`.github/workflows/ci.yaml`). 즉 **"내 로컬에서만 깨지는" 유닛 테스트는 대개 내 `.env` 탓**이지 코드 탓이 아니다. 반대로 `.env`를 심링크한 worktree는 원본과 똑같이 7개가 깨진다.
-
-→ 유닛 테스트가 로컬에서만 깨지면 **먼저 `.env` 유무를 의심할 것.** 근본 해결(테스트가 설정을 override)은 아래 "알려진 한계".
+→ 유닛 테스트가 로컬에서만 깨지면 이제 `.env`가 아니라 **셸에 export된 환경변수**를 의심할 것.
 
 ## 새 worktree 체크리스트
 
@@ -93,11 +91,10 @@ cd ../onramp-301
 # 2) 의존성
 make install
 
-# 3) 유닛 테스트·lint·타입체크는 .env 없이 (CI와 동일 조건 = 깨끗한 기준선)
+# 3) 확인
 make test-unit && make lint && make typecheck
 
 # 4) .env 연결 — 앱 실행·통합 테스트·평가에 필요할 때만
-#    (연결하면 위 유닛 테스트 7개가 원본과 똑같이 깨진다)
 ln -s ~/onramp-api/.env .env
 ```
 

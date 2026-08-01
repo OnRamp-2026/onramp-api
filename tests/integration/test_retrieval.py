@@ -4,6 +4,7 @@
 """
 
 import hashlib
+import os
 
 import pytest
 from qdrant_client import QdrantClient
@@ -13,7 +14,9 @@ from app.config import Settings
 from app.rag.chunker import ChildChunk
 from app.rag.indexer import index_children
 
-COLLECTION = "onramp_c2_itest"
+# 실행별 네임스페이스 — 사유는 tests/integration/test_qdrant_index.py 참조.
+_NS = os.getenv("ONRAMP_TEST_NS") or str(os.getpid())
+COLLECTION = f"onramp_c2_itest_{_NS}"
 DIM = 8
 
 
