@@ -210,8 +210,6 @@ deterministic 검색 전략과 함께, **LLM tool-calling 기반 single_agentic 
 - 견고성: tool-call LLM bounded retry → 소진 시 hybrid fallback. tenant/source 서버측 강제.
 - 관측: tool 선택·fallback·후보 수를 Langfuse score + Prometheus 카운터로 노출.
 
-설계·측정 근거는 [docs 레포 `Jihong/agentic_*`](https://github.com/OnRamp-2026/docs) 참고.
-
 ## Observability
 
 - **Langfuse**: 한 요청 = 한 trace (router/retriever/trust/answer span + LLM generation + token/cost). `LANGFUSE_ENABLED=false`(기본)면 전 구간 no-op(키 없이 기동). Evidence Confidence·gate를 online score로 부착.
